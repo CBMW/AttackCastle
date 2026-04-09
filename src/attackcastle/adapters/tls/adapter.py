@@ -9,11 +9,11 @@ from typing import Any
 
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
-from attackcastle.core.models import Evidence, NormalizedEntity, Observation, RunData, TLSAsset, new_id
+from attackcastle.core.models import Evidence, EvidenceArtifact, NormalizedEntity, Observation, RunData, TLSAsset, new_id
 from attackcastle.normalization.correlator import collect_tls_targets
 from attackcastle.scan_policy import build_scan_policy
 
-WEAK_PROTOCOLS = {"TLSv1", "TLSv1.1", "SSLv2", "SSLv3"}
+WEAK_PROTOCOLS = {"TLSv1", "TLSv1.0", "TLSv1.1", "SSLv2", "SSLv3"}
 WEAK_CIPHER_TOKENS = ("RC4", "3DES", "DES", "MD5", "NULL", "EXPORT")
 CERT_BLOCK_RE = re.compile(
     r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----",
@@ -136,7 +136,7 @@ class TLSAdapter:
             }
             if pem_path is not None:
                 result.evidence_artifacts.append(
-                    command_result.evidence_artifacts[0].__class__(
+                    EvidenceArtifact(
                         artifact_id=new_id("artifact"),
                         kind="certificate",
                         path=str(pem_path),

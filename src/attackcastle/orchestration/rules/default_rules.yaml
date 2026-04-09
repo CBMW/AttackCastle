@@ -6,6 +6,11 @@ tasks:
     adapter_key: subdomain_enum
     condition: has_domain_like_targets
     dependencies: []
+    input_entity_types: [Domain]
+    produced_entity_types: [Hostname]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 5
     cost_score: 3
     stage: recon
@@ -21,6 +26,11 @@ tasks:
     condition: has_domain_like_targets
     dependencies:
       - run-subdomain-enum
+    input_entity_types: [Domain, Hostname]
+    produced_entity_types: [ResolvedHost, IPAddress]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 1
     cost_score: 1
     stage: recon
@@ -36,6 +46,11 @@ tasks:
     condition: has_network_scan_targets
     dependencies:
       - resolve-hosts
+    input_entity_types: [IPAddress]
+    produced_entity_types: [PortService]
+    can_run_many: true
+    profile_sensitivity: aggressive
+    network_intensity: high
     noise_score: 5
     cost_score: 5
     stage: recon
@@ -52,6 +67,11 @@ tasks:
     dependencies:
       - run-masscan
       - resolve-hosts
+    input_entity_types: [IPAddress, PortService]
+    produced_entity_types: [PortService]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 4
     cost_score: 7
     stage: recon
@@ -67,6 +87,11 @@ tasks:
     condition: has_web_targets
     dependencies:
       - run-nmap
+    input_entity_types: [Hostname, ResolvedHost, PortService]
+    produced_entity_types: [WebService]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 4
     cost_score: 4
     stage: enumeration
@@ -82,6 +107,11 @@ tasks:
     condition: has_tls_targets
     dependencies:
       - run-nmap
+    input_entity_types: [Hostname, PortService, WebService]
+    produced_entity_types: [Certificate]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 3
     cost_score: 3
     stage: enumeration
@@ -98,6 +128,11 @@ tasks:
     dependencies:
       - probe-web
       - run-nmap
+    input_entity_types: [WebService, Hostname]
+    produced_entity_types: [VHost, WebService]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 4
     cost_score: 4
     stage: enumeration
@@ -113,6 +148,11 @@ tasks:
     condition: has_service_targets
     dependencies:
       - run-nmap
+    input_entity_types: [PortService, WebService, Certificate]
+    produced_entity_types: [FindingCandidate, CloudSignal]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 3
     cost_score: 3
     stage: enumeration
@@ -129,6 +169,11 @@ tasks:
     dependencies:
       - probe-web
       - run-vhost-discovery
+    input_entity_types: [WebService]
+    produced_entity_types: [WebEndpoint]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 5
     cost_score: 5
     stage: enumeration
@@ -144,6 +189,11 @@ tasks:
     condition: has_web_targets
     dependencies:
       - discover-web
+    input_entity_types: [WebService]
+    produced_entity_types: [WebService, FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 4
     cost_score: 4
     stage: enumeration
@@ -160,6 +210,11 @@ tasks:
     dependencies:
       - probe-web
       - discover-web
+    input_entity_types: [WebService, WebEndpoint]
+    produced_entity_types: [ReplayableRequest]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 2
     cost_score: 2
     stage: analysis
@@ -176,6 +231,11 @@ tasks:
     dependencies:
       - discover-web
       - fingerprint-web
+    input_entity_types: [WebService, Certificate, ResolvedHost]
+    produced_entity_types: [CloudSignal, FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 2
     cost_score: 2
     stage: analysis
@@ -191,6 +251,11 @@ tasks:
     condition: has_web_targets
     dependencies:
       - discover-web
+    input_entity_types: [WebService]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: cautious
+    network_intensity: high
     noise_score: 6
     cost_score: 6
     stage: enumeration
@@ -206,6 +271,11 @@ tasks:
     condition: has_web_targets
     dependencies:
       - discover-web
+    input_entity_types: [WebService, WebEndpoint]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: high
     noise_score: 6
     cost_score: 6
     stage: enumeration
@@ -223,6 +293,11 @@ tasks:
       - capture-requests
       - discover-web
       - fingerprint-web
+    input_entity_types: [ReplayableRequest, WebEndpoint, WebService]
+    produced_entity_types: [FindingCandidate, ReplayableRequest]
+    can_run_many: true
+    profile_sensitivity: aggressive
+    network_intensity: medium
     noise_score: 4
     cost_score: 5
     stage: analysis
@@ -239,6 +314,11 @@ tasks:
     dependencies:
       - discover-web
       - fingerprint-web
+    input_entity_types: [WebService]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: aggressive
+    network_intensity: high
     noise_score: 6
     cost_score: 7
     stage: enumeration
@@ -254,6 +334,11 @@ tasks:
     condition: has_sqlmap_targets
     dependencies:
       - discover-web
+    input_entity_types: [ReplayableRequest]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: aggressive
+    network_intensity: high
     noise_score: 7
     cost_score: 8
     stage: enumeration
@@ -270,6 +355,11 @@ tasks:
     dependencies:
       - fingerprint-web
       - discover-web
+    input_entity_types: [WebService]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: medium
     noise_score: 5
     cost_score: 6
     stage: enumeration
@@ -286,6 +376,11 @@ tasks:
     dependencies:
       - run-nmap
       - fingerprint-web
+    input_entity_types: [PortService, WebService]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 0
     cost_score: 2
     stage: analysis
@@ -316,6 +411,11 @@ tasks:
       - run-framework-checks
       - run-sqlmap
       - enrich-cve
+    input_entity_types: [FindingCandidate, WebService, PortService, Certificate]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: false
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 0
     cost_score: 2
     stage: analysis
@@ -331,6 +431,11 @@ tasks:
     condition: always
     dependencies:
       - generate-findings
+    input_entity_types: [FindingCandidate]
+    produced_entity_types: [EvidenceArtifact]
+    can_run_many: false
+    profile_sensitivity: balanced
+    network_intensity: low
     noise_score: 0
     cost_score: 1
     stage: output

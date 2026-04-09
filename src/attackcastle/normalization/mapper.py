@@ -129,6 +129,8 @@ def _merge_normalized_entity(existing: NormalizedEntity, incoming: NormalizedEnt
             merged.update(value)
             existing.attributes[key] = merged
     _extend_unique(existing.evidence_ids, incoming.evidence_ids)
+    if not existing.source_task_id and incoming.source_task_id:
+        existing.source_task_id = incoming.source_task_id
     if not existing.source_execution_id and incoming.source_execution_id:
         existing.source_execution_id = incoming.source_execution_id
     if not existing.parser_version and incoming.parser_version:
@@ -155,17 +157,25 @@ def _register_normalized_entities(run_data: RunData, entities: list[NormalizedEn
 
 def _register_evidence_artifacts(run_data: RunData, artifacts: list[EvidenceArtifact]) -> None:
     existing_keys = {
-        make_key(item.kind, item.path, item.source_tool, item.source_execution_id): item
+        make_key(item.kind, item.path, item.source_tool, item.source_task_id, item.source_execution_id): item
         for item in run_data.evidence_artifacts
     }
     for artifact in artifacts:
-        key = make_key(artifact.kind, artifact.path, artifact.source_tool, artifact.source_execution_id)
+        key = make_key(
+            artifact.kind,
+            artifact.path,
+            artifact.source_tool,
+            artifact.source_task_id,
+            artifact.source_execution_id,
+        )
         existing = existing_keys.get(key)
         if existing is not None:
             if not existing.hash_sha256 and artifact.hash_sha256:
                 existing.hash_sha256 = artifact.hash_sha256
             if not existing.caption and artifact.caption:
                 existing.caption = artifact.caption
+            if not existing.source_task_id and artifact.source_task_id:
+                existing.source_task_id = artifact.source_task_id
             if artifact.metadata:
                 existing.metadata.update(artifact.metadata)
             _append_alias(run_data, existing.artifact_id, artifact.artifact_id)

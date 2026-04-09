@@ -69,7 +69,7 @@ def test_dns_adapter_emits_takeover_and_mail_policy_gap(tmp_path, monkeypatch):
                 metrics={},
                 warnings=[],
             ),
-            stdout_text="app.example.com [203.0.113.10]",
+            stdout_text="app.example.com",
             execution_id="exec_dns",
         ),
     )
