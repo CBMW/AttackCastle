@@ -303,6 +303,8 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
     QPushButton[variant="secondary"] {{ background: {palette['surface_top']}; color: {palette['text_primary']}; border: 1px solid {palette['border']}; }}
     QPushButton[variant="secondary"]:hover {{ background: {palette['chip_hover']}; border-color: {palette['accent_border']}; }}
+    QPushButton[variant="danger"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {severity['critical'][0]}, stop:1 #571924); color: {severity['critical'][1]}; border: 1px solid #8b2e3f; }}
+    QPushButton[variant="danger"]:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4a1822, stop:1 #6a2030); border-color: #b64058; color: {palette['text_strong']}; }}
     QPushButton[variant="chip"] {{ background: {palette['chip_bg']}; color: {palette['text_muted']}; border: 1px solid {palette['border']}; padding: {spacing['chip_padding']}; }}
     QPushButton[variant="chip"]:hover {{ background: {palette['chip_hover']}; color: {palette['text_strong']}; }}
     QPushButton[variant="chip"]:checked {{ background: {palette['selection_bg']}; color: {palette['selection_fg']}; border-color: {palette['accent_soft']}; }}

@@ -5,7 +5,7 @@ from pathlib import Path
 from attackcastle.adapters.web_discovery.adapter import WebDiscoveryAdapter
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
-from attackcastle.core.models import RunData, RunMetadata, ScanTarget, now_utc
+from attackcastle.core.models import RunData, RunMetadata, ScanTarget, Service, WebApplication, now_utc
 from attackcastle.storage.run_store import RunStore
 
 
@@ -65,6 +65,26 @@ def test_web_discovery_uses_wordlists_for_seeded_candidates(tmp_path, monkeypatc
                 target_type=TargetType.URL,
                 value="https://example.com",
                 host="example.com",
+            )
+        ],
+        services=[
+            Service(
+                service_id="svc-1",
+                asset_id="target_1",
+                port=443,
+                protocol="tcp",
+                state="open",
+                name="https",
+            )
+        ],
+        web_apps=[
+            WebApplication(
+                webapp_id="web-1",
+                asset_id="target_1",
+                service_id="svc-1",
+                url="https://example.com",
+                status_code=200,
+                title="Example",
             )
         ],
     )

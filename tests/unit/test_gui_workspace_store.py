@@ -10,6 +10,7 @@ from attackcastle.gui.models import (
     EntityNote,
     FindingState,
     OverviewChecklistItem,
+    RunRegistryEntry,
     WorkspaceOverviewState,
 )
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore
@@ -185,3 +186,46 @@ def test_workspace_store_round_trips_ui_layout_by_key_and_orientation(tmp_path: 
     payload = json.loads(store.path.read_text(encoding="utf-8"))
     assert payload["ui_layout"]["body_split"]["horizontal"] == [240, 1180]
     assert payload["ui_layout"]["body_split"]["vertical"] == [220, 840]
+
+
+def test_delete_workspaces_prunes_all_workspace_scoped_state(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.json")
+    store.save_engagement(Engagement(engagement_id="eng_alpha", name="Alpha"))
+    store.save_engagement(Engagement(engagement_id="eng_beta", name="Beta"))
+    store.set_active_workspace("eng_alpha")
+    store.register_run(RunRegistryEntry(run_id="run-alpha", run_dir=str(tmp_path / "alpha-run"), workspace_id="eng_alpha"))
+    store.save_finding_state("eng_alpha", "run-alpha", FindingState(finding_id="finding-alpha", status="confirmed"))
+    store.save_entity_note(EntityNote(signature="sig-alpha", entity_kind="asset", note="keep out"), "eng_alpha")
+    store.append_audit(AuditEntry(timestamp="2026-04-09T00:00:00+00:00", action="workspace.note", summary="alpha", workspace_id="eng_alpha"))
+    store.save_overview_state("eng_alpha", WorkspaceOverviewState(notes="alpha notes"))
+    store.save_finding_state("", "run-ad-hoc", FindingState(finding_id="finding-ad-hoc", status="confirmed"))
+
+    store.delete_workspaces(["eng_alpha"])
+
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert [workspace["workspace_id"] for workspace in payload["workspaces"]] == ["eng_beta"]
+    assert payload["active_workspace_id"] == "eng_beta"
+    assert "eng_alpha" not in payload["run_registry"]
+    assert "eng_alpha" not in payload["finding_states"]
+    assert "eng_alpha" not in payload["entity_notes"]
+    assert "eng_alpha" not in payload["audit"]
+    assert "eng_alpha" not in payload["overview_state"]
+    assert payload["finding_states"][NO_WORKSPACE_SCOPE_ID]["run-ad-hoc"]["finding-ad-hoc"]["status"] == "confirmed"
+
+
+def test_delete_all_workspaces_clears_workspace_registry_but_preserves_ad_hoc_scope(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.json")
+    store.save_engagement(Engagement(engagement_id="eng_alpha", name="Alpha"))
+    store.save_engagement(Engagement(engagement_id="eng_beta", name="Beta"))
+    store.register_run(RunRegistryEntry(run_id="run-beta", run_dir=str(tmp_path / "beta-run"), workspace_id="eng_beta"))
+    store.append_audit(AuditEntry(timestamp="2026-04-09T00:00:00+00:00", action="workspace.note", summary="beta", workspace_id="eng_beta"))
+    store.save_finding_state("", "run-ad-hoc", FindingState(finding_id="finding-ad-hoc", status="confirmed"))
+
+    store.delete_all_workspaces()
+
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert payload["workspaces"] == []
+    assert payload["active_workspace_id"] == ""
+    assert payload["run_registry"] == {NO_WORKSPACE_SCOPE_ID: []}
+    assert payload["audit"] == {NO_WORKSPACE_SCOPE_ID: []}
+    assert payload["finding_states"][NO_WORKSPACE_SCOPE_ID]["run-ad-hoc"]["finding-ad-hoc"]["status"] == "confirmed"

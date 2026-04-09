@@ -13,7 +13,7 @@ from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QLabel, QMessageB
 
 from attackcastle.gui.main_window import MainWindow
 from attackcastle.gui.extensions_store import GuiExtensionStore
-from attackcastle.gui.models import Engagement, RunSnapshot
+from attackcastle.gui.models import Engagement, RunRegistryEntry, RunSnapshot, Workspace
 from attackcastle.gui.profile_store import GuiProfileStore
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import WorkspaceStore, ad_hoc_output_home
@@ -1096,6 +1096,71 @@ def test_settings_page_can_switch_active_workspace(tmp_path: Path) -> None:
         assert window.workspace_list.count() == 1
         assert "Beta" in window.workspace_list.item(0).text()
         assert "eng_beta" == workspace_store.get_active_workspace_id()
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_settings_page_can_delete_active_workspace_and_its_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profile_store = GuiProfileStore(tmp_path / "profiles.json")
+    workspace_store = WorkspaceStore(tmp_path / "workspace.json")
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    workspace_home = tmp_path / "alpha-home"
+    run_dir = workspace_home / "run_alpha"
+    run_dir.mkdir(parents=True)
+    (run_dir / "data.txt").write_text("alpha", encoding="utf-8")
+    workspace_store.save_workspace(Workspace(workspace_id="eng_alpha", name="Alpha", home_dir=str(workspace_home)))
+    workspace_store.set_active_workspace("eng_alpha")
+    workspace_store.register_run(RunRegistryEntry(run_id="run-alpha", run_dir=str(run_dir), workspace_id="eng_alpha"))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.Yes)
+    window = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+
+    try:
+        assert workspace_home.exists()
+        window.delete_active_workspace_data_button.click()
+
+        assert workspace_store.get_active_workspace_id() == ""
+        assert workspace_store.load_workspaces() == []
+        assert not workspace_home.exists()
+        assert "Deleted workspace Alpha" in window.general_status.text()
+        assert "No active workspace is selected" in window.danger_zone_status_label.text()
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_settings_page_can_delete_all_workspaces_and_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profile_store = GuiProfileStore(tmp_path / "profiles.json")
+    workspace_store = WorkspaceStore(tmp_path / "workspace.json")
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    alpha_home = tmp_path / "alpha-home"
+    beta_home = tmp_path / "beta-home"
+    alpha_run = alpha_home / "run_alpha"
+    beta_run = beta_home / "run_beta"
+    alpha_run.mkdir(parents=True)
+    beta_run.mkdir(parents=True)
+    (alpha_run / "data.txt").write_text("alpha", encoding="utf-8")
+    (beta_run / "data.txt").write_text("beta", encoding="utf-8")
+    workspace_store.save_workspace(Workspace(workspace_id="eng_alpha", name="Alpha", home_dir=str(alpha_home)))
+    workspace_store.save_workspace(Workspace(workspace_id="eng_beta", name="Beta", home_dir=str(beta_home)))
+    workspace_store.set_active_workspace("eng_alpha")
+    workspace_store.register_run(RunRegistryEntry(run_id="run-alpha", run_dir=str(alpha_run), workspace_id="eng_alpha"))
+    workspace_store.register_run(RunRegistryEntry(run_id="run-beta", run_dir=str(beta_run), workspace_id="eng_beta"))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.Yes)
+    window = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+
+    try:
+        window.delete_all_workspaces_data_button.click()
+
+        assert workspace_store.load_workspaces() == []
+        assert workspace_store.get_active_workspace_id() == ""
+        assert not alpha_home.exists()
+        assert not beta_home.exists()
+        assert "Deleted 2 workspaces" in window.general_status.text()
     finally:
         window._refresh_timer.stop()
         window.close()

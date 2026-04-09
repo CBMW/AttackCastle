@@ -103,6 +103,35 @@ def test_assets_tab_populates_grouped_inventory_tables(tmp_path: Path) -> None:
         tab.close()
 
 
+def test_assets_tab_keeps_web_inventory_empty_until_web_apps_are_confirmed(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _launched, _notes = _make_tab()
+    snapshot = _make_snapshot(tmp_path)
+    snapshot.web_apps = []
+    snapshot.endpoints = []
+    snapshot.parameters = []
+    snapshot.forms = []
+    snapshot.login_surfaces = []
+    snapshot.technologies = []
+
+    try:
+        tab.set_snapshot(snapshot)
+        app.processEvents()
+
+        assert tab.assets_model.rowCount() == 1
+        assert tab.services_model.rowCount() == 1
+        assert tab.web_apps_model.rowCount() == 0
+
+        confirmed_snapshot = _make_snapshot(tmp_path)
+        tab.set_snapshot(confirmed_snapshot)
+        app.processEvents()
+
+        assert tab.web_apps_model.rowCount() == 1
+    finally:
+        tab.close()
+
+
 def test_assets_tab_context_menu_exposes_scan_and_notes_actions(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app

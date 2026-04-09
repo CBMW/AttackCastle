@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -646,9 +647,6 @@ class MainWindow(QMainWindow):
         checklist_panel, checklist_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
         checklist_header = QLabel("Checklist")
         checklist_header.setObjectName("sectionTitle")
-        checklist_hint = QLabel("Capture the operator's next steps for this workspace and mark them off as the engagement moves.")
-        checklist_hint.setObjectName("helperText")
-        checklist_hint.setWordWrap(True)
         checklist_input_row = QHBoxLayout()
         checklist_input_row.setContentsMargins(0, 0, 0, 0)
         checklist_input_row.setSpacing(8)
@@ -695,16 +693,12 @@ class MainWindow(QMainWindow):
         self.overview_checklist_scroll.setWidget(self.overview_checklist_container)
         self._overview_checklist_rows: dict[str, OverviewChecklistRow] = {}
         checklist_layout.addWidget(checklist_header)
-        checklist_layout.addWidget(checklist_hint)
         checklist_layout.addLayout(checklist_input_row)
         checklist_layout.addWidget(self.overview_checklist_scroll, 1)
 
         notes_panel, notes_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
         notes_header = QLabel("Notes")
         notes_header.setObjectName("sectionTitle")
-        notes_hint = QLabel("Keep engagement notes, handoff context, or operator reminders alongside the live workspace.")
-        notes_hint.setObjectName("helperText")
-        notes_hint.setWordWrap(True)
         self.overview_notes_edit = configure_scroll_surface(QPlainTextEdit())
         self.overview_notes_edit.setObjectName("consoleText")
         self.overview_notes_edit.setPlaceholderText("Operator notes for this engagement...")
@@ -718,16 +712,12 @@ class MainWindow(QMainWindow):
             """
         )
         notes_layout.addWidget(notes_header)
-        notes_layout.addWidget(notes_hint)
         notes_layout.addWidget(self.overview_notes_edit, 1)
 
         inspector_layout.addWidget(checklist_panel, 1)
         inspector_layout.addWidget(notes_panel, 1)
-        inspector_panel, _inspector_title, _inspector_summary = build_inspector_panel(
-            "Operator Workspace",
-            inspector_body,
-            summary_text="Checklist items and engagement notes stay pinned here for the current workspace while the run queue remains primary.",
-        )
+        inspector_panel, inspector_panel_layout = build_surface_frame(object_name="subtlePanel", spacing=10)
+        inspector_panel_layout.addWidget(inspector_body, 1)
 
         content_split.addWidget(self.workspace_primary_split)
         content_split.addWidget(inspector_panel)
@@ -983,6 +973,43 @@ class MainWindow(QMainWindow):
         store_layout.addWidget(shortcuts_label)
         self.settings_split.addWidget(store_panel)
         layout.addWidget(self.settings_split, 1)
+
+        danger_panel, danger_layout = build_surface_frame(spacing=10)
+        danger_title = QLabel("Danger Zone")
+        danger_title.setObjectName("sectionTitle")
+        danger_summary = QLabel("Irreversible workspace deletion controls. Profiles and extensions are preserved.")
+        danger_summary.setObjectName("helperText")
+        danger_summary.setWordWrap(True)
+        self.danger_zone_status_label = QLabel("No workspace deletion is currently armed.")
+        self.danger_zone_status_label.setObjectName("attentionBanner")
+        self.danger_zone_status_label.setProperty("tone", "alert")
+        self.danger_zone_status_label.setWordWrap(True)
+        self.delete_active_workspace_data_button = QPushButton("Delete This Workspace (and All Its Data)")
+        self.delete_active_workspace_data_button.clicked.connect(self._delete_active_workspace_and_data)
+        self.delete_all_workspaces_data_button = QPushButton("Delete All Workspaces (and All Data)")
+        self.delete_all_workspaces_data_button.clicked.connect(self._delete_all_workspaces_and_data)
+        style_button(self.delete_active_workspace_data_button, role="danger")
+        style_button(self.delete_all_workspaces_data_button, role="danger")
+        set_tooltips(
+            (
+                (
+                    self.delete_active_workspace_data_button,
+                    "Permanently delete the active workspace, its tracked runs, and the workspace home directory after confirmation.",
+                ),
+                (
+                    self.delete_all_workspaces_data_button,
+                    "Permanently delete every saved workspace, tracked run directory, and workspace-scoped GUI data after confirmation.",
+                ),
+            )
+        )
+        danger_actions = FlowButtonRow()
+        danger_actions.addWidget(self.delete_active_workspace_data_button)
+        danger_actions.addWidget(self.delete_all_workspaces_data_button)
+        danger_layout.addWidget(danger_title)
+        danger_layout.addWidget(danger_summary)
+        danger_layout.addWidget(self.danger_zone_status_label)
+        danger_layout.addWidget(danger_actions)
+        layout.addWidget(danger_panel)
         return page
 
     def _setup_shortcuts(self) -> None:
@@ -1147,6 +1174,7 @@ class MainWindow(QMainWindow):
         self.settings_summary_label.setText(
             f"Profiles: {len(self._profiles)} stored | Workspaces: {len(self._workspaces)} tracked | Active runs: {len(self._run_snapshots)}"
         )
+        self._update_danger_zone_state()
 
     def _sync_settings_workspace_switcher(self) -> None:
         if not hasattr(self, "settings_workspace_combo"):
@@ -1180,6 +1208,26 @@ class MainWindow(QMainWindow):
         )
         self.settings_ad_hoc_button.setEnabled(
             not self._switch_in_progress and bool(self._active_workspace_id)
+        )
+
+    def _update_danger_zone_state(self) -> None:
+        if not hasattr(self, "danger_zone_status_label"):
+            return
+        active_workspace = self._active_workspace()
+        if active_workspace is None:
+            self.danger_zone_status_label.setText(
+                "No active workspace is selected. Switch into a workspace to enable single-workspace deletion, or delete all saved workspaces at once."
+            )
+        else:
+            run_count = len(self.workspace_store.load_run_registry(active_workspace.workspace_id))
+            self.danger_zone_status_label.setText(
+                f"Active workspace '{active_workspace.name}' will remove {run_count} tracked run(s) and delete data rooted at {active_workspace.home_dir}."
+            )
+        self.delete_active_workspace_data_button.setEnabled(
+            not self._switch_in_progress and active_workspace is not None
+        )
+        self.delete_all_workspaces_data_button.setEnabled(
+            not self._switch_in_progress and bool(self._workspaces)
         )
 
     def _apply_settings_workspace_selection(self) -> None:
@@ -2269,23 +2317,181 @@ class MainWindow(QMainWindow):
         if updated.workspace_id == self._active_workspace_id:
             self._refresh_context_panels()
 
+    @staticmethod
+    def _path_contains(parent: Path, child: Path) -> bool:
+        try:
+            child.relative_to(parent)
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _resolve_target_path(raw_path: str) -> Path | None:
+        text = str(raw_path or "").strip()
+        if not text:
+            return None
+        return Path(text).expanduser().resolve()
+
+    def _validate_workspace_delete_path(self, path: Path) -> None:
+        home_path = Path.home().resolve()
+        critical_paths = {
+            home_path,
+            self.store.path.parent.resolve(),
+            self.workspace_store.path.parent.resolve(),
+            Path.cwd().resolve(),
+        }
+        if path == path.parent:
+            raise ValueError(f"Refusing to delete root path: {path}")
+        if path in critical_paths:
+            raise ValueError(f"Refusing to delete protected path: {path}")
+        if self._path_contains(path, Path.cwd().resolve()):
+            raise ValueError(f"Refusing to delete the current working directory tree: {path}")
+
+    def _workspace_has_live_processes(self, workspace_id: str) -> bool:
+        for entry in self.workspace_store.load_run_registry(workspace_id):
+            process = self._run_processes.get(entry.run_id)
+            if process is not None and process.state() != QProcess.NotRunning:
+                return True
+        return False
+
+    def _build_workspace_delete_plan(self, workspace_ids: list[str]) -> tuple[list[Workspace], list[Path], int]:
+        target_ids = {str(workspace_id or "").strip() for workspace_id in workspace_ids if str(workspace_id or "").strip()}
+        target_workspaces = [workspace for workspace in self._workspaces if workspace.workspace_id in target_ids]
+        if not target_workspaces:
+            return [], [], 0
+
+        protected_paths: list[Path] = []
+        total_run_count = 0
+        candidate_paths: list[Path] = []
+        for workspace in self._workspaces:
+            home_dir = self._resolve_target_path(workspace.home_dir)
+            run_entries = self.workspace_store.load_run_registry(workspace.workspace_id)
+            run_dirs = [resolved for resolved in (self._resolve_target_path(entry.run_dir) for entry in run_entries) if resolved is not None]
+            if workspace.workspace_id in target_ids:
+                total_run_count += len(run_entries)
+                if home_dir is not None:
+                    candidate_paths.append(home_dir)
+                candidate_paths.extend(run_dirs)
+            else:
+                if home_dir is not None:
+                    protected_paths.append(home_dir)
+                protected_paths.extend(run_dirs)
+
+        unique_candidates: list[Path] = []
+        for path in sorted({path for path in candidate_paths}, key=lambda item: (len(item.parts), str(item).lower())):
+            self._validate_workspace_delete_path(path)
+            if any(self._path_contains(existing, path) for existing in unique_candidates):
+                continue
+            unique_candidates.append(path)
+
+        for candidate in unique_candidates:
+            for protected in protected_paths:
+                if candidate == protected or self._path_contains(candidate, protected) or self._path_contains(protected, candidate):
+                    raise ValueError(
+                        f"Deletion would overlap data that still belongs to another workspace: {candidate} conflicts with {protected}"
+                    )
+        return target_workspaces, unique_candidates, total_run_count
+
+    @staticmethod
+    def _delete_paths(paths: list[Path]) -> list[str]:
+        removed: list[str] = []
+        for path in paths:
+            if not path.exists():
+                continue
+            if path.is_symlink() or path.is_file():
+                path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(path)
+            removed.append(str(path))
+        return removed
+
+    @staticmethod
+    def _delete_plan_preview(paths: list[Path], limit: int = 4) -> str:
+        if not paths:
+            return "No on-disk paths are currently tracked for deletion."
+        lines = [f"- {path}" for path in paths[:limit]]
+        if len(paths) > limit:
+            lines.append(f"- ... and {len(paths) - limit} more path(s)")
+        return "\n".join(lines)
+
+    def _confirm_workspace_deletion(self, *, title: str, message: str, final_title: str, final_message: str) -> bool:
+        if QMessageBox.question(self, title, message) != QMessageBox.Yes:
+            return False
+        return QMessageBox.question(self, final_title, final_message) == QMessageBox.Yes
+
+    def _delete_workspaces_and_data(self, workspace_ids: list[str]) -> bool:
+        try:
+            target_workspaces, delete_paths, run_count = self._build_workspace_delete_plan(workspace_ids)
+        except Exception as exc:
+            QMessageBox.warning(self, "Workspace Deletion Blocked", str(exc))
+            return False
+        if not target_workspaces:
+            return False
+        live_workspaces = [workspace.name for workspace in target_workspaces if self._workspace_has_live_processes(workspace.workspace_id)]
+        if live_workspaces:
+            QMessageBox.warning(
+                self,
+                "Workspace Deletion Blocked",
+                "One or more targeted workspaces still have live runs owned by this GUI session.\n\n"
+                + "\n".join(f"- {name}" for name in live_workspaces),
+            )
+            return False
+
+        names = [workspace.name for workspace in target_workspaces]
+        workspace_label = names[0] if len(names) == 1 else f"{len(names)} workspaces"
+        if not self._confirm_workspace_deletion(
+            title="Delete Workspace Data",
+            message=(
+                f"Permanently delete {workspace_label} and all tracked data?\n\n"
+                f"Tracked runs: {run_count}\n"
+                f"Filesystem targets: {len(delete_paths)}"
+            ),
+            final_title="Final Deletion Confirmation",
+            final_message=(
+                "This action cannot be undone.\n\n"
+                + self._delete_plan_preview(delete_paths)
+            ),
+        ):
+            return False
+
+        try:
+            removed_paths = self._delete_paths(delete_paths)
+            self.workspace_store.delete_workspaces([workspace.workspace_id for workspace in target_workspaces])
+        except Exception as exc:
+            QMessageBox.warning(self, "Workspace Deletion Failed", f"AttackCastle could not finish deleting the requested workspace data.\n\n{exc}")
+            return False
+
+        next_workspace_id = self.workspace_store.get_active_workspace_id()
+        self._load_workspace_state(next_workspace_id)
+        summary = (
+            f"Deleted workspace {names[0]} and removed {len(removed_paths)} path(s)."
+            if len(names) == 1
+            else f"Deleted {len(names)} workspaces and removed {len(removed_paths)} path(s)."
+        )
+        self.general_status.setText(summary)
+        self._append_audit(
+            "workspace.deleted",
+            summary,
+            details={"workspaces": names, "removed_paths": removed_paths, "tracked_runs_deleted": run_count},
+        )
+        return True
+
     def _delete_selected_workspace(self) -> None:
         workspace = self._selected_workspace()
         if workspace is None:
             return
-        if self.workspace_store.load_run_registry(workspace.workspace_id):
-            QMessageBox.information(
-                self,
-                "Workspace Has Runs",
-                "This workspace still has tracked runs and cannot be deleted. Archive or remove the run registry entries first.",
-            )
+        self._delete_workspaces_and_data([workspace.workspace_id])
+
+    def _delete_active_workspace_and_data(self) -> None:
+        workspace = self._active_workspace()
+        if workspace is None:
             return
-        if QMessageBox.question(self, "Delete Workspace", f"Delete workspace '{workspace.name}'?") != QMessageBox.Yes:
+        self._delete_workspaces_and_data([workspace.workspace_id])
+
+    def _delete_all_workspaces_and_data(self) -> None:
+        if not self._workspaces:
             return
-        self.workspace_store.delete_workspace(workspace.workspace_id)
-        self._workspaces = self.workspace_store.load_workspaces()
-        self._selected_workspace_id = self._workspaces[0].workspace_id if self._workspaces else ""
-        self._sync_workspace_list()
+        self._delete_workspaces_and_data([workspace.workspace_id for workspace in self._workspaces])
 
     def _switch_to_selected_workspace(self) -> None:
         workspace = self._selected_workspace()

@@ -26,7 +26,6 @@ from attackcastle.gui.common import (
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
-    build_page_header,
     configure_scroll_surface,
     refresh_widget_style,
     set_tooltips,
@@ -59,13 +58,6 @@ class ExtensionsTab(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(PAGE_SECTION_SPACING)
-
-        header_panel, _header_title, _header_summary, self.header_meta_label, _header_status = build_page_header(
-            "Extensions",
-            "Browse installed GUI extensions, keep manifest state readable, and give the raw editor the space it needs to be useful.",
-            meta_text="Theme and command-hook extensions stay editable without leaving the workstation UI.",
-        )
-        root.addWidget(header_panel)
 
         splitter = apply_responsive_splitter(QSplitter(), (2, 3, 5))
         self.splitter = splitter

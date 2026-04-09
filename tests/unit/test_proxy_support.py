@@ -20,7 +20,7 @@ from attackcastle.cli import app
 from attackcastle.config_loader import load_config
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
-from attackcastle.core.models import RunData, RunMetadata, ScanTarget, now_utc
+from attackcastle.core.models import RunData, RunMetadata, ScanTarget, WebApplication, now_utc
 from attackcastle.proxy import build_subprocess_env, build_urllib_opener, command_text
 from attackcastle.storage.run_store import RunStore
 
@@ -367,7 +367,18 @@ def test_web_discovery_passes_proxy_to_fetch_document(tmp_path: Path, monkeypatc
         },
     )
 
-    WebDiscoveryAdapter().run(context, _run_data_with_url(tmp_path))
+    run_data = _run_data_with_url(tmp_path)
+    run_data.web_apps.append(
+        WebApplication(
+            webapp_id="web-1",
+            asset_id="target_1",
+            url="https://example.com",
+            status_code=200,
+            title="Demo",
+        )
+    )
+
+    WebDiscoveryAdapter().run(context, run_data)
 
     assert proxy_calls
     assert set(proxy_calls) == {"http://127.0.0.1:8080"}

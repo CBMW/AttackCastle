@@ -210,3 +210,90 @@ def test_scheduler_marks_adapter_results_with_errors_as_failed(tmp_path: Path):
 
     assert states[0].status == "failed"
     assert "subdomain enumeration failed" in str(states[0].error)
+
+
+def test_scheduler_requeues_repeatable_task_when_new_frontier_appears(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-repeatable-frontier")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-repeatable-frontier"),
+        audit=_AuditStub(),
+    )
+    scan_runs: list[list[str]] = []
+
+    def _seed_runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        return AdapterResult(facts={"frontier.targets": ["alpha.example.com"]})
+
+    def _scan_runner(_context: AdapterContext, run_data: RunData) -> AdapterResult:
+        processed = set(run_data.facts.get("frontier.processed", []))
+        pending = [
+            item
+            for item in run_data.facts.get("frontier.targets", [])
+            if item not in processed
+        ]
+        scan_runs.append(list(pending))
+        return AdapterResult(facts={"frontier.processed": pending})
+
+    def _expand_runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        return AdapterResult(facts={"frontier.targets": ["beta.example.com"]})
+
+    def _pending_signature(run_data: RunData) -> str:
+        processed = set(run_data.facts.get("frontier.processed", []))
+        pending = sorted(
+            item
+            for item in run_data.facts.get("frontier.targets", [])
+            if item not in processed
+        )
+        return "|".join(pending)
+
+    tasks = [
+        TaskDefinition(
+            key="seed-targets",
+            label="Seed targets",
+            capability="seed",
+            stage="recon",
+            runner=_seed_runner,
+            should_run=lambda _run_data: (True, "seed_initial_frontier"),
+        ),
+        TaskDefinition(
+            key="scan-targets",
+            label="Scan targets",
+            capability="scanner",
+            stage="enumeration",
+            runner=_scan_runner,
+            should_run=lambda run_data: (
+                bool(_pending_signature(run_data)),
+                "pending_frontier_available" if _pending_signature(run_data) else "no_pending_frontier",
+            ),
+            dependencies=["seed-targets"],
+            repeatable_on_new_inputs=True,
+            input_signature=_pending_signature,
+        ),
+        TaskDefinition(
+            key="expand-targets",
+            label="Expand targets",
+            capability="expander",
+            stage="enumeration",
+            runner=_expand_runner,
+            should_run=lambda run_data: (
+                "beta.example.com" not in run_data.facts.get("frontier.targets", []),
+                "discover_additional_targets",
+            ),
+            dependencies=["scan-targets"],
+        ),
+    ]
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=tasks,
+        context=context,
+        run_data=_run_data(),
+    )
+
+    scan_states = [state for state in states if state.key == "scan-targets"]
+
+    assert scan_runs == [["alpha.example.com"], ["beta.example.com"]]
+    assert len(scan_states) == 2
+    assert [state.detail["iteration"] for state in scan_states] == [1, 2]

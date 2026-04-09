@@ -348,18 +348,27 @@ class WorkspaceStore:
             payload["active_workspace_id"] = workspace.workspace_id
         return self._write_payload(payload)
 
-    def delete_workspace(self, workspace_id: str) -> Path:
+    def delete_workspaces(self, workspace_ids: list[str]) -> Path:
+        target_ids = {str(workspace_id or "").strip() for workspace_id in workspace_ids if str(workspace_id or "").strip()}
+        if not target_ids:
+            return self.path
         payload = self._normalized_payload()
-        workspaces = [item for item in self.load_workspaces() if item.workspace_id != workspace_id]
+        workspaces = [item for item in self.load_workspaces() if item.workspace_id not in target_ids]
         payload["workspaces"] = [item.to_dict() for item in workspaces]
         payload["run_registry"] = self._normalized_run_registry(payload.get("run_registry"), workspaces)
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), workspaces)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
-        if str(payload.get("active_workspace_id") or "") == workspace_id:
+        if str(payload.get("active_workspace_id") or "") in target_ids:
             payload["active_workspace_id"] = workspaces[0].workspace_id if workspaces else ""
         return self._write_payload(payload)
+
+    def delete_workspace(self, workspace_id: str) -> Path:
+        return self.delete_workspaces([workspace_id])
+
+    def delete_all_workspaces(self) -> Path:
+        return self.delete_workspaces([workspace.workspace_id for workspace in self.load_workspaces()])
 
     def load_workspace(self, workspace_id: str) -> Workspace | None:
         for workspace in self.load_workspaces():

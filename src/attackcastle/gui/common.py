@@ -78,6 +78,9 @@ def style_button(
     if role == "secondary":
         button.setProperty("variant", "secondary")
         button.setMinimumHeight(min_height or BUTTON_MIN_HEIGHT)
+    elif role == "danger":
+        button.setProperty("variant", "danger")
+        button.setMinimumHeight(min_height or BUTTON_MIN_HEIGHT)
     elif role == "chip":
         button.setProperty("variant", "chip")
         button.setMinimumHeight(min_height or BUTTON_CHIP_MIN_HEIGHT)
