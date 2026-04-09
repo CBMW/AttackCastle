@@ -1,0 +1,23 @@
+{% if not ctx.asset_groups %}
+<p class="muted">No asset groups available.</p>
+{% else %}
+<table aria-label="Asset groups" class="sortable">
+  <thead>
+    <tr><th>Group</th><th>Type</th><th>Cloud</th><th>Assets</th><th>Services</th><th>Web Apps</th><th>Leads</th><th>Examples</th></tr>
+  </thead>
+  <tbody>
+    {% for group in ctx.asset_groups %}
+    <tr>
+      <td><code>{{ group.label }}</code></td>
+      <td>{{ group.group_type }}</td>
+      <td>{{ group.cloud_provider or "-" }}</td>
+      <td>{{ group.asset_count }}</td>
+      <td>{{ group.service_count }}</td>
+      <td>{{ group.web_app_count }}</td>
+      <td>{{ group.lead_count }}</td>
+      <td>{{ group.example_hosts[:4]|join(", ") }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

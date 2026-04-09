@@ -1,0 +1,52 @@
+{
+  "id": "MAIL_SERVICE_EXPOSURE",
+  "version": "1.0.0",
+  "title": "Mail Service Exposed to External Surface",
+  "severity": "low",
+  "category": "Service Exposure",
+  "description": "Mail-related services were detected externally exposed.",
+  "impact": "Exposed mail services can broaden phishing, abuse, and credential attack opportunities.",
+  "likelihood": "Low to Medium depending on configuration and intended exposure.",
+  "recommendations": [
+    "Confirm exposure is intended and properly hardened.",
+    "Enforce secure protocols and strict authentication controls.",
+    "Monitor for brute-force and abuse patterns."
+  ],
+  "references": [
+    "https://cheatsheetseries.owasp.org/"
+  ],
+  "tags": [
+    "mail",
+    "service",
+    "exposure"
+  ],
+  "trigger": {
+    "entity_type": "service",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "service.mail.detected",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "service.mail.detected",
+      "service.port"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Network",
+    "subtype": "Mail Exposure"
+  }
+}

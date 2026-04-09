@@ -1,0 +1,57 @@
+{
+  "id": "HTTP_HEADER_MISCONFIGURATION",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Missing Recommended Security Headers",
+  "severity": "medium",
+  "category": "Web Security Hardening",
+  "description": "The application response is missing one or more commonly recommended HTTP security headers.",
+  "impact": "Missing headers can increase exposure to clickjacking, content sniffing, and policy bypass risks.",
+  "likelihood": "Medium for internet-facing services with default or weak hardening.",
+  "recommendations": [
+    "Set Content-Security-Policy with appropriate allowlists.",
+    "Set X-Frame-Options or frame-ancestors to reduce clickjacking risk.",
+    "Set X-Content-Type-Options: nosniff and modern policy headers."
+  ],
+  "references": [
+    "https://owasp.org/www-project-secure-headers/",
+    "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers"
+  ],
+  "tags": [
+    "http",
+    "headers",
+    "hardening"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.missing_security_headers",
+        "op": "exists"
+      },
+      {
+        "key": "web.missing_security_headers",
+        "op": "length_gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.missing_security_headers"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Configuration"
+  }
+}

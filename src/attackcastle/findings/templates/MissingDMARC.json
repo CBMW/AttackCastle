@@ -1,0 +1,56 @@
+{
+  "id": "MISSING_DMARC",
+  "version": "1.0.0",
+  "title": "DMARC Policy Not Detected",
+  "severity": "medium",
+  "category": "Email Security",
+  "description": "Mail infrastructure was identified but a DMARC policy was not detected.",
+  "impact": "Missing DMARC weakens domain spoofing resistance and can reduce protection against phishing abuse.",
+  "likelihood": "Medium because spoofing opportunities depend on mail usage and receiving-side enforcement.",
+  "recommendations": [
+    "Publish and validate a DMARC policy for sending domains.",
+    "Align SPF and DKIM coverage with the DMARC rollout plan.",
+    "Monitor for mail flow impact before moving to stricter enforcement."
+  ],
+  "references": [
+    "https://dmarc.org/"
+  ],
+  "tags": [
+    "email",
+    "dmarc",
+    "spoofing"
+  ],
+  "trigger": {
+    "entity_type": "asset",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "mail.mx.records",
+        "op": "exists"
+      },
+      {
+        "key": "mail.dmarc.present",
+        "op": "eq",
+        "value": false
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "mail.mx.records",
+      "mail.dmarc.present"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 2,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "External",
+    "subtype": "Email Security"
+  }
+}

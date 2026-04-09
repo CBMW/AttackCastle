@@ -1,0 +1,58 @@
+{
+  "id": "TLS_CERTIFICATE_MISMATCH",
+  "version": "1.0.0",
+  "title": "TLS Certificate Mismatch or Trust Concern",
+  "severity": "medium",
+  "category": "Transport Security",
+  "description": "TLS analysis identified hostname mismatch or self-signed certificate characteristics on an externally reachable service.",
+  "impact": "Certificate trust issues can weaken client assurance, hide origin misrouting, and increase the chance of unsafe exception handling by users or systems.",
+  "likelihood": "Medium because impact depends on whether the endpoint is user-facing or operationally relied upon.",
+  "recommendations": [
+    "Issue certificates that match the externally reachable hostname set.",
+    "Remove self-signed certificates from production-facing services unless explicitly pinned and justified.",
+    "Validate SNI, host routing, and certificate deployment across edge tiers."
+  ],
+  "references": [
+    "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html"
+  ],
+  "tags": [
+    "tls",
+    "certificate",
+    "trust"
+  ],
+  "trigger": {
+    "entity_type": "tls",
+    "logic": "any",
+    "conditions": [
+      {
+        "key": "tls.san.mismatch",
+        "op": "eq",
+        "value": true
+      },
+      {
+        "key": "tls.self_signed",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "tls.san.mismatch",
+      "tls.self_signed",
+      "tls.subject_alt_names"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Network",
+    "subtype": "TLS"
+  }
+}

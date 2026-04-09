@@ -1,0 +1,48 @@
+{% if not ctx.leads %}
+<p class="muted">No priority leads available for this section.</p>
+{% else %}
+<table aria-label="Priority leads" class="sortable">
+  <thead>
+    <tr>
+      <th>Priority</th>
+      <th>Status</th>
+      <th>Lead</th>
+      <th>Likely Finding</th>
+      <th>Confidence</th>
+      <th>Affected</th>
+      <th>Evidence</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for lead in ctx.leads %}
+    <tr>
+      <td><span class="badge severity severity-{{ lead.likely_severity or 'info' }}">{{ lead.priority_label|upper }} {{ lead.priority_score }}</span></td>
+      <td><span class="badge status status-{{ 'confirmed' if lead.status == 'likely-finding' else 'candidate' }}">{{ lead.status }}</span></td>
+      <td>
+        <details>
+          <summary>{{ lead.title }}</summary>
+          <p><strong>Why it matters:</strong> {{ lead.why_it_matters }}</p>
+          <p><strong>Reasoning:</strong> {{ lead.reasoning }}</p>
+          <p><strong>Next steps:</strong> {{ lead.suggested_next_steps|join("; ") }}</p>
+          {% if lead.draft_finding_seed %}
+          <p><strong>Draft finding seed:</strong> {{ lead.draft_finding_seed }}</p>
+          {% endif %}
+        </details>
+      </td>
+      <td>{{ lead.likely_finding or "-" }}</td>
+      <td>{{ "%.2f"|format(lead.confidence or 0.0) }}</td>
+      <td>
+        {% for entity in lead.affected_entities %}
+        <code>{{ entity.entity_type }}:{{ entity.entity_id }}</code><br>
+        {% endfor %}
+      </td>
+      <td>
+        {% for evidence_id in lead.evidence_ids[:6] %}
+        <a href="#evidence-{{ evidence_id }}"><code>{{ evidence_id }}</code></a><br>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

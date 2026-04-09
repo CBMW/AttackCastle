@@ -1,0 +1,53 @@
+{
+  "id": "WORDPRESS_VULNERABILITIES_DETECTED",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "WordPress Vulnerabilities Reported",
+  "severity": "high",
+  "category": "CMS Vulnerabilities",
+  "description": "WordPress scanning reported one or more vulnerability indicators for core/plugins/themes.",
+  "impact": "Known CMS vulnerabilities are frequently weaponized and may enable remote compromise.",
+  "likelihood": "High where vulnerable versions or exposed plugin attack surfaces exist.",
+  "recommendations": [
+    "Patch WordPress core, plugins, and themes immediately.",
+    "Remove unused plugins/themes and enforce least privilege.",
+    "Restrict administrative interfaces and add MFA."
+  ],
+  "references": [
+    "https://wpscan.com/"
+  ],
+  "tags": [
+    "wordpress",
+    "cms",
+    "vulnerability"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "wp.vulnerabilities.count",
+        "op": "gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "wp.vulnerabilities.count",
+      "wp.vulnerabilities.titles"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.75,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "CMS Vulnerability"
+  }
+}

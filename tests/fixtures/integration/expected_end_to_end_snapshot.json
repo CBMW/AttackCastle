@@ -1,0 +1,25 @@
+{
+  "scope_count": 1,
+  "asset_count": 3,
+  "service_count": 2,
+  "web_app_count": 1,
+  "tls_count": 1,
+  "confirmed_findings": [
+    "CVE_CANDIDATES_ON_ASSET",
+    "CVE_CANDIDATES_ON_SERVICE",
+    "CVE_CANDIDATES_ON_SERVICE",
+    "HTTP_HEADER_MISCONFIGURATION",
+    "WEAK_TLS_CONFIGURATION",
+    "WORDPRESS_EXPOSED_VERSION"
+  ],
+  "candidate_findings": [],
+  "tool_statuses": {
+    "dns_fixture": "completed",
+    "nmap_fixture": "completed",
+    "tls_fixture": "completed",
+    "vhost_fixture": "completed",
+    "web_fixture": "completed"
+  },
+  "evidence_quality_all_present": true,
+  "state": "completed"
+}

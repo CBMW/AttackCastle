@@ -1,0 +1,91 @@
+{% macro evidence_block(item, open=false) -%}
+<details class="evidence-drawer" id="evidence-{{ item.evidence_id }}" {% if open %}open{% endif %}>
+  <summary>
+    <span class="evidence-summary-title">{{ item.kind|replace('_', ' ')|title }}</span>
+    <span class="evidence-summary-meta">
+      <code>{{ item.source_tool }}</code>
+      <span>{{ "%.2f"|format(item.confidence) }}</span>
+      {% if item.execution and item.execution.command %}
+      <span>command captured</span>
+      {% endif %}
+    </span>
+  </summary>
+  <div class="evidence-drawer-body">
+    <div class="evidence-meta-grid">
+      <div><strong>Evidence ID</strong><br><code>{{ item.evidence_id }}</code></div>
+      <div><strong>Execution</strong><br>
+        {% if item.source_execution_id %}
+        <a href="#execution-{{ item.source_execution_id }}"><code>{{ item.source_execution_id }}</code></a>
+        {% else %}
+        <code>-</code>
+        {% endif %}
+      </div>
+      <div><strong>Artifact</strong><br><code>{{ item.artifact_path or '-' }}</code></div>
+      <div><strong>Timestamp</strong><br>{{ item.timestamp or '-' }}</div>
+    </div>
+
+    {% if item.presentation.mode == "http" %}
+    <div class="proof-grid">
+      <div class="proof-panel">
+        <div class="proof-label">Request</div>
+        {% if item.presentation.request_note %}
+        <p class="proof-note">{{ item.presentation.request_note }}</p>
+        {% endif %}
+        <pre class="terminal-block">{{ item.presentation.request_text }}</pre>
+      </div>
+      <div class="proof-panel">
+        <div class="proof-label">Response</div>
+        <pre class="terminal-block">{{ item.presentation.response_text }}</pre>
+      </div>
+    </div>
+    {% elif item.presentation.mode == "screenshot" and item.presentation.image_path %}
+    <div class="proof-panel">
+      <div class="proof-label">Screenshot</div>
+      <img class="evidence-image" src="{{ item.presentation.image_path }}" alt="{{ item.snippet }}">
+    </div>
+    {% else %}
+    <div class="proof-panel">
+      <div class="proof-label">Captured Output</div>
+      <pre class="terminal-block">{{ item.presentation.terminal_text }}</pre>
+    </div>
+    {% endif %}
+
+    {% if item.execution and item.execution.command %}
+    <div class="proof-panel">
+      <div class="proof-label">Command</div>
+      <div class="command-console">
+        <p><strong>Execution</strong> <code>#{{ item.execution.command_hash }}</code></p>
+        <pre><code>{{ item.execution.command }}</code></pre>
+      </div>
+      <button type="button" class="copy-command" data-command="{{ item.execution.command|e }}">Copy command</button>
+    </div>
+    {% endif %}
+
+    {% if item.execution and (item.execution.stdout_text or item.execution.stderr_text or item.execution.raw_artifacts) %}
+    <div class="proof-grid single-column">
+      {% if item.execution.stdout_text %}
+      <div class="proof-panel">
+        <div class="proof-label">Stdout</div>
+        <pre class="terminal-block">{{ item.execution.stdout_text }}</pre>
+      </div>
+      {% endif %}
+      {% if item.execution.stderr_text %}
+      <div class="proof-panel">
+        <div class="proof-label">Stderr</div>
+        <pre class="terminal-block error-block">{{ item.execution.stderr_text }}</pre>
+      </div>
+      {% endif %}
+      {% for artifact in item.execution.raw_artifacts %}
+      {% if artifact.content %}
+      <div class="proof-panel">
+        <div class="proof-label">Raw Artifact</div>
+        <p class="proof-note"><code>{{ artifact.path }}</code></p>
+        <pre class="terminal-block">{{ artifact.content }}</pre>
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</details>
+{%- endmacro %}

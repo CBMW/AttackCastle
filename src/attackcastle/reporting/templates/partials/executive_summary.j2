@@ -1,0 +1,74 @@
+<div class="executive-grid">
+  <div class="executive-panel">
+    <p class="section-kicker">Summary</p>
+    <h3>What matters first</h3>
+    <p>This report stays focused on confirmed issues, exposed surface, and the first remediation moves worth making.</p>
+    <div class="score-pill-grid">
+      <div class="score-pill">
+        <span>Overall Risk</span>
+        <strong>{{ ctx.scorecard.overall_risk_score }}/100</strong>
+      </div>
+      <div class="score-pill">
+        <span>Risk Grade</span>
+        <strong>{{ ctx.scorecard.overall_risk_grade }}</strong>
+      </div>
+      <div class="score-pill">
+        <span>Confirmed Findings</span>
+        <strong>{{ ctx.summary.finding_count }}</strong>
+      </div>
+      <div class="score-pill">
+        <span>Likely Findings</span>
+        <strong>{{ ctx.summary.likely_findings_count }}</strong>
+      </div>
+    </div>
+  </div>
+  <div class="executive-panel">
+    <p class="section-kicker">Environment</p>
+    <h3>Assessment snapshot</h3>
+    <div class="executive-stat-list">
+      <div><span>Assets in scope</span><strong>{{ ctx.summary.asset_count }}</strong></div>
+      <div><span>Discovered services</span><strong>{{ ctx.summary.service_count }}</strong></div>
+      <div><span>Internet-facing web apps</span><strong>{{ ctx.summary.internet_facing_web_apps }}</strong></div>
+      <div><span>Risky services</span><strong>{{ ctx.summary.risky_service_count }}</strong></div>
+    </div>
+  </div>
+</div>
+
+<div class="executive-grid">
+  <div class="executive-panel">
+    <p class="section-kicker">Top Risks</p>
+    <h3>Business-facing takeaways</h3>
+    {% if ctx.scorecard.top_business_risks %}
+    <div class="risk-callout-list">
+      {% for risk in ctx.scorecard.top_business_risks %}
+      <article class="risk-callout severity-{{ risk.severity }}">
+        <div class="finding-card-badges">
+          <span class="badge severity severity-{{ risk.severity }}">{{ risk.severity|upper }}</span>
+        </div>
+        <h4>{{ risk.title }}</h4>
+        <p>{{ risk.business_impact }}</p>
+        <p class="muted">Fix first: {{ risk.recommended_action }}</p>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">No confirmed findings were generated in this run.</p>
+    {% endif %}
+  </div>
+  <div class="executive-panel">
+    <p class="section-kicker">Fix First</p>
+    <h3>First remediation actions</h3>
+    {% if ctx.scorecard.fix_first_actions %}
+    <ol class="clean-list ordered">
+      {% for row in ctx.scorecard.fix_first_actions %}
+      <li>
+        <strong>{{ row.action }}</strong>
+        <span class="muted"> {{ row.severity|upper }} | {{ row.owner }} | {{ row.target_window }}</span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="muted">No remediation actions generated.</p>
+    {% endif %}
+  </div>
+</div>

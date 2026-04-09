@@ -1,0 +1,15 @@
+<table aria-label="Web applications table" class="sortable">
+  <thead>
+    <tr><th>URL</th><th>Status</th><th>Title</th><th>Forms</th></tr>
+  </thead>
+  <tbody>
+    {% for app in ctx.web_apps %}
+    <tr>
+      <td>{{ app.url }}</td>
+      <td>{{ app.status_code }}</td>
+      <td>{{ app.title or "-" }}</td>
+      <td>{{ app.forms_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

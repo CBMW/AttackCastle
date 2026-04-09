@@ -1,0 +1,54 @@
+{
+  "id": "NUCLEI_TEMPLATE_FINDINGS",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Template-Driven Vulnerabilities Detected (Nuclei)",
+  "severity": "high",
+  "category": "Web Vulnerability Discovery",
+  "description": "Nuclei templates reported one or more potential vulnerabilities against the target application.",
+  "impact": "Template-matched vulnerabilities can indicate exploitable weaknesses that require immediate triage and validation.",
+  "likelihood": "Medium to High for exposed internet-facing web services.",
+  "recommendations": [
+    "Triage matched templates and validate true positive impact.",
+    "Patch vulnerable components and harden affected endpoints.",
+    "Re-run targeted verification after remediation."
+  ],
+  "references": [
+    "https://github.com/projectdiscovery/nuclei-templates"
+  ],
+  "tags": [
+    "web",
+    "nuclei",
+    "vulnerability"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.nuclei.issue_count",
+        "op": "gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.nuclei.issue_count",
+      "web.nuclei.issues",
+      "vuln.template.detected"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Template Scan"
+  }
+}

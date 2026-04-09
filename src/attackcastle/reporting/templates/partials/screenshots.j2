@@ -1,0 +1,15 @@
+{% if not ctx.screenshots %}
+<p class="muted">No screenshots captured.</p>
+{% else %}
+<div class="story-grid">
+  {% for shot in ctx.screenshots %}
+  <article class="story-card">
+    <h3>{{ shot.source_tool }}</h3>
+    <p class="muted">{{ shot.timestamp }}</p>
+    {% if shot.changed %}<p><strong>Change:</strong> Screenshot differs from the previous run.</p>{% endif %}
+    <p>{{ shot.caption }}</p>
+    <p><code>{{ shot.path }}</code></p>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,57 @@
+{
+  "id": "REMOTE_ADMIN_EXPOSURE",
+  "version": "1.0.0",
+  "title": "Remote Administration Service Exposed",
+  "severity": "medium",
+  "category": "Network Exposure",
+  "description": "A remote administration service was discovered exposed on the external attack surface.",
+  "impact": "Exposed admin interfaces increase brute-force, credential stuffing, and direct exploitation risk.",
+  "likelihood": "Medium to High depending on authentication controls and patch levels.",
+  "recommendations": [
+    "Restrict remote admin services to trusted IP ranges/VPN paths.",
+    "Enforce MFA and strong credential policies.",
+    "Disable unnecessary remote admin services exposed to the internet."
+  ],
+  "references": [
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "network",
+    "remote-admin",
+    "exposure"
+  ],
+  "trigger": {
+    "entity_type": "service",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "service.open",
+        "op": "eq",
+        "value": true
+      },
+      {
+        "key": "service.port",
+        "op": "in",
+        "value": [22, 3389, 5900]
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "service.open",
+      "service.port"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Network",
+    "subtype": "Exposure"
+  }
+}

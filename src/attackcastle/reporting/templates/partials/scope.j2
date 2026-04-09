@@ -1,0 +1,33 @@
+<table aria-label="Assessment metadata" class="sortable">
+  <tbody>
+    <tr><th>Run ID</th><td>{{ ctx.metadata.run_id }}</td></tr>
+    <tr><th>Profile</th><td>{{ ctx.metadata.profile }}</td></tr>
+    <tr><th>Risk Mode</th><td>{{ ctx.metadata.risk_mode or "-" }}</td></tr>
+    <tr><th>Start (UTC)</th><td>{{ ctx.metadata.started_at }}</td></tr>
+    <tr><th>End (UTC)</th><td>{{ ctx.metadata.ended_at }}</td></tr>
+    <tr><th>Authorization Statement</th><td>{{ ctx.assessment_context.authorization_statement }}</td></tr>
+  </tbody>
+</table>
+
+<h3>Scope Targets</h3>
+<table aria-label="Scope targets" class="sortable">
+  <thead>
+    <tr><th>Type</th><th>Raw Input</th><th>Normalized</th></tr>
+  </thead>
+  <tbody>
+    {% for item in ctx.scope %}
+    <tr>
+      <td>{{ item.type }}</td>
+      <td>{{ item.raw }}</td>
+      <td>{{ item.value }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h3>Limitations</h3>
+<ul>
+  {% for line in ctx.assessment_context.limitations %}
+  <li>{{ line }}</li>
+  {% endfor %}
+</ul>

@@ -1,0 +1,53 @@
+{
+  "id": "JAVASCRIPT_SENSITIVE_DATA_EXPOSURE",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Sensitive Data Exposed In JavaScript",
+  "severity": "high",
+  "category": "Sensitive Data Exposure",
+  "description": "Replay validation detected token- or secret-like material in client-side JavaScript.",
+  "impact": "Client-side secrets can enable API abuse, credential replay, or broader environment compromise.",
+  "likelihood": "High when externally served JavaScript contains reusable secrets or privileged tokens.",
+  "recommendations": [
+    "Remove secrets from client-side code and move sensitive operations server-side.",
+    "Rotate any exposed tokens or credentials immediately.",
+    "Review build pipelines to prevent accidental client-side secret inclusion."
+  ],
+  "references": [
+    "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"
+  ],
+  "tags": [
+    "javascript",
+    "secret",
+    "data-exposure",
+    "active-validation"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.js.sensitive_strings",
+        "op": "length_gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.js.sensitive_strings"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Data Exposure"
+  }
+}

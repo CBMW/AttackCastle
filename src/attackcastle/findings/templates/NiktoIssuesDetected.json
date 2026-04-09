@@ -1,0 +1,53 @@
+{
+  "id": "NIKTO_ISSUES_DETECTED",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Web Server Issues Detected (Nikto)",
+  "severity": "medium",
+  "category": "Web Security Hardening",
+  "description": "Nikto reported one or more potentially risky server-side issues.",
+  "impact": "Server hardening gaps can increase exploitability and reveal additional attack paths.",
+  "likelihood": "Medium for externally exposed web services with default or legacy configurations.",
+  "recommendations": [
+    "Review Nikto-reported issues for true positive impact.",
+    "Apply server hardening baselines and disable unnecessary features.",
+    "Patch exposed software and remove default files/endpoints."
+  ],
+  "references": [
+    "https://cirt.net/Nikto2"
+  ],
+  "tags": [
+    "nikto",
+    "web",
+    "hardening"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.nikto.issue_count",
+        "op": "gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.nikto.issue_count",
+      "web.nikto.issues"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Server Misconfiguration"
+  }
+}

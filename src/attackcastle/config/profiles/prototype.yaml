@@ -1,0 +1,35 @@
+profile:
+  name: prototype
+  description: "Prototype external pentest profile with adaptive depth and evidence-rich output."
+  concurrency: 6
+  delay_ms_between_requests: 60
+  max_noise_score: 9
+  nmap_args:
+    - "-sV"
+    - "-F"
+    - "-T3"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "2500"
+  whatweb_args:
+    - "-a"
+    - "2"
+  nikto_args: []
+  nuclei_args: []
+  sqlmap_args:
+    - "--threads"
+    - "2"
+  wpscan_args:
+    - "--plugins-detection"
+    - "mixed"
+  enable_service_scripts: true
+
+subdomain_enum:
+  passive_http: true
+
+scan:
+  risk_mode: safe-active
+
+web_discovery:
+  crawl_limit: 60

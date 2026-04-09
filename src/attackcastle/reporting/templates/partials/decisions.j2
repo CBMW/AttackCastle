@@ -1,0 +1,31 @@
+{% if ctx.decision_trail %}
+<table aria-label="Decision trail" class="sortable">
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Capability</th>
+      <th>Selected</th>
+      <th>Reason</th>
+      <th>Noise</th>
+      <th>Cost</th>
+      <th>Dependencies</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in ctx.decision_trail %}
+    <tr>
+      <td><code>{{ item.key }}</code><br>{{ item.label }}</td>
+      <td>{{ item.capability }}</td>
+      <td>{{ "yes" if item.selected else "no" }}</td>
+      <td>{{ item.reason }}</td>
+      <td>{{ item.noise_score }}</td>
+      <td>{{ item.cost_score }}</td>
+      <td>{{ item.dependencies | join(", ") if item.dependencies else "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No decision trail available.</p>
+{% endif %}
+

@@ -1,0 +1,651 @@
+app:
+  name: AttackCastle
+  version: 0.1.0
+
+scan:
+  default_timeout_seconds: 120
+  dns_timeout_seconds: 8
+  http_timeout_seconds: 10
+  tls_timeout_seconds: 8
+  risk_mode: "safe-active"
+  allow_private_scope: false
+  retries: 1
+  user_agent: "AttackCastle/0.1 (+authorized-security-assessment)"
+  max_hosts: 4096
+  max_ports: 1000
+  hard_max_hosts: 8192
+  hard_max_ports: 2000
+
+scope:
+  enable_asn_expansion: true
+  asn_timeout_seconds: 8
+  asn_max_prefixes: 256
+  allow_ipv6_prefixes: false
+
+proxy:
+  url: ""
+
+risk_modes:
+  default_mode: safe-active
+  mode_by_profile:
+    cautious: safe-active
+    standard: safe-active
+    prototype: safe-active
+    aggressive: aggressive
+    recon: passive
+    stealth: passive
+    external_pentest: safe-active
+    bug_bounty: safe-active
+    full: aggressive
+  modes:
+    passive:
+      allow_sqlmap: false
+      allow_auth_bruteforce: false
+      allow_heavy_templates: false
+      max_sqlmap_targets: 0
+      blocked_capabilities:
+        - network_fast_scan
+        - network_port_scan
+        - web_vuln_scan
+        - web_template_scan
+        - web_injection_scan
+        - cms_wordpress_scan
+        - cms_framework_scan
+        - service_exposure_checks
+    safe-active:
+      allow_sqlmap: false
+      allow_auth_bruteforce: false
+      allow_heavy_templates: false
+      max_sqlmap_targets: 6
+      blocked_capabilities:
+        - web_injection_scan
+    aggressive:
+      allow_sqlmap: true
+      allow_auth_bruteforce: true
+      allow_heavy_templates: true
+      max_sqlmap_targets: 20
+      blocked_capabilities: []
+
+rate_limit:
+  per_target_min_interval_ms: 50
+  per_service_min_interval_ms: 30
+  execution_mode: auto
+  adaptive_backoff_enabled: true
+  adaptive_base_backoff_ms: 250
+  adaptive_multiplier: 2.0
+  adaptive_max_backoff_ms: 5000
+  failure_threshold: 1
+  noisy_status_codes: [403, 406, 429, 503]
+  jitter_ratio: 0.08
+  downgrade_after_noisy_events: 2
+  downgrade_after_canary_failures: 1
+  promote_after_clean_streak: 4
+  mode_settings:
+    aggressive:
+      target_interval_ms: 50
+      service_interval_ms: 30
+      jitter_ratio: 0.08
+    balanced:
+      target_interval_ms: 140
+      service_interval_ms: 90
+      jitter_ratio: 0.12
+    careful:
+      target_interval_ms: 450
+      service_interval_ms: 220
+      jitter_ratio: 0.2
+
+adaptive_execution:
+  enabled: true
+  sample_interval_seconds: 2.0
+  cooldown_seconds: 6.0
+  healthy_samples_for_upgrade: 3
+  startup_ramp_fraction: 0.5
+  min_dispatch_workers: 1
+  min_web_workers: 1
+  max_heavy_processes: 2
+  memory_per_worker_mb: 512
+  memory_pressure_high_ratio: 0.12
+  memory_pressure_critical_ratio: 0.07
+  load_pressure_high_ratio: 1.05
+  load_pressure_critical_ratio: 1.35
+  noisy_ratio_threshold: 0.25
+  timeout_ratio_threshold: 0.2
+  generic_ratio_threshold: 0.2
+  latency_degrade_ms: 2500
+  degrade_step: 1
+  critical_degrade_step: 2
+  web_degrade_step: 1
+  stage_worker_caps:
+    recon:
+      min: 1
+      max: 4
+    enumeration:
+      min: 1
+      max: 6
+    analysis:
+      min: 1
+      max: 2
+    output:
+      min: 1
+      max: 1
+  capability_worker_caps:
+    web_probe:
+      min: 1
+      max: 8
+    vhost_discovery:
+      min: 1
+      max: 4
+    web_discovery:
+      min: 1
+      max: 6
+    request_capture:
+      min: 1
+      max: 4
+    tls_probe:
+      min: 1
+      max: 4
+    service_exposure_checks:
+      min: 1
+      max: 4
+    web_fingerprint:
+      min: 1
+      max: 4
+    web_vuln_scan:
+      min: 1
+      max: 3
+    web_template_scan:
+      min: 1
+      max: 4
+    active_validation_core:
+      min: 1
+      max: 3
+    cms_wordpress_scan:
+      min: 1
+      max: 2
+    web_injection_scan:
+      min: 1
+      max: 2
+  web_capabilities:
+    - web_probe
+    - vhost_discovery
+    - web_discovery
+    - request_capture
+    - tls_probe
+    - service_exposure_checks
+    - web_fingerprint
+    - web_vuln_scan
+    - web_template_scan
+    - active_validation_core
+    - cms_wordpress_scan
+    - web_injection_scan
+  heavy_process_capabilities:
+    - network_fast_scan
+    - network_port_scan
+    - web_fingerprint
+    - web_vuln_scan
+    - web_template_scan
+    - web_injection_scan
+    - cms_wordpress_scan
+    - cms_framework_scan
+  tool_overrides:
+    network_fast_scan:
+      rate_per_worker: 800
+      min_rate: 250
+      max_rate: 10000
+    network_port_scan:
+      min_threads: 1
+      max_threads: 4
+    web_vuln_scan:
+      min_threads: 1
+      max_threads: 3
+    web_template_scan:
+      min_threads: 1
+      max_threads: 4
+    active_validation_core:
+      min_threads: 1
+      max_threads: 3
+    cms_wordpress_scan:
+      min_threads: 1
+      max_threads: 2
+    web_injection_scan:
+      min_threads: 1
+      max_threads: 2
+
+nmap:
+  enabled: true
+  args: []
+  host_discovery_args:
+    - "-sn"
+  udp_top_ports: 0
+
+masscan:
+  enabled: true
+  args: []
+  ports: "1-65535"
+  rate: 1000
+  timeout_seconds: 300
+
+subdomain_enum:
+  enabled: true
+  passive_http: false
+  timeout_seconds: 15
+  max_candidates: 500
+  use_crtsh: true
+  use_certspotter: true
+  use_securitytrails: false
+  securitytrails_api_key: ""
+
+dns:
+  max_domains: 400
+  common_dkim_selectors:
+    - "default"
+    - "selector1"
+    - "selector2"
+    - "google"
+    - "k1"
+    - "mail"
+
+web_probe:
+  capture_screenshots: true
+  capture_important_only: true
+  screenshot_timeout_seconds: 20
+  response_capture_bytes: 1048576
+  max_redirects: 5
+
+vhost_discovery:
+  timeout_seconds: 6
+  max_candidates_per_service: 12
+  response_capture_bytes: 65536
+
+web_discovery:
+  timeout_seconds: 10
+  crawl_limit: 40
+  careful_crawl_limit: 12
+  same_host_only: true
+  max_new_webapps: 200
+  max_script_fetches: 6
+  max_script_bytes: 524288
+  endpoint_wordlist_path: ""
+  endpoint_wordlist_limit: 120
+  parameter_wordlist_path: ""
+  parameter_wordlist_limit: 32
+  payload_wordlist_path: ""
+  payload_wordlist_limit: 4
+  synthesized_url_limit: 80
+  default_fuzz_value: "1"
+
+request_capture:
+  enabled: true
+  max_saved_requests_per_webapp: 20
+  max_total_requests: 800
+
+coverage_engine:
+  enabled: true
+  mode: "safe-active"
+  request_replay_enabled: true
+  per_target_budget: 6
+  timeout_seconds: 10
+  response_capture_bytes: 262144
+  target_duration_hours: 24
+  revisit_enabled: true
+  breadth_first: true
+  unauthenticated_only: true
+  use_default_presets: true
+  groups:
+    web:
+      enabled: true
+    tls:
+      enabled: true
+    service:
+      enabled: true
+  playbooks:
+    object_access:
+      enabled: true
+    input_reflection_injection:
+      enabled: true
+    api_expansion:
+      enabled: true
+    admin_debug_exposure:
+      enabled: true
+    client_artifact_exposure:
+      enabled: true
+    framework_component_exposure:
+      enabled: true
+    web_misconfiguration_breadth:
+      enabled: true
+    tls_hardening:
+      enabled: true
+    certificate_san_identity:
+      enabled: true
+    edge_header_hardening:
+      enabled: true
+    management_plane_exposure:
+      enabled: true
+    ssh_exposure:
+      enabled: true
+    ftp_exposure:
+      enabled: true
+    smtp_exposure:
+      enabled: true
+    dns_exposure:
+      enabled: true
+    rdp_exposure:
+      enabled: true
+    smb_exposure:
+      enabled: true
+    vpn_remote_access_exposure:
+      enabled: true
+    generic_remote_admin_exposure:
+      enabled: true
+    service_version_and_cve_enrichment:
+      enabled: true
+  families:
+    misconfig:
+      enabled: true
+      preset_path: ""
+    data_exposure:
+      enabled: true
+      preset_path: ""
+    api_idor:
+      enabled: true
+      preset_path: ""
+    injection:
+      enabled: true
+      preset_path: ""
+    xss:
+      enabled: true
+      preset_path: ""
+    sqli:
+      enabled: true
+      preset_path: ""
+    auth_rate_limit:
+      enabled: true
+      preset_path: ""
+    upload:
+      enabled: true
+      preset_path: ""
+    component:
+      enabled: true
+      preset_path: ""
+    infra:
+      enabled: true
+      preset_path: ""
+
+active_validation:
+  enabled: true
+  mode: "safe-active"
+  request_replay_enabled: true
+  per_target_budget: 6
+  timeout_seconds: 10
+  response_capture_bytes: 262144
+  use_default_presets: true
+  playbooks:
+    object_access:
+      enabled: true
+    input_reflection_injection:
+      enabled: true
+    api_expansion:
+      enabled: true
+    admin_debug_exposure:
+      enabled: true
+    client_artifact_exposure:
+      enabled: true
+  families:
+    misconfig:
+      enabled: true
+      preset_path: ""
+    data_exposure:
+      enabled: true
+      preset_path: ""
+    api_idor:
+      enabled: true
+      preset_path: ""
+    injection:
+      enabled: true
+      preset_path: ""
+    xss:
+      enabled: true
+      preset_path: ""
+    sqli:
+      enabled: true
+      preset_path: ""
+    auth_rate_limit:
+      enabled: true
+      preset_path: ""
+    upload:
+      enabled: true
+      preset_path: ""
+    component:
+      enabled: true
+      preset_path: ""
+    infra:
+      enabled: true
+      preset_path: ""
+
+tls:
+  max_targets: 150
+
+service_exposure:
+  timeout_seconds: 5
+  max_validations: 120
+  enable_open_relay_probe: false
+
+surface_intel:
+  enabled: true
+
+whatweb:
+  enabled: true
+  args: []
+  timeout_seconds: 45
+
+nikto:
+  enabled: true
+  args: []
+  timeout_seconds: 180
+
+nuclei:
+  enabled: true
+  args: []
+  timeout_seconds: 300
+  payload_wordlist_path: ""
+
+wpscan:
+  enabled: true
+  args: []
+  timeout_seconds: 300
+  api_token: ""
+
+sqlmap:
+  enabled: true
+  args: []
+  timeout_seconds: 300
+  level: 1
+  risk: 1
+  flush_session: false
+  min_candidate_score: 5
+  parameter_wordlist_path: ""
+  payload_wordlist_path: ""
+
+framework_checks:
+  enabled: true
+  timeout_seconds: 240
+
+cve_enricher:
+  backend: "local"  # local | remote | hybrid
+  remote_timeout_seconds: 8
+  remote_max_items: 10
+  epss_timeout_seconds: 6
+  kev_timeout_seconds: 8
+  kev_feed_url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+
+report:
+  title: "AttackCastle External Assessment Report"
+  subtitle: "Authorized External Penetration Test Visibility"
+  include_technical_details: true
+  default_audience: "consultant"
+  exports:
+    csv: true
+    json_summary: true
+    pdf: false
+
+findings:
+  minimum_confidence: 0.6
+  minimum_evidence_completeness: 0.8
+  enforce_evidence_for_severities:
+    - low
+    - medium
+    - high
+    - critical
+  severity_policy: default
+  severity_overlays:
+    default: {}
+    client_softened:
+      WEAK_TLS_CONFIGURATION: medium
+  suppression_file: ""
+
+policy:
+  max_noise_score: 4
+  policy_file: ""
+  max_services_discovered: 20000
+  max_errors_before_pause: 25
+  rules: []
+
+escalation:
+  matrix:
+    wordpress:
+      tasks:
+        - run-wpscan
+        - run-framework-checks
+    drupal:
+      tasks:
+        - run-framework-checks
+    joomla:
+      tasks:
+        - run-framework-checks
+    laravel:
+      tasks:
+        - run-framework-checks
+    nextjs:
+      tasks:
+        - run-framework-checks
+
+distributed:
+  enabled: false
+  mode: standalone
+  default_shards: 4
+
+orchestration:
+  circuit_breaker_failures: 2
+  task_start_delay_seconds: 0.0
+  max_total_retries: 5
+  retry_ceiling_by_capability:
+    subdomain_enumeration: 1
+    dns_resolution: 1
+    network_fast_scan: 1
+    network_port_scan: 1
+    web_probe: 1
+    vhost_discovery: 1
+    web_discovery: 1
+    request_capture: 1
+    tls_probe: 1
+    service_exposure_checks: 1
+    surface_intelligence: 1
+    web_fingerprint: 1
+    web_vuln_scan: 1
+    web_template_scan: 1
+    active_validation_core: 1
+    web_injection_scan: 1
+    cms_wordpress_scan: 1
+    cms_framework_scan: 1
+    vuln_enrichment: 0
+    findings_engine: 0
+    reporting: 0
+  capability_budgets:
+    subdomain_enumeration:
+      max_runs: 1
+      max_runtime_seconds: 180
+    dns_resolution:
+      max_runs: 1
+      max_runtime_seconds: 120
+    network_fast_scan:
+      max_runs: 1
+      max_runtime_seconds: 1200
+    network_port_scan:
+      max_runs: 1
+      max_runtime_seconds: 900
+    web_probe:
+      max_runs: 1
+      max_runtime_seconds: 600
+    vhost_discovery:
+      max_runs: 1
+      max_runtime_seconds: 600
+    web_discovery:
+      max_runs: 1
+      max_runtime_seconds: 900
+    request_capture:
+      max_runs: 1
+      max_runtime_seconds: 300
+    tls_probe:
+      max_runs: 1
+      max_runtime_seconds: 600
+    service_exposure_checks:
+      max_runs: 1
+      max_runtime_seconds: 300
+    surface_intelligence:
+      max_runs: 1
+      max_runtime_seconds: 240
+    web_fingerprint:
+      max_runs: 1
+      max_runtime_seconds: 600
+    web_vuln_scan:
+      max_runs: 1
+      max_runtime_seconds: 1200
+    web_template_scan:
+      max_runs: 1
+      max_runtime_seconds: 1800
+    active_validation_core:
+      max_runs: 1
+      max_runtime_seconds: 900
+    web_injection_scan:
+      max_runs: 1
+      max_runtime_seconds: 1800
+    cms_wordpress_scan:
+      max_runs: 1
+      max_runtime_seconds: 1200
+    cms_framework_scan:
+      max_runs: 1
+      max_runtime_seconds: 1200
+    vuln_enrichment:
+      max_runs: 1
+      max_runtime_seconds: 120
+    findings_engine:
+      max_runs: 1
+      max_runtime_seconds: 120
+    reporting:
+      max_runs: 1
+      max_runtime_seconds: 180
+  stage_time_budget_seconds:
+    recon: 900
+    enumeration: 1200
+    analysis: 300
+    output: 300
+  stage_concurrency:
+    recon: 3
+    enumeration: 4
+    analysis: 2
+    output: 1
+
+retention:
+  keep_raw_artifacts: true
+
+integrations:
+  export_bundle: true
+  jira:
+    enabled: false
+    project_key: ""
+  dradis:
+    enabled: false
+  serpico:
+    enabled: false
+  defectdojo:
+    enabled: false

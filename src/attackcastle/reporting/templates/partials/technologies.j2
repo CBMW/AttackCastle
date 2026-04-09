@@ -1,0 +1,15 @@
+<table aria-label="Technologies table" class="sortable">
+  <thead>
+    <tr><th>Name</th><th>Version</th><th>Confidence</th><th>Web App ID</th></tr>
+  </thead>
+  <tbody>
+    {% for tech in ctx.technologies %}
+    <tr>
+      <td>{{ tech.name }}</td>
+      <td>{{ tech.version or "-" }}</td>
+      <td>{{ "%.2f"|format(tech.confidence) }}</td>
+      <td>{{ tech.webapp_id or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

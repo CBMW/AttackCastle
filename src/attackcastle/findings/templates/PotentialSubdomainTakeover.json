@@ -1,0 +1,51 @@
+{
+  "id": "POTENTIAL_SUBDOMAIN_TAKEOVER",
+  "version": "1.0.0",
+  "title": "Potential Dangling DNS / Subdomain Takeover Candidate",
+  "severity": "high",
+  "category": "DNS Security",
+  "description": "A DNS name appears to reference an external provider target that is no longer resolving normally, creating a possible dangling record scenario.",
+  "impact": "Dangling provider-backed DNS records can allow third parties to claim infrastructure behind a trusted hostname and serve attacker-controlled content.",
+  "likelihood": "Medium to High when the target points to reclaimable SaaS or edge platforms.",
+  "recommendations": [
+    "Verify whether the referenced external service is still owned and active.",
+    "Remove or repoint unused CNAME records and decommission stale integrations.",
+    "Continuously monitor provider-backed DNS names for dangling states."
+  ],
+  "references": [
+    "https://owasp.org/www-project-web-security-testing-guide/"
+  ],
+  "tags": [
+    "dns",
+    "takeover",
+    "subdomain"
+  ],
+  "trigger": {
+    "entity_type": "asset",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "dns.takeover.candidate",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "dns.takeover.candidate",
+      "dns.cname.records"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "External",
+    "subtype": "DNS"
+  }
+}

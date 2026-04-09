@@ -1,0 +1,50 @@
+{
+  "id": "EXPOSED_API_DOCUMENTATION",
+  "version": "1.0.0",
+  "title": "Exposed API Documentation or Collection",
+  "severity": "medium",
+  "category": "API Exposure",
+  "description": "The external surface includes reachable API documentation, schema endpoints, or collection-style artifacts that can aid enumeration and attack-path development.",
+  "impact": "Exposed API docs can accelerate endpoint discovery, reveal internal object models, and simplify abuse or misconfiguration testing.",
+  "likelihood": "Medium because exploitability depends on the API controls behind the documented surface.",
+  "recommendations": [
+    "Restrict sensitive API documentation to authenticated or internal-only audiences where appropriate.",
+    "Review whether the exposed documentation reveals administrative or internal endpoints.",
+    "Ensure production APIs behind documented routes enforce strong authentication and authorization."
+  ],
+  "references": [
+    "https://owasp.org/API-Security/"
+  ],
+  "tags": [
+    "api",
+    "swagger",
+    "openapi"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.api.docs.exposed",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.api.docs.exposed"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "API Exposure"
+  }
+}

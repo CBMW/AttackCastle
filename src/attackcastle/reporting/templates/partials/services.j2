@@ -1,0 +1,17 @@
+<table aria-label="Services table" class="sortable">
+  <thead>
+    <tr><th>Asset ID</th><th>Port</th><th>Protocol</th><th>Name</th><th>State</th><th>Banner</th></tr>
+  </thead>
+  <tbody>
+    {% for service in ctx.services %}
+    <tr>
+      <td><code>{{ service.asset_id }}</code></td>
+      <td>{{ service.port }}</td>
+      <td>{{ service.protocol }}</td>
+      <td>{{ service.name or "unknown" }}</td>
+      <td>{{ service.state }}</td>
+      <td>{{ service.banner or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

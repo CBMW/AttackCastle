@@ -1,0 +1,71 @@
+{
+  "id": "WEAK_TLS_CONFIGURATION",
+  "version": "1.0.0",
+  "title": "Weak or Risky TLS Configuration",
+  "severity": "high",
+  "category": "Transport Security",
+  "description": "TLS assessment identified weak protocol usage or certificates nearing expiry.",
+  "impact": "Weak TLS settings can enable downgrade or cryptographic attacks and reduce trust in secure channels.",
+  "likelihood": "Medium where legacy compatibility or unmanaged certificates are present.",
+  "recommendations": [
+    "Disable deprecated protocols (TLSv1.0/TLSv1.1 and older).",
+    "Rotate expiring certificates before outage windows.",
+    "Use modern cipher suites and enforce strong TLS policy."
+  ],
+  "references": [
+    "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html",
+    "https://www.rfc-editor.org/rfc/rfc8996"
+  ],
+  "tags": [
+    "tls",
+    "certificate",
+    "crypto"
+  ],
+  "trigger": {
+    "entity_type": "tls",
+    "logic": "any",
+    "conditions": [
+      {
+        "key": "tls.weak_protocol",
+        "op": "eq",
+        "value": true
+      },
+      {
+        "key": "tls.cert.expiring_soon",
+        "op": "eq",
+        "value": true
+      },
+      {
+        "key": "tls.weak_cipher",
+        "op": "eq",
+        "value": true
+      },
+      {
+        "key": "tls.hsts.missing",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "tls.weak_protocol",
+      "tls.cert.expiring_soon",
+      "tls.weak_cipher",
+      "tls.hsts.missing",
+      "tls.protocol.version"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Network",
+    "subtype": "TLS"
+  }
+}

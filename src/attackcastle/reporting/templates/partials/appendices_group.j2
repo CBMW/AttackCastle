@@ -1,0 +1,77 @@
+<div class="section-intro">
+  <p class="muted">Appendices keep the proof trail and workflow diagnostics nearby for consultants without overwhelming the main narrative.</p>
+</div>
+
+<details class="compact-details">
+  <summary>Execution Issues And Coverage</summary>
+  {% with ctx=ctx.errors %}
+  {% include "partials/errors.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.coverage %}
+  {% include "partials/coverage.j2" %}
+  {% endwith %}
+  {% if ctx.active_validation.validation_results %}
+  <h4>Active Validation Results</h4>
+  <table class="data-table">
+    <thead>
+      <tr><th>Status</th><th>Family</th><th>Title</th><th>Request</th></tr>
+    </thead>
+    <tbody>
+      {% for row in ctx.active_validation.validation_results[:20] %}
+      <tr>
+        <td>{{ row.status }}</td>
+        <td>{{ row.family }}</td>
+        <td>{{ row.title }}</td>
+        <td>{{ row.request_url }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</details>
+
+<details class="compact-details">
+  <summary>Screenshots And Evidence Bundles</summary>
+  {% with ctx=ctx.screenshots %}
+  {% include "partials/screenshots.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.bundles %}
+  {% include "partials/bundles.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Raw Evidence</summary>
+  {% with ctx=ctx.evidence %}
+  {% include "partials/evidence.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Analyst Workspaces</summary>
+  {% with ctx=ctx.host_workspaces %}
+  {% include "partials/host_workspaces.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.issue_groups %}
+  {% include "partials/issue_groups.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.vulnerabilities %}
+  {% include "partials/vulnerabilities.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Workflow Decisions And Tooling</summary>
+  {% with ctx=ctx.decisions %}
+  {% include "partials/decisions.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.timeline %}
+  {% include "partials/timeline.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.tools %}
+  {% include "partials/tools.j2" %}
+  {% endwith %}
+  {% with ctx=ctx.trend %}
+  {% include "partials/trend_delta.j2" %}
+  {% endwith %}
+</details>

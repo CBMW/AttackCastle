@@ -1,0 +1,52 @@
+{
+  "id": "MAIL_TRANSPORT_POLICY_GAP",
+  "version": "1.0.0",
+  "title": "Mail Transport Policy Hardening Gap",
+  "severity": "medium",
+  "category": "Email Security",
+  "description": "Mail infrastructure was identified, but transport hardening controls such as MTA-STS or TLS-RPT appear incomplete.",
+  "impact": "Missing mail transport protections can reduce visibility into downgrade issues and weaken secure-mail delivery assurance.",
+  "likelihood": "Medium because impact depends on how the organization sends and receives mail over TLS.",
+  "recommendations": [
+    "Publish and validate MTA-STS and TLS-RPT where mail infrastructure is internet-facing.",
+    "Review MX exposure and ensure transport security aligns with mail policy requirements.",
+    "Monitor mail delivery reporting for downgrade and TLS failures."
+  ],
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc8461",
+    "https://datatracker.ietf.org/doc/html/rfc8460"
+  ],
+  "tags": [
+    "email",
+    "mta-sts",
+    "tls-rpt"
+  ],
+  "trigger": {
+    "entity_type": "asset",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "mail.transport_policy.gap",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "mail.transport_policy.gap",
+      "mail.mx.records"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "External",
+    "subtype": "Email Security"
+  }
+}

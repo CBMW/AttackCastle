@@ -1,0 +1,53 @@
+{
+  "id": "SQL_INJECTION_DETECTED",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Potential SQL Injection Detected",
+  "severity": "critical",
+  "category": "Injection",
+  "description": "Automated injection testing identified indicators that a parameter may be SQL injectable.",
+  "impact": "Successful SQL injection can lead to data exfiltration, authentication bypass, and remote command execution depending on DB permissions.",
+  "likelihood": "High when injectable behavior is consistently observed across test payloads.",
+  "recommendations": [
+    "Apply strict server-side parameterization using prepared statements.",
+    "Validate and sanitize all user input at trust boundaries.",
+    "Restrict database privileges and monitor anomalous query patterns."
+  ],
+  "references": [
+    "https://owasp.org/www-community/attacks/SQL_Injection"
+  ],
+  "tags": [
+    "sqlmap",
+    "injection",
+    "critical"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.sqlmap.injectable",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.sqlmap.injectable",
+      "web.sqlmap.dbms"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.75,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Injection"
+  }
+}

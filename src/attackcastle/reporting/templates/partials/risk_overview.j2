@@ -1,0 +1,33 @@
+<div class="chart-wrap">
+  <div class="chart-column">
+    <h3>Findings by Severity</h3>
+    <div id="severity-chart" class="bar-chart"></div>
+  </div>
+  <div class="chart-column">
+    <h3>Service Distribution</h3>
+    <div id="service-chart" class="bar-chart"></div>
+  </div>
+  <div class="chart-column">
+    <h3>Risk Domain Scores</h3>
+    <div id="domain-chart" class="bar-chart"></div>
+  </div>
+  <div class="chart-column">
+    <h3>Service Exposure Breakdown</h3>
+    <div id="service-exposure-chart" class="bar-chart"></div>
+  </div>
+</div>
+
+<table aria-label="Risk domains" class="sortable">
+  <thead>
+    <tr><th>Domain</th><th>Score</th><th>Raw</th></tr>
+  </thead>
+  <tbody>
+    {% for domain in ctx.risk_domains %}
+    <tr>
+      <td>{{ domain.domain|upper }}</td>
+      <td>{{ domain.score }}</td>
+      <td>{{ domain.raw }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

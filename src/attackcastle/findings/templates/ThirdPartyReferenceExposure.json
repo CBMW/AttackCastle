@@ -1,0 +1,55 @@
+{
+  "id": "THIRD_PARTY_REFERENCE_EXPOSURE",
+  "version": "1.0.0",
+  "title": "Third-Party Repository or Package Reference Exposed",
+  "severity": "low",
+  "category": "Exposure Intelligence",
+  "description": "Externally reachable content referenced public third-party repositories or package sources that may leak implementation detail or assist reconnaissance.",
+  "impact": "Public repository and package references can reveal technology choices, internal naming, release patterns, or related assets useful to attackers.",
+  "likelihood": "Low to Medium because impact depends on what the referenced resources expose.",
+  "recommendations": [
+    "Review whether referenced repositories, packages, or images expose unnecessary implementation detail.",
+    "Confirm that linked repositories and package sources are intended to be public.",
+    "Reduce unnecessary public references that reveal internal structure or operational dependencies."
+  ],
+  "references": [
+    "https://owasp.org/"
+  ],
+  "tags": [
+    "intel",
+    "github",
+    "package"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "any",
+    "conditions": [
+      {
+        "key": "thirdparty.github.reference",
+        "op": "exists"
+      },
+      {
+        "key": "thirdparty.package.reference",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "thirdparty.github.reference",
+      "thirdparty.package.reference"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.75,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Recon",
+    "subtype": "Exposure Intelligence"
+  }
+}

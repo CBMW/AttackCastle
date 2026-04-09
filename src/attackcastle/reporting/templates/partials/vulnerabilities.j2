@@ -1,0 +1,47 @@
+{% if ctx.vulnerabilities %}
+<table aria-label="Vulnerability workspace" class="sortable">
+  <thead>
+    <tr>
+      <th>Severity</th>
+      <th>Status</th>
+      <th>Title</th>
+      <th>Source</th>
+      <th>Confidence</th>
+      <th>Category</th>
+      <th>Affected</th>
+      <th>Evidence</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for vuln in ctx.vulnerabilities %}
+    <tr class="severity-{{ vuln.severity }}">
+      <td><span class="badge severity severity-{{ vuln.severity }}">{{ vuln.severity|upper }}</span></td>
+      <td><span class="badge status status-{{ vuln.status }}">{{ vuln.status }}</span></td>
+      <td>{{ vuln.title }}</td>
+      <td>{{ vuln.source }}</td>
+      <td>{{ "%.2f"|format(vuln.confidence_score or 0.0) }}</td>
+      <td>{{ vuln.category }}</td>
+      <td>
+        {% for item in vuln.affected %}
+        <details>
+          <summary><code>{{ item.entity_type }}:{{ item.entity_id }}</code></summary>
+          <pre>{{ item.context | tojson(indent=2) }}</pre>
+        </details>
+        {% endfor %}
+      </td>
+      <td>
+        {% if vuln.evidence_ids %}
+        {% for evidence_id in vuln.evidence_ids %}
+        <a href="#evidence-{{ evidence_id }}"><code>{{ evidence_id }}</code></a><br>
+        {% endfor %}
+        {% else %}
+        -
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No vulnerability records available.</p>
+{% endif %}

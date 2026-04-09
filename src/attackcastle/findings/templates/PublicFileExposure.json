@@ -1,0 +1,51 @@
+{
+  "id": "PUBLIC_FILE_EXPOSURE",
+  "version": "1.0.0",
+  "title": "Interesting Public File Exposure",
+  "severity": "high",
+  "category": "Information Exposure",
+  "description": "Potentially sensitive or operationally useful files were detected on an external web service.",
+  "impact": "Exposed files can disclose configuration, APIs, stack details, or operational metadata that accelerates exploitation.",
+  "likelihood": "High when API definitions, environment files, or status endpoints are accessible without authentication.",
+  "recommendations": [
+    "Remove or restrict access to operational and sensitive files.",
+    "Review deployment pipelines for accidental publication.",
+    "Validate whether exposed content expands the attack surface."
+  ],
+  "references": [
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "web",
+    "exposure",
+    "files"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.public_files",
+        "op": "length_gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.public_files"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.75,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Exposure"
+  }
+}

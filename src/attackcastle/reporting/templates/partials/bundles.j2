@@ -1,0 +1,28 @@
+{% if not ctx.bundles %}
+<p class="muted">No evidence bundles available.</p>
+{% else %}
+<table aria-label="Evidence bundles" class="sortable">
+  <thead>
+    <tr><th>Label</th><th>Confidence</th><th>Summary</th><th>Screenshots</th><th>Artifacts</th><th>Tools</th></tr>
+  </thead>
+  <tbody>
+    {% for bundle in ctx.bundles %}
+    <tr>
+      <td><code>{{ bundle.label }}</code></td>
+      <td>{{ "%.2f"|format(bundle.confidence or 0.0) }}</td>
+      <td>{{ bundle.summary }}</td>
+      <td>{{ bundle.screenshot_paths|length }}</td>
+      <td>
+        <details>
+          <summary>{{ bundle.artifact_paths|length }} paths</summary>
+          {% for path in bundle.artifact_paths %}
+          <div><code>{{ path }}</code></div>
+          {% endfor %}
+        </details>
+      </td>
+      <td>{{ bundle.source_tools|join(", ") }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

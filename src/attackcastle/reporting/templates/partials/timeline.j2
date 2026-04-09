@@ -1,0 +1,34 @@
+{% if ctx.task_timeline %}
+<table aria-label="Workflow timeline" class="sortable">
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Stage</th>
+      <th>Capability</th>
+      <th>Status</th>
+      <th>Attempt</th>
+      <th>Start</th>
+      <th>End</th>
+      <th>Decision</th>
+      <th>Reason/Error</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in ctx.task_timeline %}
+    <tr>
+      <td><code>{{ item.key }}</code><br>{{ item.label }}</td>
+      <td>{{ item.stage or "-" }}</td>
+      <td>{{ item.capability or "-" }}</td>
+      <td>{{ item.status }}</td>
+      <td>{{ item.attempt or "-" }}</td>
+      <td>{{ item.started_at or "-" }}</td>
+      <td>{{ item.ended_at or "-" }}</td>
+      <td>{{ item.decision_reason or "-" }}</td>
+      <td>{{ item.reason or item.error or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No task timeline data available.</p>
+{% endif %}

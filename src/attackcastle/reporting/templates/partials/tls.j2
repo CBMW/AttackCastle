@@ -1,0 +1,17 @@
+<table aria-label="TLS table" class="sortable">
+  <thead>
+    <tr><th>Host</th><th>Port</th><th>Protocol</th><th>Cipher</th><th>Issuer</th><th>Expires</th></tr>
+  </thead>
+  <tbody>
+    {% for tls in ctx.tls_assets %}
+    <tr>
+      <td>{{ tls.host }}</td>
+      <td>{{ tls.port }}</td>
+      <td>{{ tls.protocol or "-" }}</td>
+      <td>{{ tls.cipher or "-" }}</td>
+      <td>{{ tls.issuer or "-" }}</td>
+      <td>{{ tls.not_after or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

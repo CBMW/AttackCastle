@@ -1,0 +1,44 @@
+Source: attackcastle
+Section: utils
+Priority: optional
+Maintainer: AttackCastle Team <security@attackcastle.dev>
+Rules-Requires-Root: no
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ pybuild-plugin-pyproject,
+ python3-all,
+ python3-hatchling,
+ python3-pytest
+Standards-Version: 4.6.2
+Homepage: https://github.com/attackcastle/attackcastle
+
+Package: attackcastle
+Architecture: all
+Depends:
+ ${misc:Depends},
+ ${python3:Depends},
+ python3-pyside6.qtwidgets,
+ python3-typer,
+ python3-rich,
+ python3-jinja2,
+ python3-yaml,
+ python3-jsonschema
+Recommends:
+ nmap,
+ masscan,
+ whatweb,
+ nikto,
+ nuclei,
+ wpscan,
+ sqlmap
+Description: Adaptive external pentest visibility CLI and GUI for authorized assessments
+ AttackCastle is an adaptive, evidence-driven external security assessment toolkit.
+ It ships a terminal-first CLI together with a Qt desktop GUI, and orchestrates
+ reconnaissance, service enumeration, optional vulnerability tooling, findings
+ normalization, and report generation.
+ .
+ This package installs the `attackcastle` command, supports launching the GUI with
+ `attackcastle gui`, and recommends external scanner tooling that can be bootstrapped
+ with `attackcastle doctor --install-missing` or
+ `attackcastle plugins install-missing`.

@@ -1,0 +1,58 @@
+{% if not ctx.tool_executions %}
+<p class="muted">No tool executions were recorded for this run.</p>
+{% else %}
+<div class="tool-list">
+  {% for execution in ctx.tool_executions %}
+  <details class="tool-card" id="execution-{{ execution.execution_id }}">
+    <summary>
+      <span class="tool-card-title">{{ execution.tool_name }}</span>
+      <span class="tool-card-meta">
+        <span class="badge status status-{{ execution.status }}">{{ execution.status }}</span>
+        <span>{{ execution.capability or "-" }}</span>
+        <span>{{ execution.duration_seconds }}s</span>
+      </span>
+    </summary>
+    <div class="tool-card-body">
+      <div class="evidence-meta-grid">
+        <div><strong>Execution ID</strong><br><code>{{ execution.execution_id }}</code></div>
+        <div><strong>Exit Code</strong><br>{{ execution.exit_code if execution.exit_code is not none else "-" }}</div>
+        <div><strong>Started</strong><br>{{ execution.started_at }}</div>
+        <div><strong>Ended</strong><br>{{ execution.ended_at }}</div>
+      </div>
+      <div class="proof-panel">
+        <div class="proof-label">Command</div>
+        <div class="command-console">
+          <p><strong>Replay</strong> <code>#{{ execution.command_hash }}</code></p>
+          <pre><code>{{ execution.command }}</code></pre>
+        </div>
+        <button type="button" class="copy-command" data-command="{{ execution.command|e }}">Copy command</button>
+      </div>
+      {% if execution.stdout_text %}
+      <div class="proof-panel">
+        <div class="proof-label">Stdout</div>
+        <pre class="terminal-block">{{ execution.stdout_text }}</pre>
+      </div>
+      {% endif %}
+      {% if execution.stderr_text %}
+      <div class="proof-panel">
+        <div class="proof-label">Stderr</div>
+        <pre class="terminal-block error-block">{{ execution.stderr_text }}</pre>
+      </div>
+      {% endif %}
+      {% for artifact in execution.raw_artifacts %}
+      {% if artifact.content %}
+      <div class="proof-panel">
+        <div class="proof-label">Raw Artifact</div>
+        <p class="proof-note"><code>{{ artifact.path }}</code></p>
+        <pre class="terminal-block">{{ artifact.content }}</pre>
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% if execution.error_message %}
+      <p class="proof-note">Error: {{ execution.error_message }}</p>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% endif %}

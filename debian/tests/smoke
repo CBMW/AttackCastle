@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+attackcastle --help >/dev/null
+attackcastle plugins doctor --output-format json >/dev/null || true
+python3 -c "from attackcastle.gui.window import run" >/dev/null

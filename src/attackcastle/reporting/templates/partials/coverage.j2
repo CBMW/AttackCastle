@@ -1,0 +1,45 @@
+<table aria-label="Coverage summary" class="sortable">
+  <tbody>
+    <tr><th>Total Executions</th><td>{{ ctx.coverage.summary.total_executions }}</td></tr>
+    <tr><th>Completed</th><td>{{ ctx.coverage.summary.completed }}</td></tr>
+    <tr><th>Failed</th><td>{{ ctx.coverage.summary.failed }}</td></tr>
+    <tr><th>Skipped</th><td>{{ ctx.coverage.summary.skipped }}</td></tr>
+    <tr><th>Coverage Gaps</th><td>{{ ctx.coverage.summary.coverage_gap_count }}</td></tr>
+  </tbody>
+</table>
+
+{% if ctx.coverage.rate_limit %}
+<h3>Execution Telemetry</h3>
+<table aria-label="Rate limit telemetry" class="sortable">
+  <tbody>
+    <tr><th>Current Mode</th><td>{{ ctx.coverage.rate_limit.current_mode or "-" }}</td></tr>
+    <tr><th>Downgraded Keys</th><td>{{ ctx.coverage.rate_limit.summary.downgraded_keys or 0 }}</td></tr>
+    <tr><th>Noisy Events</th><td>{{ ctx.coverage.rate_limit.summary.noisy_events or 0 }}</td></tr>
+    <tr><th>Canary Failures</th><td>{{ ctx.coverage.rate_limit.summary.canary_failures or 0 }}</td></tr>
+    <tr><th>Generic Responses</th><td>{{ ctx.coverage.rate_limit.summary.generic_responses or 0 }}</td></tr>
+  </tbody>
+</table>
+{% endif %}
+
+{% if ctx.coverage.blind_spots %}
+<h3>Blind Spots</h3>
+<table aria-label="Blind spot table" class="sortable">
+  <thead>
+    <tr><th>Source</th><th>Status</th><th>Reason</th><th>Impact</th><th>Suggested Action</th><th>URL</th></tr>
+  </thead>
+  <tbody>
+    {% for row in ctx.coverage.blind_spots %}
+    <tr>
+      <td>{{ row.source }}</td>
+      <td>{{ row.status }}</td>
+      <td>{{ row.reason }}</td>
+      <td>{{ row.impact }}</td>
+      <td>{{ row.suggested_action }}</td>
+      <td>{{ row.url or "-" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No major blind spots detected.</p>
+{% endif %}

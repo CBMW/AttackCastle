@@ -1,0 +1,50 @@
+{
+  "id": "PUBLIC_CLOUD_STORAGE_EXPOSURE",
+  "version": "1.0.0",
+  "title": "Public Cloud Storage-Like Surface Detected",
+  "severity": "high",
+  "category": "Cloud Exposure",
+  "description": "A publicly reachable cloud storage-style endpoint was detected on the external perimeter.",
+  "impact": "Public storage endpoints can expose data directly or reveal naming, metadata, and access patterns useful for further attack-path development.",
+  "likelihood": "Medium to High depending on whether access controls are enforced and what content is exposed.",
+  "recommendations": [
+    "Validate whether public access is intentional and necessary.",
+    "Review bucket/container policy, object ACLs, and listing behavior.",
+    "Confirm whether the endpoint exposes sensitive data or metadata."
+  ],
+  "references": [
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "cloud",
+    "storage",
+    "exposure"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "cloud.storage.public",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "cloud.storage.public"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.75,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Cloud",
+    "subtype": "Exposure"
+  }
+}

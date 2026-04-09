@@ -1,0 +1,45 @@
+{
+  "id": "BASE_WEB_FINDING",
+  "abstract": true,
+  "version": "1.0.0",
+  "title": "Base Web Finding",
+  "severity": "low",
+  "category": "Web Security",
+  "description": "Base template inherited by concrete web findings.",
+  "impact": "Varies by derived finding.",
+  "likelihood": "Varies by derived finding.",
+  "recommendations": [
+    "Apply remediation guidance from the concrete derived template."
+  ],
+  "references": [
+    "https://owasp.org/"
+  ],
+  "tags": [
+    "web"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.status_code",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 0,
+    "keys": []
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.6,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "General"
+  }
+}

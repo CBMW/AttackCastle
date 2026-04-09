@@ -1,0 +1,51 @@
+{
+  "id": "REFLECTED_XSS_DETECTED",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Reflected XSS Signal Observed",
+  "severity": "high",
+  "category": "Injection",
+  "description": "An active replay mutation was reflected in the HTTP response body.",
+  "impact": "Reflected cross-site scripting can enable session theft, phishing, or arbitrary script execution in the victim browser.",
+  "likelihood": "High when attacker-controlled input is returned without context-aware output encoding.",
+  "recommendations": [
+    "Apply context-aware output encoding and input validation.",
+    "Use Content-Security-Policy as a defense-in-depth control.",
+    "Review response templates that render user-controlled parameters."
+  ],
+  "references": [
+    "https://owasp.org/www-community/attacks/xss/"
+  ],
+  "tags": [
+    "xss",
+    "reflected",
+    "active-validation"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.xss.reflected",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.xss.reflected"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Injection"
+  }
+}

@@ -1,0 +1,53 @@
+<div class="section-intro">
+  <p class="muted">Consultant workflow items stay together here so likely issues and follow-up paths are easy to review without interrupting the main report flow.</p>
+</div>
+
+<details class="compact-details" open>
+  <summary>Test First</summary>
+  {% with ctx=ctx.test_first %}
+  {% include "partials/leads.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Likely Findings</summary>
+  {% with ctx=ctx.likely_findings %}
+  {% include "partials/leads.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Priority Leads</summary>
+  {% with ctx=ctx.priority_leads %}
+  {% include "partials/leads.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Candidate Findings</summary>
+  {% with ctx=ctx.candidate_findings %}
+  {% include "partials/findings.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Validation Queue</summary>
+  <p class="muted">Validation tasks: {{ ctx.validation_queue.validation_tasks|length }} | Hypotheses: {{ ctx.hypotheses.hypotheses|length }}</p>
+  {% if ctx.validation_queue.validation_tasks %}
+  <table class="data-table">
+    <thead>
+      <tr><th>Status</th><th>Approval</th><th>Task</th><th>Next Action</th></tr>
+    </thead>
+    <tbody>
+      {% for row in ctx.validation_queue.validation_tasks[:20] %}
+      <tr>
+        <td>{{ row.status }}</td>
+        <td>{{ row.approval_class }}</td>
+        <td>{{ row.title }}</td>
+        <td>{{ row.next_action }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</details>

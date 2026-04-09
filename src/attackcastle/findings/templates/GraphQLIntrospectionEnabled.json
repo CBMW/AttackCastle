@@ -1,0 +1,52 @@
+{
+  "id": "GRAPHQL_INTROSPECTION_ENABLED",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "GraphQL Introspection Enabled",
+  "severity": "medium",
+  "category": "API Exposure",
+  "description": "Active validation confirmed that an unauthenticated GraphQL endpoint returned schema metadata.",
+  "impact": "Schema disclosure accelerates API enumeration and can expose hidden object relationships or dangerous mutations.",
+  "likelihood": "Medium for internet-facing GraphQL endpoints that retain default introspection behavior.",
+  "recommendations": [
+    "Disable introspection on production endpoints where it is not required.",
+    "Restrict GraphQL access with authentication and authorization checks.",
+    "Monitor schema and mutation exposure on public routes."
+  ],
+  "references": [
+    "https://owasp.org/www-project-graphql-security/"
+  ],
+  "tags": [
+    "graphql",
+    "api",
+    "active-validation"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.graphql.introspection_enabled",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.graphql.introspection_enabled"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.85,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "API"
+  }
+}

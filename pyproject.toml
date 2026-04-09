@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "attackcastle"
+version = "0.1.0"
+description = "Linux-first external pentest visibility CLI with adaptive workflows and reporting."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "AttackCastle Team" }]
+dependencies = [
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+  "Jinja2>=3.1.4",
+  "PyYAML>=6.0.2",
+  "jsonschema>=4.23.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.2",
+]
+gui = [
+  "PySide6>=6.8.0",
+]
+
+[project.scripts]
+attackcastle = "attackcastle.cli:app"
+attackcastle-gui = "attackcastle.gui.launcher:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/attackcastle"]
+
+[tool.hatch.build]
+include = [
+  "src/attackcastle/config/**/*.yaml",
+  "src/attackcastle/orchestration/rules/**/*.yaml",
+  "src/attackcastle/findings/templates/**/*.json",
+  "src/attackcastle/reporting/templates/**/*.j2",
+  "src/attackcastle/reporting/assets/**/*.*",
+]

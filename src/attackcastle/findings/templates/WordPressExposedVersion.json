@@ -1,0 +1,54 @@
+{
+  "id": "WORDPRESS_EXPOSED_VERSION",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "WordPress Fingerprint Detected",
+  "severity": "medium",
+  "category": "Technology Exposure",
+  "description": "A WordPress fingerprint was detected. Exposed CMS technology can aid targeted exploitation if patching lags.",
+  "impact": "Attackers can quickly align known vulnerabilities and plugin exploit paths with exposed platforms.",
+  "likelihood": "Medium for publicly exposed CMS instances.",
+  "recommendations": [
+    "Keep WordPress core, plugins, and themes fully patched.",
+    "Reduce version disclosure where operationally feasible.",
+    "Implement WAF and authentication hardening for admin paths."
+  ],
+  "references": [
+    "https://wordpress.org/documentation/",
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "wordpress",
+    "fingerprint",
+    "exposure"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "tech.wordpress.detected",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "tech.wordpress.detected",
+      "tech.wordpress.version"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Exposure"
+  }
+}

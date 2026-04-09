@@ -1,0 +1,9 @@
+attackcastle (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian package for beta distribution.
+  * Add dependency bootstrap commands for apt-based tool installation.
+  * Ship GUI runtime dependencies in the main package so `attackcastle gui`
+    works after install.
+  * Add a desktop launcher for Kali/Debian environments.
+
+ -- AttackCastle Team <security@attackcastle.dev>  Thu, 12 Mar 2026 00:00:00 +0000

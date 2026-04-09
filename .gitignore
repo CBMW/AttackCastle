@@ -1,0 +1,33 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Runtime / outputs
+.attackcastle-runtime/
+output/
+artifacts/
+screenshots/
+logs/
+
+# Archives / temp
+*.zip
+tmp_workspace.json
+
+# Env / secrets
+.env
+.env.*
+
+# OS junk
+.DS_Store
+Thumbs.db

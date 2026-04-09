@@ -1,0 +1,51 @@
+{
+  "id": "REPLAY_SQL_INJECTION_SIGNAL",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "SQL Injection Error Signal Observed",
+  "severity": "critical",
+  "category": "Injection",
+  "description": "Replay-based mutation produced a database-style error response consistent with SQL injection handling weaknesses.",
+  "impact": "SQL injection can lead to data theft, authentication bypass, and server-side compromise depending on database privileges.",
+  "likelihood": "High when crafted input consistently triggers database error behavior on an exposed route.",
+  "recommendations": [
+    "Use parameterized queries and prepared statements for all dynamic database access.",
+    "Validate and constrain server-side input handling at every trust boundary.",
+    "Review database error handling to avoid disclosing backend details to clients."
+  ],
+  "references": [
+    "https://owasp.org/www-community/attacks/SQL_Injection"
+  ],
+  "tags": [
+    "sqli",
+    "injection",
+    "active-validation"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.sqli.error_based",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.sqli.error_based"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Injection"
+  }
+}

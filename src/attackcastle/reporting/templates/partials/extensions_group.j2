@@ -1,0 +1,69 @@
+<div class="section-intro">
+  <p class="muted">GUI extensions can add analyst-facing report output without changing the core AttackCastle finding model.</p>
+</div>
+
+{% if ctx.extensions %}
+<div class="finding-card-grid">
+  {% for extension in ctx.extensions %}
+  <article class="finding-card">
+    <div class="finding-card-header">
+      <div>
+        <p class="section-kicker">Extension</p>
+        <h3>{{ extension.name or extension.extension_id }}</h3>
+      </div>
+      <div class="finding-card-badges">
+        <span class="badge status-{{ extension.status|default('completed') }}">{{ extension.status|default("completed")|title }}</span>
+        <span class="badge">{{ extension.hook|default("pre_report") }}</span>
+      </div>
+    </div>
+    <p>{{ extension.summary }}</p>
+    {% set report = extension.report or {} %}
+    {% if report.cards %}
+    <div class="executive-grid">
+      {% for card in report.cards %}
+      <section class="executive-panel">
+        <p class="finding-side-label">{{ card.label or card.title or "Metric" }}</p>
+        <h3>{{ card.value or card.summary or "-" }}</h3>
+        {% if card.detail %}
+        <p class="muted">{{ card.detail }}</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if report.tables %}
+    {% for table in report.tables %}
+    <details class="compact-details">
+      <summary>{{ table.title or "Extension Data" }}</summary>
+      <table class="data-table">
+        <thead>
+          <tr>
+            {% for column in table.columns or [] %}
+            <th>{{ column }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table.rows or [] %}
+          <tr>
+            {% for column in table.columns or [] %}
+            <td>{{ row[column] if row[column] is defined else "" }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endfor %}
+    {% endif %}
+    {% if report.notes %}
+    <ul>
+      {% for note in report.notes %}
+      <li>{{ note }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% endif %}

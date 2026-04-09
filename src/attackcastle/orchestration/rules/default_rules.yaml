@@ -1,0 +1,339 @@
+tasks:
+  - key: run-subdomain-enum
+    label: Enumerating subdomains
+    capability: subdomain_enumeration
+    approval_class: safe_auto
+    adapter_key: subdomain_enum
+    condition: has_domain_like_targets
+    dependencies: []
+    noise_score: 5
+    cost_score: 3
+    stage: recon
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: resolve-hosts
+    label: Resolving hosts
+    capability: dns_resolution
+    approval_class: safe_auto
+    adapter_key: dns
+    condition: has_domain_like_targets
+    dependencies:
+      - run-subdomain-enum
+    noise_score: 1
+    cost_score: 1
+    stage: recon
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: run-masscan
+    label: Running Masscan discovery
+    capability: network_fast_scan
+    approval_class: safe_auto
+    adapter_key: masscan
+    condition: has_network_scan_targets
+    dependencies:
+      - resolve-hosts
+    noise_score: 5
+    cost_score: 5
+    stage: recon
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.6
+
+  - key: run-nmap
+    label: Running Nmap
+    capability: network_port_scan
+    approval_class: safe_auto
+    adapter_key: nmap
+    condition: has_service_scan_targets
+    dependencies:
+      - run-masscan
+      - resolve-hosts
+    noise_score: 4
+    cost_score: 7
+    stage: recon
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.6
+
+  - key: probe-web
+    label: Probing web services
+    capability: web_probe
+    approval_class: safe_auto
+    adapter_key: web_probe
+    condition: has_web_targets
+    dependencies:
+      - run-nmap
+    noise_score: 4
+    cost_score: 4
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: detect-tls
+    label: Detecting TLS and certificates
+    capability: tls_probe
+    approval_class: safe_auto
+    adapter_key: tls
+    condition: has_tls_targets
+    dependencies:
+      - run-nmap
+    noise_score: 3
+    cost_score: 3
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: run-vhost-discovery
+    label: Discovering virtual hosts
+    capability: vhost_discovery
+    approval_class: safe_auto
+    adapter_key: vhost_discovery
+    condition: has_web_targets
+    dependencies:
+      - probe-web
+      - run-nmap
+    noise_score: 4
+    cost_score: 4
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: analyze-services
+    label: Analyzing service exposure
+    capability: service_exposure_checks
+    approval_class: safe_auto
+    adapter_key: service_exposure
+    condition: has_service_targets
+    dependencies:
+      - run-nmap
+    noise_score: 3
+    cost_score: 3
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.3
+
+  - key: discover-web
+    label: Discovering web endpoints
+    capability: web_discovery
+    approval_class: safe_auto
+    adapter_key: web_discovery
+    condition: has_web_targets
+    dependencies:
+      - probe-web
+      - run-vhost-discovery
+    noise_score: 5
+    cost_score: 5
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: fingerprint-web
+    label: Fingerprinting web technologies
+    capability: web_fingerprint
+    approval_class: safe_auto
+    adapter_key: whatweb
+    condition: has_web_targets
+    dependencies:
+      - discover-web
+    noise_score: 4
+    cost_score: 4
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.4
+
+  - key: capture-requests
+    label: Capturing replayable web requests
+    capability: request_capture
+    approval_class: safe_auto
+    adapter_key: request_capture
+    condition: has_web_targets
+    dependencies:
+      - probe-web
+      - discover-web
+    noise_score: 2
+    cost_score: 2
+    stage: analysis
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.3
+
+  - key: run-surface-intel
+    label: Correlating cloud, edge, and third-party exposure signals
+    capability: surface_intelligence
+    approval_class: safe_auto
+    adapter_key: surface_intel
+    condition: has_web_targets
+    dependencies:
+      - discover-web
+      - fingerprint-web
+    noise_score: 2
+    cost_score: 2
+    stage: analysis
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.3
+
+  - key: assess-web
+    label: Running Nikto web checks
+    capability: web_vuln_scan
+    approval_class: safe_auto
+    adapter_key: nikto
+    condition: has_web_targets
+    dependencies:
+      - discover-web
+    noise_score: 6
+    cost_score: 6
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.5
+
+  - key: run-nuclei
+    label: Running Nuclei template checks
+    capability: web_template_scan
+    approval_class: safe_auto
+    adapter_key: nuclei
+    condition: has_web_targets
+    dependencies:
+      - discover-web
+    noise_score: 6
+    cost_score: 6
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.5
+
+  - key: run-active-validation
+    label: Running active validation and replay checks
+    capability: active_validation_core
+    approval_class: safe_auto
+    adapter_key: active_validation
+    condition: has_replay_targets
+    dependencies:
+      - capture-requests
+      - discover-web
+      - fingerprint-web
+    noise_score: 4
+    cost_score: 5
+    stage: analysis
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.5
+
+  - key: run-wpscan
+    label: Running WPScan on WordPress targets
+    capability: cms_wordpress_scan
+    approval_class: safe_auto
+    adapter_key: wpscan
+    condition: has_wordpress_targets
+    dependencies:
+      - discover-web
+      - fingerprint-web
+    noise_score: 6
+    cost_score: 7
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.6
+
+  - key: run-sqlmap
+    label: Running SQLMap on injectable candidates
+    capability: web_injection_scan
+    approval_class: needs_approval_injection
+    adapter_key: sqlmap
+    condition: has_sqlmap_targets
+    dependencies:
+      - discover-web
+    noise_score: 7
+    cost_score: 8
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.6
+
+  - key: run-framework-checks
+    label: Running framework targeted checks
+    capability: cms_framework_scan
+    approval_class: safe_auto
+    adapter_key: framework_checks
+    condition: has_framework_targets
+    dependencies:
+      - fingerprint-web
+      - discover-web
+    noise_score: 5
+    cost_score: 6
+    stage: enumeration
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.5
+
+  - key: enrich-cve
+    label: Enriching services with CPE/CVE candidates
+    capability: vuln_enrichment
+    approval_class: safe_auto
+    adapter_key: cve_enricher
+    condition: has_enrichment_targets
+    dependencies:
+      - run-nmap
+      - fingerprint-web
+    noise_score: 0
+    cost_score: 2
+    stage: analysis
+    retryable: true
+    max_retries: 0
+    backoff_seconds: 0.0
+
+  - key: generate-findings
+    label: Generating findings
+    capability: findings_engine
+    approval_class: safe_auto
+    adapter_key: findings
+    condition: always
+    dependencies:
+      - run-nmap
+      - probe-web
+      - run-vhost-discovery
+      - discover-web
+      - detect-tls
+      - analyze-services
+      - fingerprint-web
+      - run-surface-intel
+      - capture-requests
+      - run-active-validation
+      - assess-web
+      - run-nuclei
+      - run-wpscan
+      - run-framework-checks
+      - run-sqlmap
+      - enrich-cve
+    noise_score: 0
+    cost_score: 2
+    stage: analysis
+    retryable: true
+    max_retries: 0
+    backoff_seconds: 0.0
+
+  - key: build-report
+    label: Building report
+    capability: reporting
+    approval_class: safe_auto
+    adapter_key: report
+    condition: always
+    dependencies:
+      - generate-findings
+    noise_score: 0
+    cost_score: 1
+    stage: output
+    retryable: true
+    max_retries: 0
+    backoff_seconds: 0.0

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AttackCastle
+GenericName=External Pentest Toolkit
+Comment=Launch the AttackCastle desktop GUI
+Exec=attackcastle gui
+Icon=attackcastle
+Terminal=false
+Categories=Security;Network;
+Keywords=security;pentest;recon;reporting;
+StartupNotify=true

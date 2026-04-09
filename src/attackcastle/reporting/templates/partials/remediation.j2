@@ -1,0 +1,36 @@
+{% if ctx.remediation_plan %}
+<table aria-label="Prioritized remediation plan" class="sortable">
+  <thead>
+    <tr>
+      <th>Priority</th>
+      <th>Severity</th>
+      <th>Action</th>
+      <th>Owner</th>
+      <th>Effort</th>
+      <th>Risk Reduction</th>
+      <th>Target Window</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in ctx.remediation_plan %}
+    <tr class="severity-{{ row.severity }}">
+      <td>{{ "%.2f"|format(row.priority_index) }}</td>
+      <td><span class="badge severity severity-{{ row.severity }}">{{ row.severity|upper }}</span></td>
+      <td>
+        <details>
+          <summary>{{ row.action }}</summary>
+          <p><strong>Finding:</strong> {{ row.title }}</p>
+          <p><strong>Domain:</strong> {{ row.domain }}</p>
+        </details>
+      </td>
+      <td>{{ row.owner }}</td>
+      <td>{{ row.effort }}</td>
+      <td>{{ "%.2f"|format(row.risk_reduction_points) }}</td>
+      <td>{{ row.target_window }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No remediation actions generated.</p>
+{% endif %}

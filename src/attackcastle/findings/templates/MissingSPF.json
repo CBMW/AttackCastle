@@ -1,0 +1,56 @@
+{
+  "id": "MISSING_SPF",
+  "version": "1.0.0",
+  "title": "SPF Record Not Detected",
+  "severity": "medium",
+  "category": "Email Security",
+  "description": "Mail infrastructure was identified but an SPF policy was not detected.",
+  "impact": "Missing SPF can reduce protection against sender spoofing and email abuse.",
+  "likelihood": "Medium because real-world impact depends on receiving-side controls and mail usage.",
+  "recommendations": [
+    "Publish and validate an SPF policy for sending domains.",
+    "Review legitimate mail sources before enforcement.",
+    "Pair SPF rollout with DKIM and DMARC improvements."
+  ],
+  "references": [
+    "https://datatracker.ietf.org/doc/html/rfc7208"
+  ],
+  "tags": [
+    "email",
+    "spf",
+    "spoofing"
+  ],
+  "trigger": {
+    "entity_type": "asset",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "mail.mx.records",
+        "op": "exists"
+      },
+      {
+        "key": "mail.spf.present",
+        "op": "eq",
+        "value": false
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "mail.mx.records",
+      "mail.spf.present"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 2,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "External",
+    "subtype": "Email Security"
+  }
+}

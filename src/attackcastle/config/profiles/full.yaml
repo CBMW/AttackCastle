@@ -1,0 +1,44 @@
+profile:
+  name: full
+  description: "Full-coverage profile for authorized deep assessment with aggressive escalation enabled."
+  concurrency: 8
+  delay_ms_between_requests: 30
+  max_noise_score: 10
+  nmap_args:
+    - "-sV"
+    - "-sC"
+    - "-T4"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "5000"
+  whatweb_args:
+    - "-a"
+    - "3"
+  nikto_args: []
+  nuclei_args:
+    - "-severity"
+    - "critical,high,medium,low"
+  sqlmap_args:
+    - "--threads"
+    - "4"
+    - "--level"
+    - "2"
+    - "--risk"
+    - "2"
+  wpscan_args:
+    - "--plugins-detection"
+    - "aggressive"
+  enable_service_scripts: true
+
+scan:
+  risk_mode: aggressive
+
+nmap:
+  udp_top_ports: 50
+
+subdomain_enum:
+  passive_http: true
+
+web_discovery:
+  crawl_limit: 80

@@ -1,0 +1,52 @@
+{
+  "id": "SUBDOMAIN_EXPOSURE_SURFACE",
+  "version": "1.0.0",
+  "title": "Additional Exposed Subdomain Detected",
+  "severity": "info",
+  "category": "Attack Surface Expansion",
+  "description": "Subdomain enumeration identified additional externally reachable domain assets.",
+  "impact": "Expanded domain surface can increase assessment scope and potential entry points.",
+  "likelihood": "Informational discovery signal for downstream triage and verification.",
+  "recommendations": [
+    "Inventory and classify discovered subdomains by business criticality.",
+    "Decommission unused subdomains and enforce hardened defaults.",
+    "Continuously monitor DNS and certificate transparency drift."
+  ],
+  "references": [
+    "https://owasp.org/"
+  ],
+  "tags": [
+    "dns",
+    "subdomain",
+    "surface"
+  ],
+  "trigger": {
+    "entity_type": "asset",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "dns.subdomain.discovered",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "dns.subdomain.discovered",
+      "dns.resolved_ips"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.6,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Recon",
+    "subtype": "Surface Discovery"
+  }
+}

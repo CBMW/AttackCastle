@@ -1,0 +1,2 @@
+debian/attackcastle.desktop usr/share/applications/
+src/attackcastle/assets/logo.png usr/share/pixmaps/attackcastle.png

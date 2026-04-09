@@ -1,0 +1,10 @@
+{
+  "url": "https://203.0.113.10",
+  "status_code": 200,
+  "headers": {
+    "server": "nginx/1.24.0",
+    "x-powered-by": "PHP/8.2",
+    "content-type": "text/html"
+  },
+  "body": "<html><head><title>Example WP Site</title></head><body><form action='/login'></form><script src='/wp-content/themes/site/app.js?ver=6.4.3'></script></body></html>"
+}

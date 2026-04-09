@@ -1,0 +1,63 @@
+{% if ctx.execution_issues_summary.total_count == 0 %}
+<p class="muted">No execution issues were recorded that reduced assessment completeness.</p>
+{% else %}
+<div class="issue-summary">
+  <p>
+    <span class="badge status status-{{ ctx.completeness_status }}">{{ ctx.completeness_status|title }}</span>
+    {{ ctx.execution_issues_summary.total_count }} issue(s) affected execution completeness.
+  </p>
+  <p class="muted">
+    Blocking: {{ ctx.execution_issues_summary.blocking_count or 0 }} |
+    Coverage gaps: {{ ctx.execution_issues_summary.coverage_count or 0 }} |
+    Warnings: {{ ctx.execution_issues_summary.warning_count or 0 }}
+  </p>
+</div>
+
+<table aria-label="Execution issues" class="sortable">
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Issue</th>
+      <th>Status</th>
+      <th>Impact</th>
+      <th>Suggested Action</th>
+      {% if ctx.show_technical_details %}
+      <th>Technical Detail</th>
+      {% endif %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for issue in ctx.execution_issues %}
+    <tr>
+      <td>{{ issue.kind|replace("_", " ")|title }}</td>
+      <td>
+        <strong>{{ issue.label }}</strong>
+        {% if issue.url %}
+        <br><code>{{ issue.url }}</code>
+        {% endif %}
+      </td>
+      <td><span class="badge status status-{{ issue.status }}">{{ issue.status|replace("-", " ")|title }}</span></td>
+      <td>{{ issue.impact }}</td>
+      <td>{{ issue.suggested_action }}</td>
+      {% if ctx.show_technical_details %}
+      <td>
+        <div>{{ issue.message }}</div>
+        {% if issue.task_key %}
+        <div class="muted">Task: <code>{{ issue.task_key }}</code></div>
+        {% endif %}
+        {% if issue.tool_name %}
+        <div class="muted">Tool: <code>{{ issue.tool_name }}</code></div>
+        {% endif %}
+        {% if issue.exit_code is not none %}
+        <div class="muted">Exit Code: <code>{{ issue.exit_code }}</code></div>
+        {% endif %}
+        {% if issue.stage %}
+        <div class="muted">Stage: <code>{{ issue.stage }}</code></div>
+        {% endif %}
+      </td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

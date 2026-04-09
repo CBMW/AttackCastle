@@ -1,0 +1,32 @@
+profile:
+  name: recon
+  description: "Recon-first profile for broad external asset mapping with low impact."
+  concurrency: 2
+  delay_ms_between_requests: 250
+  max_noise_score: 4
+  nmap_args:
+    - "-sV"
+    - "--version-light"
+    - "-T2"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "750"
+  whatweb_args:
+    - "-a"
+    - "1"
+  nikto_args: []
+  nuclei_args: []
+  sqlmap_args:
+    - "--threads"
+    - "1"
+  wpscan_args:
+    - "--plugins-detection"
+    - "passive"
+  enable_service_scripts: false
+
+scan:
+  risk_mode: passive
+
+subdomain_enum:
+  passive_http: true

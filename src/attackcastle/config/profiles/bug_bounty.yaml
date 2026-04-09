@@ -1,0 +1,37 @@
+profile:
+  name: bug_bounty
+  description: "Bug bounty style profile favoring passive enum, web coverage, and templated validation."
+  concurrency: 6
+  delay_ms_between_requests: 80
+  max_noise_score: 8
+  nmap_args:
+    - "-sV"
+    - "-T3"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "1500"
+  whatweb_args:
+    - "-a"
+    - "3"
+  nikto_args: []
+  nuclei_args:
+    - "-severity"
+    - "critical,high,medium,low"
+  sqlmap_args:
+    - "--threads"
+    - "2"
+  wpscan_args:
+    - "--plugins-detection"
+    - "mixed"
+  enable_service_scripts: false
+
+scan:
+  risk_mode: safe-active
+
+subdomain_enum:
+  passive_http: true
+
+web_discovery:
+  crawl_limit: 75
+  max_script_fetches: 10

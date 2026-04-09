@@ -1,0 +1,52 @@
+{
+  "id": "PERMISSIVE_HTTP_METHODS",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Overly Permissive HTTP Methods",
+  "severity": "medium",
+  "category": "Web Security Hardening",
+  "description": "An unauthenticated surface advertised risky HTTP methods during active validation.",
+  "impact": "Unnecessary methods can expand the attack surface for content modification, tunneling, or trace abuse.",
+  "likelihood": "Medium when OPTIONS responses expose methods beyond expected read-only operations.",
+  "recommendations": [
+    "Limit allowed methods to those strictly required by the application.",
+    "Disable TRACE and review PUT, DELETE, and PATCH exposure on public routes.",
+    "Validate authorization checks for any state-changing method that remains enabled."
+  ],
+  "references": [
+    "https://owasp.org/www-community/attacks/Cross_Site_Tracing"
+  ],
+  "tags": [
+    "http-methods",
+    "surface",
+    "active-validation"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.http_methods.permissive",
+        "op": "length_gte",
+        "value": 1
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.http_methods.permissive"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Configuration"
+  }
+}

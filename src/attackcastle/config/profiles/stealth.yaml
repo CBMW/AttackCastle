@@ -1,0 +1,32 @@
+profile:
+  name: stealth
+  description: "Stealth-biased profile that minimizes active probing and operator noise."
+  concurrency: 1
+  delay_ms_between_requests: 800
+  max_noise_score: 2
+  nmap_args:
+    - "-sV"
+    - "--version-light"
+    - "-T1"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "200"
+  whatweb_args:
+    - "-a"
+    - "1"
+  nikto_args: []
+  nuclei_args: []
+  sqlmap_args:
+    - "--threads"
+    - "1"
+  wpscan_args:
+    - "--plugins-detection"
+    - "passive"
+  enable_service_scripts: false
+
+scan:
+  risk_mode: passive
+
+subdomain_enum:
+  passive_http: true

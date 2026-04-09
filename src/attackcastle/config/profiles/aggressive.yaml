@@ -1,0 +1,35 @@
+profile:
+  name: aggressive
+  description: "Higher-coverage profile for authorized deep external mapping."
+  concurrency: 8
+  delay_ms_between_requests: 25
+  max_noise_score: 10
+  nmap_args:
+    - "-sV"
+    - "-sC"
+    - "-T4"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "5000"
+  whatweb_args:
+    - "-a"
+    - "3"
+  nikto_args: []
+  nuclei_args:
+    - "-severity"
+    - "critical,high,medium,low"
+  sqlmap_args:
+    - "--threads"
+    - "4"
+    - "--level"
+    - "2"
+    - "--risk"
+    - "2"
+  wpscan_args:
+    - "--plugins-detection"
+    - "aggressive"
+  enable_service_scripts: true
+
+scan:
+  risk_mode: aggressive

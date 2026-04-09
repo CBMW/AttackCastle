@@ -1,0 +1,36 @@
+{% if ctx.exposure_matrix %}
+<table aria-label="Asset exposure matrix" class="sortable">
+  <thead>
+    <tr>
+      <th>Asset</th>
+      <th>Kind</th>
+      <th>IP</th>
+      <th>Open Services</th>
+      <th>Web Apps</th>
+      <th>Technologies</th>
+      <th>TLS</th>
+      <th>Weak TLS</th>
+      <th>Finding Count</th>
+      <th>Highest Severity</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in ctx.exposure_matrix %}
+    <tr class="severity-{{ row.highest_severity }}">
+      <td><code>{{ row.asset_id }}</code><br>{{ row.asset_name }}</td>
+      <td>{{ row.kind }}</td>
+      <td>{{ row.ip or "-" }}</td>
+      <td>{{ row.open_services|join("; ") or "-" }}</td>
+      <td>{{ row.web_apps|join("; ") or "-" }}</td>
+      <td>{{ row.technologies|join("; ") or "-" }}</td>
+      <td>{{ row.tls_profiles|join("; ") or "-" }}</td>
+      <td>{{ "yes" if row.weak_tls else "no" }}</td>
+      <td>{{ row.finding_count }}</td>
+      <td>{{ row.highest_severity|upper }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No exposed assets discovered.</p>
+{% endif %}

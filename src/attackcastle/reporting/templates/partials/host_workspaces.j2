@@ -1,0 +1,65 @@
+{% if not ctx.host_workspaces %}
+<p class="muted">No host workspaces available.</p>
+{% else %}
+<div class="story-grid">
+  {% for host in ctx.host_workspaces %}
+  <article class="story-card">
+    <h3>{{ host.asset_name }}</h3>
+    <p class="muted">{{ host.kind }}{% if host.ip %} | {{ host.ip }}{% endif %}</p>
+    <p><strong>Leads:</strong> {{ host.leads|length }} | <strong>Services:</strong> {{ host.services|length }} | <strong>Web:</strong> {{ host.web_apps|length }}</p>
+    {% if host.leads %}
+    <details open>
+      <summary>Priority Leads</summary>
+      {% for lead in host.leads %}
+      <div class="workspace-block">
+        <strong>{{ lead.priority_label|upper }} {{ lead.priority_score }}</strong> {{ lead.title }}
+        <div class="muted">{{ lead.why_it_matters }}</div>
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    {% if host.services %}
+    <details>
+      <summary>Services</summary>
+      {% for service in host.services %}
+      <div><code>{{ service.name or 'unknown' }}/{{ service.port }}</code> {{ service.banner or "" }}</div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    {% if host.bundles %}
+    <details>
+      <summary>Evidence Bundles</summary>
+      {% for bundle in host.bundles %}
+      <div><code>{{ bundle.label }}</code> {{ bundle.summary }}</div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    {% if host.coverage_gaps %}
+    <details>
+      <summary>Coverage Gaps</summary>
+      {% for gap in host.coverage_gaps %}
+      <div class="workspace-block">
+        <strong>{{ gap.reason }}</strong>
+        <div class="muted">{{ gap.impact }}</div>
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    {% if host.timeline %}
+    <details>
+      <summary>Evidence Timeline</summary>
+      {% for item in host.timeline %}
+      <div class="workspace-block">
+        <strong>{{ item.kind }}</strong> {{ item.label }}
+        {% if item.changed %}<span class="grade-badge grade-d">changed</span>{% endif %}
+        <div class="muted">{{ item.timestamp }} | {{ item.source_tool }}</div>
+      </div>
+      {% endfor %}
+    </details>
+    {% endif %}
+    <label class="notes-label" for="note-{{ host.asset_id }}">Manual notes</label>
+    <textarea id="note-{{ host.asset_id }}" class="host-note" data-notes-key="{{ host.notes_key }}" placeholder="Notes saved locally in your browser for this asset."></textarea>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}

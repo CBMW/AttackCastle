@@ -1,0 +1,50 @@
+{
+  "id": "PUBLIC_LOGIN_PORTAL",
+  "version": "1.0.0",
+  "title": "Public Login Portal Detected",
+  "severity": "medium",
+  "category": "Authentication Exposure",
+  "description": "A public authentication surface was detected on the external perimeter.",
+  "impact": "Externally accessible login portals are high-value targets for password attacks, MFA bypass attempts, and vulnerability research.",
+  "likelihood": "Medium due to common targeting of internet-facing authentication surfaces.",
+  "recommendations": [
+    "Validate MFA, lockout, SSO, and recovery workflows.",
+    "Confirm versioning and exposure of the underlying platform.",
+    "Review whether the portal should be internet-facing."
+  ],
+  "references": [
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "web",
+    "auth",
+    "login"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.login_portal",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.login_portal"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Authentication"
+  }
+}

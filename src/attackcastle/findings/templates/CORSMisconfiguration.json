@@ -1,0 +1,51 @@
+{
+  "id": "CORS_MISCONFIGURATION",
+  "extends": "BASE_WEB_FINDING",
+  "version": "1.0.0",
+  "title": "Misconfigured CORS Policy",
+  "severity": "high",
+  "category": "Web Security Hardening",
+  "description": "Request replay validation observed a permissive cross-origin policy on an unauthenticated surface.",
+  "impact": "Overly broad cross-origin access can expose sensitive API responses or enable browser-based abuse paths.",
+  "likelihood": "High when wildcard or reflected origin handling is present on externally reachable routes.",
+  "recommendations": [
+    "Restrict Access-Control-Allow-Origin to approved origins only.",
+    "Avoid credentialed CORS responses to broad or reflected origins.",
+    "Review cross-origin behavior on API and administrative routes."
+  ],
+  "references": [
+    "https://owasp.org/www-community/attacks/CORS_RequestPreflightScrutiny"
+  ],
+  "tags": [
+    "cors",
+    "misconfiguration",
+    "active-validation"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.cors.misconfigured",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.cors.misconfigured"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Configuration"
+  }
+}

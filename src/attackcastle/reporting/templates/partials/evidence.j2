@@ -1,0 +1,13 @@
+{% from "partials/evidence_macros.j2" import evidence_block %}
+{% if not ctx.evidence %}
+<p class="muted">No evidence captured for this run.</p>
+{% else %}
+<div class="section-intro">
+  <p class="muted">This section keeps the lower-level proof material available without overwhelming the main report. Expand only the evidence you need for review or screenshots.</p>
+</div>
+<div class="evidence-stack">
+  {% for item in ctx.evidence %}
+  {{ evidence_block(item, open=false) }}
+  {% endfor %}
+</div>
+{% endif %}

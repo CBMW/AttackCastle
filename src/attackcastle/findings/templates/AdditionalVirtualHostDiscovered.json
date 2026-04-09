@@ -1,0 +1,50 @@
+{
+  "id": "ADDITIONAL_VIRTUAL_HOST_DISCOVERED",
+  "version": "1.0.0",
+  "title": "Additional Virtual Host Discovered",
+  "severity": "medium",
+  "category": "Attack Surface Expansion",
+  "description": "A distinct virtual host was discovered on an externally reachable HTTP/S service.",
+  "impact": "Additional virtual hosts can materially expand the real attack surface and expose applications not visible from the default response.",
+  "likelihood": "High because externally hosted multi-tenant or name-based services often expose more than one application surface.",
+  "recommendations": [
+    "Review the discovered host for authentication, versioning, and exposed functionality.",
+    "Confirm whether the additional host is in scope and intended to be externally reachable.",
+    "Repeat standard HTTP, tech, and vulnerability checks against the discovered host."
+  ],
+  "references": [
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "web",
+    "vhost",
+    "surface"
+  ],
+  "trigger": {
+    "entity_type": "service",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.vhost.discovered",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.vhost.discovered"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.75,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Exposure"
+  }
+}

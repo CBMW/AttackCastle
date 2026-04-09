@@ -1,0 +1,21 @@
+{% if not ctx.issue_groups %}
+<p class="muted">No grouped issue seeds available.</p>
+{% else %}
+<table aria-label="Issue groups" class="sortable">
+  <thead>
+    <tr><th>Severity</th><th>Title</th><th>Kind</th><th>Items</th><th>Affected</th><th>Evidence</th></tr>
+  </thead>
+  <tbody>
+    {% for item in ctx.issue_groups %}
+    <tr class="severity-{{ item.severity }}">
+      <td><span class="badge severity severity-{{ item.severity }}">{{ item.severity|upper }}</span></td>
+      <td>{{ item.title }}</td>
+      <td>{{ item.kind }}</td>
+      <td>{{ item["items"]|length }}</td>
+      <td>{{ item.affected_entities|length }}</td>
+      <td>{{ item.evidence_ids|length }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}

@@ -1,0 +1,82 @@
+{% from "partials/evidence_macros.j2" import evidence_block %}
+{% if not ctx.findings %}
+<p class="muted">No findings available for this section.</p>
+{% else %}
+<div class="finding-list">
+  {% for finding in ctx.findings %}
+  <article
+    class="finding-card severity-{{ finding.severity }}"
+    data-finding-severity="{{ finding.severity }}"
+    data-finding-status="{{ finding.status }}"
+  >
+    <header class="finding-card-header">
+      <div>
+        <div class="finding-card-badges">
+          <span class="badge severity severity-{{ finding.severity }}">{{ finding.severity|upper }}</span>
+          <span class="badge status status-{{ finding.status }}">{{ finding.status }}</span>
+          <span class="inline-metric">Confidence {{ "%.2f"|format(finding.confidence_score) }}</span>
+          <span class="inline-metric">Evidence {{ "%.2f"|format(finding.evidence_quality_score) }}</span>
+          <span class="inline-metric">{{ finding.distinct_sources }} sources</span>
+        </div>
+        <h3>{{ finding.title }}</h3>
+        <p class="finding-summary">{{ finding.description }}</p>
+      </div>
+      <div class="finding-card-side">
+        <div class="finding-side-label">Category</div>
+        <div>{{ finding.category }}</div>
+        <div class="finding-side-label">Affected</div>
+        <div>{{ finding.affected_entities|length }} entities</div>
+      </div>
+    </header>
+
+    <div class="finding-card-grid">
+      <div class="finding-panel">
+        <h4>What Matters</h4>
+        <p><strong>Impact:</strong> {{ finding.impact }}</p>
+        <p><strong>Likelihood:</strong> {{ finding.likelihood }}</p>
+        <p><strong>Corroboration:</strong> {{ finding.corroboration_count }} qualified observations</p>
+        {% if finding.quality_notes %}
+        <p><strong>Quality Notes:</strong> {{ finding.quality_notes|join("; ") }}</p>
+        {% endif %}
+      </div>
+      <div class="finding-panel">
+        <h4>Remediation</h4>
+        <ul class="clean-list">
+          {% for rec in finding.recommendations %}
+          <li>{{ rec }}</li>
+          {% endfor %}
+        </ul>
+        {% if finding.references %}
+        <p><strong>References:</strong></p>
+        <ul class="clean-list">
+          {% for ref in finding.references %}
+          <li>{{ ref }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if finding.affected_entities %}
+    <details class="compact-details">
+      <summary>Affected entities</summary>
+      <div class="tag-list">
+        {% for entity in finding.affected_entities %}
+        <code>{{ entity.entity_type }}:{{ entity.entity_id }}</code>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    <details class="compact-details" {% if loop.first %}open{% endif %}>
+      <summary>View evidence ({{ finding.evidence_count }})</summary>
+      <div class="evidence-stack">
+        {% for item in finding.evidence %}
+        {{ evidence_block(item, open=loop.first) }}
+        {% endfor %}
+      </div>
+    </details>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}

@@ -1,0 +1,51 @@
+{
+  "id": "CVE_CANDIDATES_ON_ASSET",
+  "version": "1.0.0",
+  "title": "Asset Technology Has Candidate CVE Mappings",
+  "severity": "medium",
+  "category": "Vulnerability Intelligence",
+  "description": "Technology fingerprints on the asset mapped to candidate CVEs requiring validation.",
+  "impact": "Candidate CVE matches can indicate elevated compromise risk if confirmed in exposed components.",
+  "likelihood": "Medium and dependent on version accuracy and control posture.",
+  "recommendations": [
+    "Validate component versions and affected deployment paths.",
+    "Prioritize remediation for internet-exposed vulnerable components.",
+    "Use patch management and continuous vulnerability verification."
+  ],
+  "references": [
+    "https://nvd.nist.gov/"
+  ],
+  "tags": [
+    "cve",
+    "asset",
+    "enrichment"
+  ],
+  "trigger": {
+    "entity_type": "asset",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "vuln.cve.candidates",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "vuln.cpe.candidate",
+      "vuln.cve.candidates"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.6,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Infrastructure",
+    "subtype": "CVE Candidate"
+  }
+}

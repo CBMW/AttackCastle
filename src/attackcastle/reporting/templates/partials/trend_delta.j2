@@ -1,0 +1,27 @@
+{% if ctx.trend.available %}
+<table aria-label="Trend delta summary" class="sortable">
+  <tbody>
+    <tr><th>Baseline Run</th><td>{{ ctx.trend.baseline_run_id }}</td></tr>
+    <tr><th>Latest Run</th><td>{{ ctx.trend.latest_run_id }}</td></tr>
+    <tr><th>Risk Score Delta</th><td>{{ ctx.trend.risk_score_delta }}</td></tr>
+    <tr><th>New Findings</th><td>{{ ctx.trend.new_findings|length }}</td></tr>
+    <tr><th>Resolved Findings</th><td>{{ ctx.trend.resolved_findings|length }}</td></tr>
+    <tr><th>New High Priority Leads</th><td>{{ ctx.trend.new_high_priority_leads|length }}</td></tr>
+    <tr><th>Resolved High Priority Leads</th><td>{{ ctx.trend.resolved_high_priority_leads|length }}</td></tr>
+    <tr><th>Unchanged Findings</th><td>{{ ctx.trend.unchanged_findings|length }}</td></tr>
+    <tr><th>Asset Delta</th><td>{{ ctx.trend.metric_delta.asset_count if ctx.trend.metric_delta else "-" }}</td></tr>
+    <tr><th>Service Delta</th><td>{{ ctx.trend.metric_delta.service_count if ctx.trend.metric_delta else "-" }}</td></tr>
+    <tr><th>Web App Delta</th><td>{{ ctx.trend.metric_delta.web_app_count if ctx.trend.metric_delta else "-" }}</td></tr>
+    <tr><th>Lead Delta</th><td>{{ ctx.trend.metric_delta.lead_count if ctx.trend.metric_delta else "-" }}</td></tr>
+    <tr><th>Changed Screenshots</th><td>{{ ctx.trend.metric_delta.changed_screenshot_count if ctx.trend.metric_delta else "-" }}</td></tr>
+  </tbody>
+</table>
+<div class="chart-wrap">
+  <div class="chart-column">
+    <h3>Risk Trend</h3>
+    <div id="trend-chart" class="bar-chart"></div>
+  </div>
+</div>
+{% else %}
+<p class="muted">No baseline run available for delta comparison yet.</p>
+{% endif %}

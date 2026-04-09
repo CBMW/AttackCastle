@@ -1,0 +1,51 @@
+{
+  "id": "EDGE_CONSOLE_EXPOSURE",
+  "version": "1.0.0",
+  "title": "Exposed Edge / Management Console",
+  "severity": "high",
+  "category": "Management Exposure",
+  "description": "A management, edge, search, broker, CI/CD, or container-related console appears reachable from the external surface.",
+  "impact": "Externally reachable management consoles can materially increase exploitation and credential attack risk, especially when they front infrastructure or orchestration platforms.",
+  "likelihood": "Medium to High depending on authentication strength, patch level, and intended exposure.",
+  "recommendations": [
+    "Restrict console exposure to trusted networks or VPN paths.",
+    "Review MFA, SSO, and administrative access controls for all exposed panels.",
+    "Validate versioning and patch posture for the exposed management surface."
+  ],
+  "references": [
+    "https://owasp.org/"
+  ],
+  "tags": [
+    "management",
+    "console",
+    "exposure"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.edge.console.exposed",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.edge.console.exposed",
+      "web.admin_interface"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.8,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Management Exposure"
+  }
+}

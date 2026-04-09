@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AttackCastle Report - {{ metadata.run_id }}</title>
+    <link rel="stylesheet" href="./assets/report.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <header class="hero">
+      <div class="hero-inner">
+        <div class="hero-topbar">
+          <span class="eyebrow">AttackCastle External Assessment</span>
+          <div class="hero-badges">
+            <span class="grade-badge grade-{{ summary.risk_grade|lower }}">Risk Grade {{ summary.risk_grade }}</span>
+            <span class="report-status-badge report-status-{{ completeness_status }}">
+              {{ completeness_status|title }}
+              {% if execution_issues_summary.total_count %}
+              <span>{{ execution_issues_summary.total_count }} issue(s)</span>
+              {% endif %}
+            </span>
+          </div>
+        </div>
+        <div class="hero-headline">
+          <div>
+            <h1>Evidence-backed external assessment report</h1>
+            <p class="hero-copy">
+              Consultant-first by default, with confirmed findings, attack surface, and remediation up front while deep diagnostics stay tucked into appendices.
+            </p>
+          </div>
+          <div class="hero-meta-card">
+            <div><span>Run</span><strong>{{ metadata.run_id }}</strong></div>
+            <div><span>Profile</span><strong>{{ metadata.profile }}</strong></div>
+            <div><span>Audience</span><strong>{{ audience }}</strong></div>
+            <div><span>Completeness</span><strong>{{ completeness_status|title }}</strong></div>
+            <div><span>Generated</span><strong>{{ generated_at }}</strong></div>
+          </div>
+        </div>
+        <div class="hero-target">
+          <span>Target Input</span>
+          <code>{{ metadata.target_input }}</code>
+        </div>
+      </div>
+    </header>
+
+    <div class="report-layout">
+      <aside class="side-nav" aria-label="Report navigation">
+        <div class="side-nav-top">
+          <h2>Report map</h2>
+          <p class="muted">Jump to the sections that matter most for review and remediation.</p>
+        </div>
+        <ul>
+          {% for section in sections %}
+          <li>
+            <a href="#section-{{ section.id }}">
+              <span>{{ section.title }}</span>
+              {% if section.summary %}
+              <small>{{ section.summary }}</small>
+              {% endif %}
+            </a>
+          </li>
+          {% endfor %}
+        </ul>
+      </aside>
+
+      <main id="main-content" class="container">
+        <section class="hero-metrics" aria-label="Top metrics">
+          <article class="metric-card emphasis">
+            <h3>Overall Risk</h3>
+            <p>{{ summary.risk_score }}/100</p>
+          </article>
+          <article class="metric-card">
+            <h3>Confirmed Findings</h3>
+            <p>{{ summary.finding_count }}</p>
+          </article>
+          <article class="metric-card">
+            <h3>Risky Services</h3>
+            <p>{{ summary.risky_service_count }}</p>
+          </article>
+          <article class="metric-card">
+            <h3>Attack Surface</h3>
+            <p>{{ summary.attack_surface_score }}</p>
+          </article>
+          <article class="metric-card">
+            <h3>Assets</h3>
+            <p>{{ summary.asset_count }}</p>
+          </article>
+          <article class="metric-card">
+            <h3>Internet-Facing Web Apps</h3>
+            <p>{{ summary.internet_facing_web_apps }}</p>
+          </article>
+        </section>
+
+        <section class="toolbar-card">
+          <div class="toolbar-row">
+            <div class="toolbar-block">
+              <label for="finding-severity-filter">Severity</label>
+              <select id="finding-severity-filter">
+                <option value="all">All</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+                <option value="info">Info</option>
+              </select>
+            </div>
+            <div class="toolbar-block">
+              <label for="finding-status-filter">Status</label>
+              <select id="finding-status-filter">
+                <option value="all">All</option>
+                <option value="confirmed" selected>Confirmed</option>
+                <option value="candidate">Candidate</option>
+              </select>
+            </div>
+            <div class="toolbar-block grow">
+              <label for="pivot-filter">Search report</label>
+              <input id="pivot-filter" type="text" placeholder="host, port, URL, technology, finding">
+            </div>
+            <div class="toolbar-actions">
+              <button id="finding-filter-reset" type="button">Reset filters</button>
+              <button id="pivot-filter-reset" type="button">Clear search</button>
+              <button id="expand-sections" type="button">Expand all</button>
+              <button id="collapse-sections" type="button">Collapse deep detail</button>
+            </div>
+          </div>
+          <div class="tab-row" id="section-tabs" aria-label="Section tabs">
+            <button type="button" class="tab-btn active" data-tab="all">All</button>
+            {% for group in section_groups %}
+            <button type="button" class="tab-btn" data-tab="{{ group }}">{{ group|title }}</button>
+            {% endfor %}
+          </div>
+        </section>
+
+        {% for section in sections %}
+        <section
+          class="report-section"
+          id="section-{{ section.id }}"
+          data-section-id="{{ section.id }}"
+          data-section-group="{{ section.group }}"
+        >
+          <details class="section-shell" {% if section.default_open %}open{% endif %}>
+            <summary class="section-shell-summary">
+              <div>
+                <p class="section-kicker">{{ section.group|title }}</p>
+                <h2>{{ section.title }}</h2>
+              </div>
+              {% if section.summary %}
+              <span class="section-summary-pill">{{ section.summary }}</span>
+              {% endif %}
+            </summary>
+            <div class="section-shell-body">
+              {% set ctx = section.context %}
+              {% include "partials/" + section.template %}
+            </div>
+          </details>
+        </section>
+        {% endfor %}
+      </main>
+    </div>
+
+    <script id="chart-data" type="application/json">
+      {
+        "severityCounts": {{ severity_counts | tojson }},
+        "serviceDistribution": {{ service_distribution | tojson }},
+        "riskDomains": {{ risk_domains | tojson }},
+        "serviceExposureBreakdown": {{ service_exposure_breakdown | tojson }},
+        "trendHistory": {{ trend.history | tojson }}
+      }
+    </script>
+    <script src="./assets/report.js"></script>
+  </body>
+</html>

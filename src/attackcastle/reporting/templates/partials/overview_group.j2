@@ -1,0 +1,33 @@
+<div class="section-intro">
+  <p class="muted">Start here for the assessment outcome, scope, risk posture, and the first remediation actions worth scheduling.</p>
+</div>
+
+<div class="section-stack">
+  {% with ctx=ctx.executive %}
+  {% include "partials/executive_summary.j2" %}
+  {% endwith %}
+
+  <h3>Scope And Context</h3>
+  {% with ctx=ctx.context %}
+  {% include "partials/scope.j2" %}
+  {% endwith %}
+
+  <h3>Risk Overview</h3>
+  {% with ctx=ctx.risk %}
+  {% include "partials/risk_overview.j2" %}
+  {% endwith %}
+
+  <h3>Prioritized Remediation</h3>
+  {% with ctx=ctx.remediation %}
+  {% include "partials/remediation.j2" %}
+  {% endwith %}
+
+  {% if ctx.stories.attack_stories %}
+  <details class="compact-details">
+    <summary>Attack Stories</summary>
+    {% with ctx=ctx.stories %}
+    {% include "partials/attack_stories.j2" %}
+    {% endwith %}
+  </details>
+  {% endif %}
+</div>

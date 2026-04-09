@@ -1,0 +1,18 @@
+{% if ctx.attack_stories %}
+<div class="story-grid">
+  {% for story in ctx.attack_stories %}
+  <article class="story-card severity-{{ story.severity }}">
+    <h3>{{ story.asset_name }} <small>(<code>{{ story.asset_id }}</code>)</small></h3>
+    <p>{{ story.narrative }}</p>
+    <h4>Chained Signals</h4>
+    <ol>
+      {% for step in story.steps %}
+      <li>{{ step }}</li>
+      {% endfor %}
+    </ol>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">No attack-chain narratives were generated from the current evidence set.</p>
+{% endif %}

@@ -1,0 +1,65 @@
+<div class="section-intro">
+  <p class="muted">This section keeps the exposed surface together: which assets are reachable, what services and web apps were observed, and which technologies shape the attack path.</p>
+</div>
+
+<h3>Exposure Matrix</h3>
+{% with ctx=ctx.exposure %}
+{% include "partials/exposure_matrix.j2" %}
+{% endwith %}
+
+<details class="compact-details">
+  <summary>Asset Groups</summary>
+  {% with ctx=ctx.asset_groups %}
+  {% include "partials/asset_groups.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Services</summary>
+  {% with ctx=ctx.services %}
+  {% include "partials/services.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Web Applications</summary>
+  {% with ctx=ctx.web %}
+  {% include "partials/web_apps.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>Endpoints, Parameters, And Replay Requests</summary>
+  <p class="muted">Endpoints: {{ ctx.endpoints.endpoints|length }} | Parameters: {{ ctx.parameters.parameters|length }} | Forms: {{ ctx.forms.forms|length }} | Login surfaces: {{ ctx.login_surfaces.login_surfaces|length }} | Replay requests: {{ ctx.replay_requests.replay_requests|length }}</p>
+  {% if ctx.replay_requests.replay_requests %}
+  <table class="data-table">
+    <thead>
+      <tr><th>Method</th><th>URL</th><th>Tags</th><th>Replay</th></tr>
+    </thead>
+    <tbody>
+      {% for row in ctx.replay_requests.replay_requests[:20] %}
+      <tr>
+        <td>{{ row.method }}</td>
+        <td>{{ row.url }}</td>
+        <td>{{ row.tags|join(', ') }}</td>
+        <td>{{ 'Yes' if row.replay_enabled else 'No' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</details>
+
+<details class="compact-details">
+  <summary>Technologies</summary>
+  {% with ctx=ctx.tech %}
+  {% include "partials/technologies.j2" %}
+  {% endwith %}
+</details>
+
+<details class="compact-details">
+  <summary>TLS And Certificates</summary>
+  {% with ctx=ctx.tls %}
+  {% include "partials/tls.j2" %}
+  {% endwith %}
+</details>

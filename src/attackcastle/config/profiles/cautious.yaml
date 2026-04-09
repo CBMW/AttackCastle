@@ -1,0 +1,35 @@
+profile:
+  name: cautious
+  description: "Low-noise, conservative scanning profile for initial external visibility."
+  concurrency: 1
+  delay_ms_between_requests: 500
+  max_noise_score: 4
+  nmap_args:
+    - "-sV"
+    - "--version-light"
+    - "-T2"
+  masscan_args:
+    - "--open-only"
+    - "--rate"
+    - "500"
+  whatweb_args:
+    - "-a"
+    - "1"
+  nikto_args:
+    - "-Tuning"
+    - "x"
+  nuclei_args:
+    - "-severity"
+    - "high,critical,medium"
+  sqlmap_args:
+    - "--threads"
+    - "1"
+    - "--technique"
+    - "BEUSTQ"
+  wpscan_args:
+    - "--plugins-detection"
+    - "passive"
+  enable_service_scripts: false
+
+scan:
+  risk_mode: safe-active

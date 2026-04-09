@@ -1,0 +1,52 @@
+{
+  "id": "OPEN_SMTP_RELAY_POSSIBLE",
+  "version": "1.0.0",
+  "title": "SMTP Relay Behavior Requires Immediate Review",
+  "severity": "high",
+  "category": "Email Security",
+  "description": "The mail service accepted relay-style SMTP commands without authentication during a bounded validation check.",
+  "impact": "Unauthenticated relay behavior can enable abuse, spam delivery, reputation damage, and downstream blacklisting.",
+  "likelihood": "High if the behavior is reproducible from external networks.",
+  "recommendations": [
+    "Disable unauthenticated relay behavior and review SMTP relay policy immediately.",
+    "Restrict relay permissions to trusted hosts, authenticated users, or explicit connectors only.",
+    "Review mail logs for evidence of abuse or misrouted relay traffic."
+  ],
+  "references": [
+    "https://cheatsheetseries.owasp.org/"
+  ],
+  "tags": [
+    "email",
+    "smtp",
+    "relay"
+  ],
+  "trigger": {
+    "entity_type": "service",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "mail.open_relay.possible",
+        "op": "eq",
+        "value": true
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "mail.open_relay.possible",
+      "service.validation.performed"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.9,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "External",
+    "subtype": "Mail Exposure"
+  }
+}

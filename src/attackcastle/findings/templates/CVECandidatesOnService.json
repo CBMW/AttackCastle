@@ -1,0 +1,51 @@
+{
+  "id": "CVE_CANDIDATES_ON_SERVICE",
+  "version": "1.0.0",
+  "title": "Service Has Candidate CVE Mappings",
+  "severity": "medium",
+  "category": "Vulnerability Intelligence",
+  "description": "Service fingerprinting mapped to one or more candidate CVEs requiring validation.",
+  "impact": "Known-vulnerability candidates may represent exploitable risk if version and exposure are confirmed.",
+  "likelihood": "Medium pending manual verification of affected versions and exploitability.",
+  "recommendations": [
+    "Validate software version and affected build details.",
+    "Prioritize high-severity CVEs for remediation or compensating controls.",
+    "Track CVE validation status in remediation workflow."
+  ],
+  "references": [
+    "https://nvd.nist.gov/"
+  ],
+  "tags": [
+    "cve",
+    "service",
+    "enrichment"
+  ],
+  "trigger": {
+    "entity_type": "service",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "vuln.cve.candidates",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "vuln.cpe.candidate",
+      "vuln.cve.candidates"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.6,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Network",
+    "subtype": "CVE Candidate"
+  }
+}

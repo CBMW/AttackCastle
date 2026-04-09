@@ -1,0 +1,50 @@
+{
+  "id": "EXPOSED_ADMIN_INTERFACE",
+  "version": "1.0.0",
+  "title": "Exposed Administrative Interface",
+  "severity": "high",
+  "category": "Web Exposure",
+  "description": "An externally reachable administrative interface was detected.",
+  "impact": "Public administrative interfaces can increase brute-force, credential stuffing, misconfiguration, and direct exploitation risk.",
+  "likelihood": "Medium to High depending on authentication strength and patch posture.",
+  "recommendations": [
+    "Restrict administrative access to trusted paths such as VPN or IP allowlists.",
+    "Enforce MFA and strong authentication controls.",
+    "Validate versioning, default credentials, and exposed management functions."
+  ],
+  "references": [
+    "https://owasp.org/www-project-top-ten/"
+  ],
+  "tags": [
+    "web",
+    "admin",
+    "exposure"
+  ],
+  "trigger": {
+    "entity_type": "web_app",
+    "logic": "all",
+    "conditions": [
+      {
+        "key": "web.admin_interface",
+        "op": "exists"
+      }
+    ]
+  },
+  "evidence_requirements": {
+    "min_items": 1,
+    "keys": [
+      "web.admin_interface"
+    ]
+  },
+  "corroboration": {
+    "min_observations": 1,
+    "min_distinct_sources": 1,
+    "min_confidence": 0.7,
+    "required_assertions": []
+  },
+  "plextrac": {
+    "status": "Open",
+    "type": "Web",
+    "subtype": "Exposure"
+  }
+}
