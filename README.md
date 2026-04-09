@@ -1,9 +1,6 @@
 # AttackCastle
 
 AttackCastle is an adaptive external security assessment tool for authorized testing.
-It accepts mixed scope input such as IPs, CIDRs, domains, wildcard domains, URLs, `host:port`, and ASNs, then turns that input into a staged workflow that discovers assets, checks services, correlates evidence, and builds reports.
-
-You can use it from the CLI or from the GUI. If you are new to the project, the GUI is the easiest place to start because it helps you launch scans, track results, and open reports without memorizing commands.
 
 At a high level, AttackCastle:
 
@@ -34,8 +31,6 @@ AttackCastle is for authorized security testing only.
 - Operators remain responsible for legal and contractual compliance.
 
 ## What AttackCastle Does
-
-AttackCastle is a modular orchestrator, not a single scanner.
 
 It combines scope intake, planning, scanning, evidence normalization, findings generation, and reporting in one workflow.
 
@@ -68,13 +63,6 @@ and AttackCastle will automatically choose task paths based on discovered facts 
 The default task chain is:
 
 `subdomain-enum -> resolve-hosts -> run-nmap -> probe-web -> discover-web -> detect-tls/analyze-services -> fingerprint-web -> assess-web/run-nuclei/run-framework-checks/run-sqlmap/run-wpscan -> enrich-cve -> generate-findings -> build-report`
-
-Important detail:
-
-- This is not a strict linear script.
-- Tasks are condition-gated and can be deferred/skipped.
-- New facts from earlier tasks unlock later tasks.
-- Matrix-gated tasks wait for technology triggers.
 
 ### Example: IP Or CIDR Input
 
