@@ -15,7 +15,7 @@ from attackcastle.adapters.base import (
 from attackcastle.adapters.nikto.parser import parse_nikto_json, parse_nikto_text
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, WebApplication, new_id, now_utc
-from attackcastle.normalization.correlator import collect_web_targets
+from attackcastle.normalization.correlator import collect_confirmed_web_targets
 from attackcastle.proxy import build_subprocess_env, command_text, nikto_proxy_args
 
 
@@ -46,7 +46,7 @@ class NiktoAdapter:
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
         nikto_path = shutil.which("nikto") or "nikto"
-        targets = collect_web_targets(run_data)
+        targets = collect_confirmed_web_targets(run_data)
         previews: list[str] = []
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
         for item in targets[:10]:
@@ -97,6 +97,23 @@ class NiktoAdapter:
         scanned_urls: list[str] = []
         total_issues = 0
 
+        if not bool(context.config.get("nikto", {}).get("enabled", True)):
+            ended_at = now_utc()
+            result.facts["nikto.available"] = False
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="nikto (disabled)",
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    status="skipped",
+                    execution_id=new_id("exec"),
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            return result
+
         if not nikto_path:
             ended_at = now_utc()
             result.warnings.append("nikto binary was not found in PATH. Skipping web vulnerability stage.")
@@ -121,7 +138,11 @@ class NiktoAdapter:
         limiter = getattr(context, "rate_limiter", None)
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
 
-        pending_targets = [target for target in collect_web_targets(run_data) if str(target["url"]) not in existing_scanned]
+        pending_targets = [
+            target
+            for target in collect_confirmed_web_targets(run_data)
+            if str(target["url"]) not in existing_scanned
+        ]
 
         def _scan_target(target: dict[str, str | int]) -> dict[str, Any]:
             partial = AdapterResult()

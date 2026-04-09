@@ -32,6 +32,8 @@ class TaskDefinition:
     time_budget_seconds: int | None = None
     stage: str = "general"
     preview_commands: Callable[[AdapterContext, RunData], list[str]] | None = None
+    repeatable_on_new_inputs: bool = False
+    input_signature: Callable[[RunData], str] | None = None
 
 
 @dataclass

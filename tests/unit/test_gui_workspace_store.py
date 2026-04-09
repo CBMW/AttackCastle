@@ -4,7 +4,14 @@ from pathlib import Path
 
 import json
 
-from attackcastle.gui.models import AuditEntry, Engagement, EntityNote, FindingState
+from attackcastle.gui.models import (
+    AuditEntry,
+    Engagement,
+    EntityNote,
+    FindingState,
+    OverviewChecklistItem,
+    WorkspaceOverviewState,
+)
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore
 
 
@@ -55,7 +62,7 @@ def test_workspace_store_recovers_from_non_object_payload(tmp_path: Path) -> Non
 
     payload = json.loads(store_path.read_text(encoding="utf-8"))
 
-    assert payload["version"] == 4
+    assert payload["version"] == 5
     assert isinstance(payload["workspaces"], list)
     assert payload["active_workspace_id"] == ""
     assert payload["finding_states"][NO_WORKSPACE_SCOPE_ID]["run_1"]["finding_1"]["status"] == "confirmed"
@@ -111,17 +118,45 @@ def test_workspace_store_round_trips_workspace_scoped_entity_notes(tmp_path: Pat
     assert loaded["asset|host|example.com|203.0.113.10|"].entity_kind == "asset"
 
 
-def test_workspace_store_upgrades_v2_payload_without_losing_data(tmp_path: Path) -> None:
+def test_workspace_store_round_trips_workspace_overview_state(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.json")
+    store.save_engagement(Engagement(engagement_id="eng_1", name="Client Alpha"))
+
+    state = WorkspaceOverviewState(
+        checklist_items=[
+            OverviewChecklistItem(
+                item_id="item-1",
+                label="Validate root scope",
+                completed=True,
+                created_at="2026-04-09T00:00:00+00:00",
+                updated_at="2026-04-09T00:10:00+00:00",
+            )
+        ],
+        notes="Operator note",
+    )
+    store.save_overview_state("eng_1", state)
+
+    loaded = store.load_overview_state("eng_1")
+
+    assert loaded.notes == "Operator note"
+    assert len(loaded.checklist_items) == 1
+    assert loaded.checklist_items[0].label == "Validate root scope"
+    assert loaded.checklist_items[0].completed is True
+
+
+def test_workspace_store_upgrades_v4_payload_without_losing_data(tmp_path: Path) -> None:
     store_path = tmp_path / "workspace.json"
     store_path.write_text(
         json.dumps(
             {
-                "version": 2,
+                "version": 4,
                 "active_workspace_id": "eng_1",
                 "workspaces": [{"workspace_id": "eng_1", "name": "Client Alpha"}],
                 "run_registry": {NO_WORKSPACE_SCOPE_ID: [], "eng_1": []},
                 "finding_states": {NO_WORKSPACE_SCOPE_ID: {}, "eng_1": {}},
+                "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}, "eng_1": {}},
                 "audit": {NO_WORKSPACE_SCOPE_ID: [], "eng_1": []},
+                "ui_layout": {},
                 "migration_state": {"completed": True},
             }
         ),
@@ -132,9 +167,10 @@ def test_workspace_store_upgrades_v2_payload_without_losing_data(tmp_path: Path)
     store.save_entity_note(EntityNote(signature="sig", entity_kind="asset", note="Tracked"), "eng_1")
 
     payload = json.loads(store_path.read_text(encoding="utf-8"))
-    assert payload["version"] == 4
+    assert payload["version"] == 5
     assert payload["workspaces"][0]["workspace_id"] == "eng_1"
     assert payload["entity_notes"]["eng_1"]["sig"]["note"] == "Tracked"
+    assert payload["overview_state"] == {}
 
 
 def test_workspace_store_round_trips_ui_layout_by_key_and_orientation(tmp_path: Path) -> None:

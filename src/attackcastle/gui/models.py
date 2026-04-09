@@ -297,6 +297,60 @@ class Workspace:
         self.workspace_id = value
 
 
+@dataclass(slots=True)
+class OverviewChecklistItem:
+    item_id: str
+    label: str
+    completed: bool = False
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "OverviewChecklistItem":
+        current = now_iso()
+        return cls(
+            item_id=str(payload.get("item_id", "")).strip(),
+            label=str(payload.get("label", "")).strip(),
+            completed=_coerce_bool(payload.get("completed", False), False),
+            created_at=str(payload.get("created_at", current)),
+            updated_at=str(payload.get("updated_at", current)),
+        )
+
+
+@dataclass(slots=True)
+class WorkspaceOverviewState:
+    checklist_items: list[OverviewChecklistItem] = field(default_factory=list)
+    notes: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "checklist_items": [item.to_dict() for item in self.checklist_items if item.item_id and item.label],
+            "notes": self.notes,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "WorkspaceOverviewState":
+        if not isinstance(payload, dict):
+            return cls()
+        raw_items = payload.get("checklist_items", [])
+        items: list[OverviewChecklistItem] = []
+        if isinstance(raw_items, list):
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    continue
+                item = OverviewChecklistItem.from_dict(raw_item)
+                if not item.item_id or not item.label:
+                    continue
+                items.append(item)
+        return cls(
+            checklist_items=items,
+            notes=str(payload.get("notes", "")),
+        )
+
+
 class Engagement(Workspace):
     def __init__(
         self,

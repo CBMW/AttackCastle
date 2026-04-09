@@ -22,7 +22,7 @@ from attackcastle.core.models import (
     now_utc,
 )
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event
-from attackcastle.normalization.correlator import collect_web_targets
+from attackcastle.normalization.correlator import collect_confirmed_web_targets
 
 UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -149,7 +149,10 @@ class RequestCaptureAdapter:
     cost_score = 2
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
-        return [f"capture canonical request GET {item['url']}" for item in collect_web_targets(run_data)[:20]]
+        return [
+            f"capture canonical request GET {item['url']}"
+            for item in collect_confirmed_web_targets(run_data)[:20]
+        ]
 
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         started_at = now_utc()

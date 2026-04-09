@@ -18,7 +18,7 @@ from attackcastle.adapters.nuclei.parser import parse_nuclei_jsonl
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, WebApplication, new_id, now_utc
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
-from attackcastle.normalization.correlator import collect_web_targets
+from attackcastle.normalization.correlator import collect_confirmed_web_targets
 from attackcastle.policy import risk_controls_from_context
 from attackcastle.proxy import build_subprocess_env, command_text as format_command_text, nuclei_proxy_args
 
@@ -64,7 +64,7 @@ class NucleiAdapter:
         risk_controls = risk_controls_from_context(context)
         previews: list[str] = []
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
-        for target in collect_web_targets(run_data)[:10]:
+        for target in collect_confirmed_web_targets(run_data)[:10]:
             url = str(target["url"])
             out_path = context.run_store.artifact_path(self.name, f"nuclei_{_safe_name(url)}.jsonl")
             command = self._build_command(
@@ -109,6 +109,23 @@ class NucleiAdapter:
         result = AdapterResult()
         nuclei_path = shutil.which("nuclei")
 
+        if not bool(context.config.get("nuclei", {}).get("enabled", True)):
+            ended_at = now_utc()
+            result.facts["nuclei.available"] = False
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="nuclei (disabled)",
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    status="skipped",
+                    execution_id=new_id("exec"),
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            return result
+
         if not nuclei_path:
             ended_at = now_utc()
             result.warnings.append("nuclei binary was not found in PATH. Skipping template scan stage.")
@@ -135,7 +152,11 @@ class NucleiAdapter:
         total_issues = 0
         limiter = getattr(context, "rate_limiter", None)
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
-        pending_targets = [target for target in collect_web_targets(run_data) if str(target["url"]) not in existing_scanned]
+        pending_targets = [
+            target
+            for target in collect_confirmed_web_targets(run_data)
+            if str(target["url"]) not in existing_scanned
+        ]
 
         def _scan_target(target: dict[str, str | int]) -> dict[str, Any]:
             partial = AdapterResult()

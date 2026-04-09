@@ -77,7 +77,28 @@ class WebProbeAdapter:
 
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         result = AdapterResult()
-        targets = collect_web_targets(run_data)
+        if not bool(context.config.get("web_probe", {}).get("enabled", True)):
+            started_at = now_utc()
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="httpx (disabled)",
+                    started_at=started_at,
+                    ended_at=now_utc(),
+                    status="skipped",
+                    execution_id=new_id("exec"),
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            result.facts["web_probe.available"] = False
+            return result
+        existing_scanned = set(run_data.facts.get("web_probe.scanned_urls", []))
+        targets = [
+            target
+            for target in collect_web_targets(run_data)
+            if str(target["url"]).strip() and str(target["url"]) not in existing_scanned
+        ]
         if not targets:
             return result
 
@@ -275,7 +296,7 @@ class WebProbeAdapter:
             "entities_updated": 0,
         }
         result.facts["web.probed_targets"] = created
-        result.facts["web_probe.scanned_urls"] = sorted(str(item["url"]) for item in targets)
+        result.facts["web_probe.scanned_urls"] = sorted(existing_scanned.union(str(item["url"]) for item in targets))
         context.audit.write(
             "adapter.completed",
             {"adapter": self.name, "probed_targets": created, "profile": policy.profile},

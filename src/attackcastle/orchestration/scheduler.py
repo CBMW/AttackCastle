@@ -35,6 +35,8 @@ from attackcastle.orchestration.task_graph import TaskDefinition, TaskExecutionS
 class ScheduledTask:
     definition: TaskDefinition
     attempt: int = 0
+    input_signature: str = ""
+    iteration: int = 1
 
 
 def _emit_adapter_result_runtime_events(context: AdapterContext, result: AdapterResult) -> None:
@@ -142,6 +144,8 @@ class WorkflowScheduler:
         capability_runtime: dict[str, float] = {}
         total_retries = 0
         waiting_reason_by_task: dict[str, str] = {}
+        last_input_signature_by_task: dict[str, str] = {}
+        last_iteration_by_task: dict[str, int] = {}
         paused = False
         pause_notice_emitted = False
         pause_event_emitted = False
@@ -151,9 +155,11 @@ class WorkflowScheduler:
             hard_concurrency = int(getattr(execution_controller, "hard_max_workers", hard_concurrency))
 
         pending: dict[str, ScheduledTask] = {
-            task.key: ScheduledTask(definition=task, attempt=0) for task in tasks if task.key not in completed
+            task.key: ScheduledTask(definition=task, attempt=0, iteration=1)
+            for task in tasks
+            if task.key not in completed
         }
-        running: dict[Future, tuple[TaskDefinition, int, object, str]] = {}
+        running: dict[Future, tuple[TaskDefinition, int, object, str, str, int]] = {}
         executor = ThreadPoolExecutor(max_workers=max(1, hard_concurrency))
 
         progress = (
@@ -179,10 +185,11 @@ class WorkflowScheduler:
         previous_int, previous_term = self._register_signal_handlers()
         try:
             with progress if progress is not None else nullcontext():
+                progress_total = max(1, len(tasks))
                 progress_id = (
                     progress.add_task(
                         "Running adaptive scan",
-                        total=max(1, len(tasks)),
+                        total=progress_total,
                         asset_count=0,
                         service_count=0,
                         finding_count=0,
@@ -225,11 +232,65 @@ class WorkflowScheduler:
 
                 update_live_metrics()
 
+                def current_input_signature(task: TaskDefinition) -> str:
+                    if task.input_signature is None:
+                        return ""
+                    try:
+                        return str(task.input_signature(run_data) or "")
+                    except Exception:
+                        return ""
+
+                def extend_progress_total() -> None:
+                    nonlocal progress_total
+                    progress_total += 1
+                    if progress is not None and progress_id is not None:
+                        progress.update(progress_id, total=progress_total)
+
+                def enqueue_repeatable_frontiers() -> None:
+                    running_keys = {running_task.key for running_task, *_rest in running.values()}
+                    for task in tasks:
+                        if not task.repeatable_on_new_inputs:
+                            continue
+                        if task.key in pending or task.key in running_keys:
+                            continue
+                        if not all(dep in completed for dep in task.dependencies):
+                            continue
+                        signature = current_input_signature(task)
+                        if not signature or signature == last_input_signature_by_task.get(task.key, ""):
+                            continue
+                        next_iteration = last_iteration_by_task.get(task.key, 1) + 1
+                        pending[task.key] = ScheduledTask(
+                            definition=task,
+                            attempt=0,
+                            input_signature=signature,
+                            iteration=next_iteration,
+                        )
+                        if task.key in completed:
+                            extend_progress_total()
+                        context.audit.write(
+                            "task.requeued",
+                            {
+                                "task": task.key,
+                                "input_signature": signature,
+                                "iteration": next_iteration,
+                            },
+                        )
+                        emit_runtime_event(
+                            context,
+                            "task.requeued",
+                            {
+                                "task": task.key,
+                                "label": task.label,
+                                "input_signature": signature,
+                                "iteration": next_iteration,
+                            },
+                        )
+
                 def process_done_futures() -> None:
                     nonlocal total_retries
                     done_futures = [future for future in list(running.keys()) if future.done()]
                     for future in done_futures:
-                        task, attempt, started_at, decision_reason = running.pop(future)
+                        task, attempt, started_at, decision_reason, input_signature, iteration = running.pop(future)
                         ended_at = now_utc()
                         error_message = None
                         status = TaskStatus.COMPLETED.value
@@ -272,7 +333,12 @@ class WorkflowScheduler:
                             capability_runtime[task.capability] = capability_runtime.get(task.capability, 0.0) + duration_seconds
                             retry_attempt = attempt + 1
                             if retry_attempt <= effective_retry_limit:
-                                pending[task.key] = ScheduledTask(definition=task, attempt=retry_attempt)
+                                pending[task.key] = ScheduledTask(
+                                    definition=task,
+                                    attempt=retry_attempt,
+                                    input_signature=input_signature,
+                                    iteration=iteration,
+                                )
                                 total_retries += 1
                                 status = TaskStatus.PENDING.value
                                 context.audit.write(
@@ -297,6 +363,8 @@ class WorkflowScheduler:
 
                         if status in terminal_status | {TaskStatus.FAILED.value, TaskStatus.BLOCKED.value}:
                             capability_runtime[task.capability] = capability_runtime.get(task.capability, 0.0) + duration_seconds
+                            last_input_signature_by_task[task.key] = input_signature
+                            last_iteration_by_task[task.key] = iteration
                             if execution_controller is not None and getattr(
                                 execution_controller,
                                 "is_enabled",
@@ -323,6 +391,8 @@ class WorkflowScheduler:
                                     "capability": task.capability,
                                     "stage": task.stage,
                                     "decision_reason": decision_reason,
+                                    "last_input_signature": input_signature,
+                                    "iteration": iteration,
                                 },
                             )
                             states.append(state)
@@ -341,6 +411,7 @@ class WorkflowScheduler:
                                     "status": status,
                                     "error": error_message,
                                     "attempt": attempt + 1,
+                                    "iteration": iteration,
                                     "run_id": run_data.metadata.run_id,
                                 },
                             )
@@ -353,6 +424,7 @@ class WorkflowScheduler:
                                     "status": status,
                                     "attempt": attempt + 1,
                                     "error": error_message,
+                                    "iteration": iteration,
                                 },
                             )
                             context.run_store.save_checkpoint(task.key, status, run_data)
@@ -362,8 +434,13 @@ class WorkflowScheduler:
                     task: TaskDefinition,
                     status: str,
                     reason: str,
+                    *,
+                    input_signature: str = "",
+                    iteration: int = 1,
                 ) -> None:
                     timestamp = now_utc()
+                    last_input_signature_by_task[task.key] = input_signature
+                    last_iteration_by_task[task.key] = iteration
                     states.append(
                         TaskExecutionState(
                             key=task.key,
@@ -371,7 +448,12 @@ class WorkflowScheduler:
                             status=status,
                             started_at=timestamp,
                             ended_at=timestamp,
-                            detail={"reason": reason, "capability": task.capability},
+                            detail={
+                                "reason": reason,
+                                "capability": task.capability,
+                                "last_input_signature": input_signature,
+                                "iteration": iteration,
+                            },
                         )
                     )
                     completed.add(task.key)
@@ -488,6 +570,7 @@ class WorkflowScheduler:
                             last_control_signature = signature
 
                     process_done_futures()
+                    enqueue_repeatable_frontiers()
 
                     if paused and not running:
                         if not pause_event_emitted:
@@ -682,6 +765,26 @@ class WorkflowScheduler:
                                 )
                             continue
 
+                        frontier_signature = item.input_signature
+                        if task.repeatable_on_new_inputs:
+                            frontier_signature = current_input_signature(task)
+                            if not frontier_signature:
+                                previous_reason = waiting_reason_by_task.get(task.key)
+                                wait_reason = "no_pending_inputs"
+                                if previous_reason != wait_reason:
+                                    waiting_reason_by_task[task.key] = wait_reason
+                                    context.audit.write(
+                                        "task.waiting",
+                                        {"task": task.key, "reason": wait_reason},
+                                    )
+                                    emit_runtime_event(
+                                        context,
+                                        "task.waiting",
+                                        {"task": task.key, "label": task.label, "reason": wait_reason},
+                                    )
+                                continue
+                            item.input_signature = frontier_signature
+
                         should_run, reason = task.should_run(run_data)
                         if not should_run:
                             # Keep pending until nothing else can change run facts.
@@ -716,7 +819,9 @@ class WorkflowScheduler:
                             stage_limit = adaptive_stage_limit
                         if isinstance(stage_limit, int) and stage_limit > 0:
                             current_stage_running = sum(
-                                1 for running_task, _, _, _ in running.values() if running_task.stage == task.stage
+                                1
+                                for running_task, *_rest in running.values()
+                                if running_task.stage == task.stage
                             )
                             if current_stage_running >= stage_limit:
                                 previous_reason = waiting_reason_by_task.get(task.key)
@@ -741,7 +846,7 @@ class WorkflowScheduler:
                         )() and execution_controller.is_heavy_capability(task.capability):
                             heavy_running = sum(
                                 1
-                                for running_task, _, _, _ in running.values()
+                                for running_task, *_rest in running.values()
                                 if execution_controller.is_heavy_capability(running_task.capability)
                             )
                             heavy_limit = int(execution_controller.heavy_process_limit())
@@ -768,6 +873,7 @@ class WorkflowScheduler:
                                 "task": task.key,
                                 "label": task.label,
                                 "attempt": item.attempt + 1,
+                                "iteration": item.iteration,
                                 "run_id": run_data.metadata.run_id,
                             },
                         )
@@ -779,6 +885,7 @@ class WorkflowScheduler:
                                 "label": task.label,
                                 "attempt": item.attempt + 1,
                                 "reason": reason,
+                                "iteration": item.iteration,
                             },
                         )
                         context.run_store.save_checkpoint(task.key, "running", run_data)
@@ -788,7 +895,14 @@ class WorkflowScheduler:
                             if self.emit_plain_logs:
                                 self.console.print(f"Starting: {task.label} (attempt={item.attempt + 1})")
                         future = executor.submit(task.runner, context, run_data)
-                        running[future] = (task, item.attempt, started_at, reason)
+                        running[future] = (
+                            task,
+                            item.attempt,
+                            started_at,
+                            reason,
+                            frontier_signature,
+                            item.iteration,
+                        )
                         capability_runs[task.capability] = capability_runs.get(task.capability, 0) + 1
                         pending.pop(key, None)
                         waiting_reason_by_task.pop(task.key, None)
@@ -796,7 +910,13 @@ class WorkflowScheduler:
                         pause_notice_emitted = False
                         context.audit.write(
                             "task.queued",
-                            {"task": task.key, "reason": reason, "attempt": item.attempt + 1},
+                            {
+                                "task": task.key,
+                                "reason": reason,
+                                "attempt": item.attempt + 1,
+                                "iteration": item.iteration,
+                                "input_signature": frontier_signature,
+                            },
                         )
                         emit_runtime_event(
                             context,
@@ -806,18 +926,27 @@ class WorkflowScheduler:
                                 "label": task.label,
                                 "reason": reason,
                                 "attempt": item.attempt + 1,
+                                "iteration": item.iteration,
                             },
                         )
                         update_live_metrics()
 
                     if not scheduled_any and not running and pending:
+                        enqueue_repeatable_frontiers()
                         # First pass: skip condition-blocked tasks with satisfied dependencies.
                         # This allows downstream tasks to proceed in the next scheduling cycle.
                         skipped_any = False
                         for key in list(pending.keys()):
-                            task = pending[key].definition
+                            item = pending[key]
+                            task = item.definition
                             if not all(dep in completed for dep in task.dependencies):
                                 continue
+                            frontier_signature = item.input_signature
+                            if task.repeatable_on_new_inputs:
+                                frontier_signature = current_input_signature(task)
+                                if not frontier_signature:
+                                    continue
+                                item.input_signature = frontier_signature
                             matrix_allowed, matrix_reason = task_allowed_by_matrix(
                                 task.key,
                                 run_data,
@@ -832,9 +961,16 @@ class WorkflowScheduler:
                                         status=TaskStatus.SKIPPED.value,
                                         started_at=timestamp,
                                         ended_at=timestamp,
-                                        detail={"reason": matrix_reason, "capability": task.capability},
+                                        detail={
+                                            "reason": matrix_reason,
+                                            "capability": task.capability,
+                                            "last_input_signature": frontier_signature,
+                                            "iteration": item.iteration,
+                                        },
                                     )
                                 )
+                                last_input_signature_by_task[task.key] = frontier_signature
+                                last_iteration_by_task[task.key] = item.iteration
                                 completed.add(task.key)
                                 pending.pop(key, None)
                                 waiting_reason_by_task.pop(task.key, None)
@@ -846,7 +982,12 @@ class WorkflowScheduler:
                                         self.console.print(f"{task.label}: skipped ({matrix_reason})")
                                 context.audit.write(
                                     "task.skipped",
-                                    {"task": task.key, "reason": matrix_reason},
+                                    {
+                                        "task": task.key,
+                                        "reason": matrix_reason,
+                                        "iteration": item.iteration,
+                                        "input_signature": frontier_signature,
+                                    },
                                 )
                                 continue
                             should_run, reason = task.should_run(run_data)
@@ -860,9 +1001,16 @@ class WorkflowScheduler:
                                     status=TaskStatus.SKIPPED.value,
                                     started_at=timestamp,
                                     ended_at=timestamp,
-                                    detail={"reason": reason, "capability": task.capability},
+                                    detail={
+                                        "reason": reason,
+                                        "capability": task.capability,
+                                        "last_input_signature": frontier_signature,
+                                        "iteration": item.iteration,
+                                    },
                                 )
                             )
+                            last_input_signature_by_task[task.key] = frontier_signature
+                            last_iteration_by_task[task.key] = item.iteration
                             completed.add(task.key)
                             pending.pop(key, None)
                             waiting_reason_by_task.pop(task.key, None)
@@ -874,7 +1022,12 @@ class WorkflowScheduler:
                                     self.console.print(f"{task.label}: skipped ({reason})")
                             context.audit.write(
                                 "task.skipped",
-                                {"task": task.key, "reason": reason},
+                                {
+                                    "task": task.key,
+                                    "reason": reason,
+                                    "iteration": item.iteration,
+                                    "input_signature": frontier_signature,
+                                },
                             )
 
                         if skipped_any:
@@ -882,7 +1035,9 @@ class WorkflowScheduler:
 
                         # Second pass: true dependency deadlock for whatever remains.
                         for key in list(pending.keys()):
-                            task = pending[key].definition
+                            item = pending[key]
+                            task = item.definition
+                            frontier_signature = item.input_signature
                             timestamp = now_utc()
                             skipped_reason = "dependency_deadlock"
                             states.append(
@@ -892,25 +1047,38 @@ class WorkflowScheduler:
                                     status=TaskStatus.SKIPPED.value,
                                     started_at=timestamp,
                                     ended_at=timestamp,
-                                    detail={"reason": skipped_reason, "capability": task.capability},
+                                    detail={
+                                        "reason": skipped_reason,
+                                        "capability": task.capability,
+                                        "last_input_signature": frontier_signature,
+                                        "iteration": item.iteration,
+                                    },
                                 )
                             )
+                            last_input_signature_by_task[task.key] = frontier_signature
+                            last_iteration_by_task[task.key] = item.iteration
                             completed.add(task.key)
                             pending.pop(key, None)
                             waiting_reason_by_task.pop(task.key, None)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:
-                                if self.emit_plain_logs:
-                                    self.console.print(f"{task.label}: skipped ({skipped_reason})")
+                                    if self.emit_plain_logs:
+                                        self.console.print(f"{task.label}: skipped ({skipped_reason})")
                             context.audit.write(
                                 "task.skipped",
-                                {"task": task.key, "reason": skipped_reason},
+                                {
+                                    "task": task.key,
+                                    "reason": skipped_reason,
+                                    "iteration": item.iteration,
+                                    "input_signature": frontier_signature,
+                                },
                             )
 
                     if running:
                         wait(running.keys(), timeout=0.1)
                         process_done_futures()
+                        enqueue_repeatable_frontiers()
 
                 if self._cancel_event.is_set():
                     timestamp = now_utc()

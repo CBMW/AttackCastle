@@ -16,7 +16,7 @@ from attackcastle.adapters.whatweb.parser import parse_whatweb_json, parse_whatw
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, Technology, WebApplication, new_id, now_utc
 from attackcastle.core.runtime_events import emit_entity_event
-from attackcastle.normalization.correlator import collect_web_targets
+from attackcastle.normalization.correlator import collect_confirmed_web_targets
 from attackcastle.proxy import build_subprocess_env, command_text, whatweb_proxy_args
 
 
@@ -48,7 +48,7 @@ class WhatWebAdapter:
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
         whatweb_path = shutil.which("whatweb") or "whatweb"
-        targets = collect_web_targets(run_data)
+        targets = collect_confirmed_web_targets(run_data)
         previews: list[str] = []
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
         for item in targets[:20]:
@@ -102,6 +102,22 @@ class WhatWebAdapter:
         discovered_wordpress = 0
         discovered_framework_signals = 0
 
+        if not bool(context.config.get("whatweb", {}).get("enabled", True)):
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="whatweb (disabled)",
+                    started_at=started_at,
+                    ended_at=now_utc(),
+                    status="skipped",
+                    execution_id=new_id("exec"),
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            result.facts["whatweb.available"] = False
+            return result
+
         if not whatweb_path:
             ended_at = now_utc()
             result.warnings.append("whatweb binary was not found in PATH. Skipping web fingerprint stage.")
@@ -126,7 +142,9 @@ class WhatWebAdapter:
         limiter = getattr(context, "rate_limiter", None)
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
 
-        pending_targets = [target for target in collect_web_targets(run_data) if str(target["url"]) not in existing_scanned]
+        pending_targets = [
+            target for target in collect_confirmed_web_targets(run_data) if str(target["url"]) not in existing_scanned
+        ]
 
         def _scan_target(target: dict[str, str | int]) -> dict[str, Any]:
             partial = AdapterResult()

@@ -6,8 +6,9 @@ import tempfile
 from pathlib import Path
 from time import monotonic
 from typing import Any
+from uuid import uuid4
 
-from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,8 +25,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QProgressBar,
     QPushButton,
+    QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
     QSplitter,
@@ -51,7 +52,6 @@ from attackcastle.gui.common import (
     build_workstation_stylesheet,
     configure_scroll_surface,
     ensure_table_defaults,
-    finding_metrics,
     format_duration,
     format_progress,
     progress_percent,
@@ -80,10 +80,12 @@ from attackcastle.gui.models import (
     FindingState,
     GuiProfile,
     MigrationState,
+    OverviewChecklistItem,
     RunRegistryEntry,
     RunSnapshot,
     ScanRequest,
     Workspace,
+    WorkspaceOverviewState,
     now_iso,
 )
 from attackcastle.gui.output_tab import OutputTab
@@ -94,6 +96,123 @@ from attackcastle.core.execution_issues import build_execution_issues, summarize
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore, ad_hoc_output_home
 from attackcastle.storage.run_store import RunStore
+
+
+class OverviewChecklistRow(QFrame):
+    toggled = Signal(str)
+    delete_requested = Signal(str)
+
+    def __init__(self, item: OverviewChecklistItem, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.item_id = item.item_id
+        self.setObjectName("overviewChecklistRow")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet(
+            """
+            QFrame#overviewChecklistRow {
+                background-color: rgba(255, 255, 255, 0.02);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 10px;
+            }
+            QFrame#overviewChecklistRow:hover {
+                border-color: rgba(111, 155, 255, 0.38);
+                background-color: rgba(111, 155, 255, 0.06);
+            }
+            """
+        )
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(10)
+
+        self.toggle_button = QPushButton("")
+        self.toggle_button.setCursor(Qt.PointingHandCursor)
+        self.toggle_button.setFixedSize(24, 24)
+        self.toggle_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.toggle_button.clicked.connect(lambda: self.toggled.emit(self.item_id))
+
+        self.label = QLabel(item.label)
+        self.label.setWordWrap(True)
+        self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        self.delete_button = QPushButton("X")
+        self.delete_button.setCursor(Qt.PointingHandCursor)
+        self.delete_button.setFixedSize(22, 22)
+        self.delete_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.delete_button.setToolTip("Delete checklist item")
+        self.delete_button.setVisible(False)
+        self.delete_button.clicked.connect(lambda: self.delete_requested.emit(self.item_id))
+        self.delete_button.setStyleSheet(
+            """
+            QPushButton {
+                border: none;
+                border-radius: 11px;
+                color: #f38b8b;
+                background-color: transparent;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                color: #ff9e9e;
+                background-color: rgba(255, 94, 94, 0.12);
+            }
+            """
+        )
+
+        layout.addWidget(self.toggle_button, 0, Qt.AlignTop)
+        layout.addWidget(self.label, 1)
+        layout.addWidget(self.delete_button, 0, Qt.AlignTop)
+        self.set_item(item)
+
+    def set_item(self, item: OverviewChecklistItem) -> None:
+        self.item_id = item.item_id
+        self.label.setText(item.label)
+        font = self.label.font()
+        font.setStrikeOut(item.completed)
+        self.label.setFont(font)
+        self.label.setStyleSheet("color: rgba(235, 240, 255, 0.72);" if item.completed else "")
+        self.toggle_button.setText("X" if item.completed else "")
+        self.toggle_button.setStyleSheet(
+            """
+            QPushButton {
+                border-radius: 12px;
+                border: 1px solid rgba(111, 155, 255, 0.42);
+                background-color: rgba(111, 155, 255, 0.18);
+                color: #8fd3ff;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: rgba(111, 155, 255, 0.28);
+                border-color: rgba(143, 211, 255, 0.66);
+            }
+            """
+            if item.completed
+            else """
+            QPushButton {
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.16);
+                background-color: transparent;
+                color: transparent;
+            }
+            QPushButton:hover {
+                border-color: rgba(111, 155, 255, 0.36);
+                background-color: rgba(111, 155, 255, 0.08);
+            }
+            """
+        )
+
+    def enterEvent(self, event: Any) -> None:  # noqa: N802
+        self.delete_button.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: Any) -> None:  # noqa: N802
+        self.delete_button.setVisible(False)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: Any) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            child = self.childAt(event.position().toPoint()) if hasattr(event, "position") else self.childAt(event.pos())
+            if child not in {self.delete_button, self.toggle_button}:
+                self.toggled.emit(self.item_id)
+        super().mousePressEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -129,6 +248,8 @@ class MainWindow(QMainWindow):
         self._run_snapshots: dict[str, RunSnapshot] = {}
         self._debug_dialogs: list[DebugLogDialog] = []
         self._selected_run_id: str | None = None
+        self._overview_state = WorkspaceOverviewState()
+        self._applying_overview_state = False
         self._geometry_synced_to_screen = False
         self._nav_order = ["workspaces", "runs", "assets", "findings", "profiles", "extensions", "settings"]
         self._page_indices: dict[str, int] = {}
@@ -141,6 +262,10 @@ class MainWindow(QMainWindow):
         self._refresh_timer.setInterval(1000)
         self._refresh_timer.timeout.connect(self._refresh_runs)
         self._refresh_timer.start()
+        self._overview_notes_timer = QTimer(self)
+        self._overview_notes_timer.setSingleShot(True)
+        self._overview_notes_timer.setInterval(300)
+        self._overview_notes_timer.timeout.connect(self._persist_overview_state)
         self._apply_styles()
         self._setup_shortcuts()
         self._sync_workspace_list()
@@ -201,24 +326,45 @@ class MainWindow(QMainWindow):
 
         self._arrange_run_filters(width)
         if hasattr(self, "runs_page_split"):
-            self.runs_page_split.setOrientation(Qt.Vertical)
-            self._apply_splitter_layout(
-                "runs_page_split",
-                [max(int(self.height() * 0.2), 160), max(int(self.height() * 0.62), 460)],
-            )
-        if hasattr(self, "runs_top_split"):
-            if width >= 1360:
-                self.runs_top_split.setOrientation(Qt.Horizontal)
-                self._apply_splitter_layout("runs_top_split", [max(int(width * 0.24), 300), max(int(width * 0.76), 720)])
+            if width >= 1520:
+                self.runs_page_split.setOrientation(Qt.Horizontal)
+                self._apply_splitter_layout(
+                    "runs_page_split",
+                    [max(int(width * 0.26), 320), max(int(width * 0.74), 900)],
+                )
             else:
+                self.runs_page_split.setOrientation(Qt.Vertical)
+                self._apply_splitter_layout(
+                    "runs_page_split",
+                    [max(int(self.height() * 0.22), 190), max(int(self.height() * 0.68), 500)],
+                )
+        if hasattr(self, "runs_top_split"):
+            if width >= 1520 or width < 1180:
                 self.runs_top_split.setOrientation(Qt.Vertical)
-                self._apply_splitter_layout("runs_top_split", [max(int(self.height() * 0.18), 150), max(int(self.height() * 0.22), 180)])
+                self._apply_splitter_layout(
+                    "runs_top_split",
+                    [max(int(self.height() * 0.16), 150), max(int(self.height() * 0.26), 220)],
+                )
+            else:
+                self.runs_top_split.setOrientation(Qt.Horizontal)
+                self._apply_splitter_layout(
+                    "runs_top_split",
+                    [max(int(width * 0.28), 280), max(int(width * 0.44), 420)],
+                )
         if hasattr(self, "runs_body_split"):
-            self.runs_body_split.setOrientation(Qt.Vertical)
-            self._apply_splitter_layout(
-                "runs_body_split",
-                [max(int(self.height() * 0.34), 240), max(int(self.height() * 0.5), 340)],
-            )
+            if width >= 1320:
+                self.runs_body_split.setOrientation(Qt.Horizontal)
+                content_width = max(int(width * (0.74 if width >= 1520 else 0.96)), 960)
+                self._apply_splitter_layout(
+                    "runs_body_split",
+                    [max(int(content_width * 0.42), 430), max(int(content_width * 0.58), 560)],
+                )
+            else:
+                self.runs_body_split.setOrientation(Qt.Vertical)
+                self._apply_splitter_layout(
+                    "runs_body_split",
+                    [max(int(self.height() * 0.34), 240), max(int(self.height() * 0.5), 340)],
+                )
         if hasattr(self, "settings_split"):
             self.settings_split.setOrientation(Qt.Vertical)
             self._apply_splitter_layout(
@@ -492,42 +638,95 @@ class MainWindow(QMainWindow):
         center_layout.addWidget(runs_panel, 1)
         self.workspace_primary_split.addWidget(center_panel)
 
-        self.workspace_brief = configure_scroll_surface(QTextEdit())
-        self.workspace_brief.setObjectName("richBrief")
-        self.workspace_brief.setReadOnly(True)
-        self.workspace_brief.setMinimumHeight(120)
-
-        self.run_progress_label = QLabel("No run selected")
-        self.run_progress_label.setObjectName("helperText")
-        self.run_progress_bar = QProgressBar()
-        self.run_progress_bar.setRange(0, 100)
-        self.run_progress_bar.setTextVisible(False)
-        self.run_progress_bar.setValue(0)
-        self.run_brief = configure_scroll_surface(QTextEdit())
-        self.run_brief.setObjectName("richBrief")
-        self.run_brief.setReadOnly(True)
-        self.run_brief.setMinimumHeight(120)
-
-        self.workspace_alerts_text = configure_scroll_surface(QTextEdit())
-        self.workspace_alerts_text.setObjectName("consoleText")
-        self.workspace_alerts_text.setReadOnly(True)
-        self.workspace_alerts_text.setMinimumHeight(140)
-
         inspector_body = QWidget()
         inspector_layout = QVBoxLayout(inspector_body)
         inspector_layout.setContentsMargins(0, 0, 0, 0)
         inspector_layout.setSpacing(10)
-        run_status_panel, run_status_layout = build_surface_frame(padding=12, spacing=8)
-        run_status_layout.addWidget(self.run_progress_label)
-        run_status_layout.addWidget(self.run_progress_bar)
-        inspector_layout.addWidget(run_status_panel)
-        inspector_layout.addWidget(self.workspace_brief, 1)
-        inspector_layout.addWidget(self.run_brief, 1)
-        inspector_layout.addWidget(self.workspace_alerts_text, 1)
+
+        checklist_panel, checklist_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
+        checklist_header = QLabel("Checklist")
+        checklist_header.setObjectName("sectionTitle")
+        checklist_hint = QLabel("Capture the operator's next steps for this workspace and mark them off as the engagement moves.")
+        checklist_hint.setObjectName("helperText")
+        checklist_hint.setWordWrap(True)
+        checklist_input_row = QHBoxLayout()
+        checklist_input_row.setContentsMargins(0, 0, 0, 0)
+        checklist_input_row.setSpacing(8)
+        self.overview_checklist_input = QLineEdit()
+        self.overview_checklist_input.setPlaceholderText("Add checklist item")
+        self.overview_checklist_input.returnPressed.connect(self._handle_overview_add_item)
+        self.overview_checklist_add_button = QPushButton("+")
+        self.overview_checklist_add_button.setCursor(Qt.PointingHandCursor)
+        self.overview_checklist_add_button.setFixedSize(34, 34)
+        self.overview_checklist_add_button.clicked.connect(self._handle_overview_add_item)
+        self.overview_checklist_add_button.setStyleSheet(
+            """
+            QPushButton {
+                border-radius: 17px;
+                border: 1px solid rgba(111, 155, 255, 0.46);
+                background-color: rgba(111, 155, 255, 0.16);
+                color: #dce7ff;
+                font-size: 18px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: rgba(111, 155, 255, 0.28);
+                border-color: rgba(143, 211, 255, 0.68);
+            }
+            """
+        )
+        checklist_input_row.addWidget(self.overview_checklist_input, 1)
+        checklist_input_row.addWidget(self.overview_checklist_add_button, 0, Qt.AlignTop)
+
+        self.overview_checklist_scroll = configure_scroll_surface(QScrollArea())
+        self.overview_checklist_scroll.setWidgetResizable(True)
+        self.overview_checklist_scroll.setFrameShape(QFrame.NoFrame)
+        self.overview_checklist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.overview_checklist_scroll.setMinimumHeight(180)
+        self.overview_checklist_container = QWidget()
+        self.overview_checklist_layout = QVBoxLayout(self.overview_checklist_container)
+        self.overview_checklist_layout.setContentsMargins(0, 0, 0, 0)
+        self.overview_checklist_layout.setSpacing(8)
+        self.overview_checklist_empty_label = QLabel("No checklist items yet. Add one above to start tracking the engagement.")
+        self.overview_checklist_empty_label.setObjectName("helperText")
+        self.overview_checklist_empty_label.setWordWrap(True)
+        self.overview_checklist_layout.addWidget(self.overview_checklist_empty_label)
+        self.overview_checklist_layout.addStretch(1)
+        self.overview_checklist_scroll.setWidget(self.overview_checklist_container)
+        self._overview_checklist_rows: dict[str, OverviewChecklistRow] = {}
+        checklist_layout.addWidget(checklist_header)
+        checklist_layout.addWidget(checklist_hint)
+        checklist_layout.addLayout(checklist_input_row)
+        checklist_layout.addWidget(self.overview_checklist_scroll, 1)
+
+        notes_panel, notes_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
+        notes_header = QLabel("Notes")
+        notes_header.setObjectName("sectionTitle")
+        notes_hint = QLabel("Keep engagement notes, handoff context, or operator reminders alongside the live workspace.")
+        notes_hint.setObjectName("helperText")
+        notes_hint.setWordWrap(True)
+        self.overview_notes_edit = configure_scroll_surface(QPlainTextEdit())
+        self.overview_notes_edit.setObjectName("consoleText")
+        self.overview_notes_edit.setPlaceholderText("Operator notes for this engagement...")
+        self.overview_notes_edit.textChanged.connect(self._handle_overview_notes_changed)
+        self.overview_notes_edit.setStyleSheet(
+            """
+            QPlainTextEdit#consoleText {
+                border-radius: 10px;
+                padding: 10px;
+            }
+            """
+        )
+        notes_layout.addWidget(notes_header)
+        notes_layout.addWidget(notes_hint)
+        notes_layout.addWidget(self.overview_notes_edit, 1)
+
+        inspector_layout.addWidget(checklist_panel, 1)
+        inspector_layout.addWidget(notes_panel, 1)
         inspector_panel, _inspector_title, _inspector_summary = build_inspector_panel(
-            "Selected Context",
+            "Operator Workspace",
             inspector_body,
-            summary_text="Workspace notes, selected run brief, and recent execution alerts stay docked here while the queue remains primary.",
+            summary_text="Checklist items and engagement notes stay pinned here for the current workspace while the run queue remains primary.",
         )
 
         content_split.addWidget(self.workspace_primary_split)
@@ -541,15 +740,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        header_panel, _header_title, _header_summary, self.runs_page_meta_label, _header_status = build_page_header(
-            "Scanner Operations",
-            "Launch new scans, control the selected run, and keep the live queue centered as the primary operator surface.",
-            meta_text="Run actions stay docked above the queue so the scanner detail can use the rest of the page.",
-        )
-        layout.addWidget(header_panel)
-
         launch_panel, launch_layout = build_surface_frame(spacing=10)
-        launch_helper = QLabel("Launch a new scan for the active workspace or continue in the current ad-hoc session.")
+        launch_helper = QLabel("Start a new scan in the active workspace or continue in the current ad-hoc session.")
         launch_helper.setObjectName("helperText")
         launch_helper.setWordWrap(True)
         self.start_scan_button = QPushButton("New Scan")
@@ -614,18 +806,14 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.run_actions_hint_label)
         self.runs_top_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
         self._register_splitter(self.runs_top_split, "runs_top_split")
-        self.runs_top_split.addWidget(self._wrap_group("Launch", launch_panel))
-        self.runs_top_split.addWidget(self._wrap_group("Run Actions", controls_panel))
-        runs_top_panel = QWidget()
-        runs_top_layout = QVBoxLayout(runs_top_panel)
-        runs_top_layout.setContentsMargins(0, 0, 0, 0)
-        runs_top_layout.setSpacing(0)
-        runs_top_layout.addWidget(self.runs_top_split)
+        self.runs_top_split.addWidget(self._wrap_group("Start New Scan", launch_panel))
+        self.runs_top_split.addWidget(self._wrap_group("Selected Run", controls_panel))
+        runs_control_panel = QWidget()
+        runs_control_layout = QVBoxLayout(runs_control_panel)
+        runs_control_layout.setContentsMargins(0, 0, 0, 0)
+        runs_control_layout.setSpacing(0)
+        runs_control_layout.addWidget(self.runs_top_split)
 
-        run_panel = QWidget()
-        run_layout = QVBoxLayout(run_panel)
-        run_layout.setContentsMargins(0, 0, 0, 0)
-        run_layout.setSpacing(12)
         self.run_filter_grid = QGridLayout()
         self.run_filter_grid.setHorizontalSpacing(10)
         self.run_filter_grid.setVerticalSpacing(10)
@@ -645,11 +833,13 @@ class MainWindow(QMainWindow):
             (QLabel("Search"), self.run_search_edit),
             (QLabel("State"), self.run_state_filter),
         ]
-        run_layout.addLayout(self.run_filter_grid)
+        run_toolbar, run_toolbar_layout = build_surface_frame(padding=0, spacing=8)
+        run_toolbar.setObjectName("toolbarPanel")
+        run_toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        run_toolbar_layout.addLayout(self.run_filter_grid)
         self.run_results_label = QLabel("Showing 0/0 runs")
         self.run_results_label.setObjectName("helperText")
         self.run_results_label.setWordWrap(True)
-        run_layout.addWidget(self.run_results_label)
         self.run_model = MappingTableModel(
             [
                 ("Scan Name", "scan_name"),
@@ -684,26 +874,27 @@ class MainWindow(QMainWindow):
             lambda point, view=self.run_table: self._open_run_context_menu(view, point)
         )
         set_tooltip(self.run_table, "Select a run to enable controls, or double-click to open it in Findings.")
-        run_layout.addWidget(self.run_table, 1)
         self.scanner_panel = ScannerPanel(layout_loader=self._load_ui_layout, layout_saver=self._save_ui_layout)
         self.scanner_panel.set_context_menu_handler(self._handle_scanner_context_menu)
         self.runs_body_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (3, 4))
         self._register_splitter(self.runs_body_split, "runs_body_split")
         run_queue_panel, _queue_title, _queue_summary = build_table_section(
             "Run Queue",
-            run_panel,
-            summary_text="The queue is the primary scanner workspace. Select a row to drive actions and detail tabs below.",
+            self.run_table,
+            summary_text="",
+            toolbar=run_toolbar,
+            status_label=self.run_results_label,
         )
         scanner_detail_panel, _scanner_title, _scanner_summary = build_inspector_panel(
             "Scanner Detail",
             self.scanner_panel,
-            summary_text="Tasks, tool runs, health, and audit detail stay docked below the queue.",
+            summary_text="",
         )
         self.runs_body_split.addWidget(run_queue_panel)
         self.runs_body_split.addWidget(scanner_detail_panel)
-        self.runs_page_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 6))
+        self.runs_page_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
         self._register_splitter(self.runs_page_split, "runs_page_split")
-        self.runs_page_split.addWidget(runs_top_panel)
+        self.runs_page_split.addWidget(runs_control_panel)
         self.runs_page_split.addWidget(self.runs_body_split)
         layout.addWidget(self.runs_page_split, 1)
         return page
@@ -1836,6 +2027,99 @@ class MainWindow(QMainWindow):
             details=note.to_dict(),
         )
 
+    def _load_current_overview_state(self, workspace_id: str) -> None:
+        self._overview_notes_timer.stop()
+        workspace_id = str(workspace_id or "").strip()
+        self._overview_state = (
+            self.workspace_store.load_overview_state(workspace_id)
+            if workspace_id
+            else WorkspaceOverviewState()
+        )
+        self._apply_overview_state_to_ui()
+
+    def _apply_overview_state_to_ui(self) -> None:
+        self._applying_overview_state = True
+        try:
+            self.overview_checklist_input.clear()
+            self._render_overview_checklist()
+            self.overview_notes_edit.setPlainText(self._overview_state.notes)
+        finally:
+            self._applying_overview_state = False
+
+    def _render_overview_checklist(self) -> None:
+        self._overview_checklist_rows = {}
+        while self.overview_checklist_layout.count():
+            item = self.overview_checklist_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        has_items = bool(self._overview_state.checklist_items)
+        self.overview_checklist_empty_label = QLabel(
+            "No checklist items yet. Add one above to start tracking the engagement."
+        )
+        self.overview_checklist_empty_label.setObjectName("helperText")
+        self.overview_checklist_empty_label.setWordWrap(True)
+        self.overview_checklist_empty_label.setVisible(not has_items)
+        self.overview_checklist_layout.addWidget(self.overview_checklist_empty_label)
+        for item in self._overview_state.checklist_items:
+            row = OverviewChecklistRow(item)
+            row.toggled.connect(self._toggle_overview_checklist_item)
+            row.delete_requested.connect(self._delete_overview_checklist_item)
+            self._overview_checklist_rows[item.item_id] = row
+            self.overview_checklist_layout.addWidget(row)
+        self.overview_checklist_layout.addStretch(1)
+
+    def _handle_overview_add_item(self) -> None:
+        self._add_overview_checklist_item(self.overview_checklist_input.text())
+
+    def _add_overview_checklist_item(self, label: str) -> None:
+        normalized = str(label or "").strip()
+        if not normalized:
+            self.overview_checklist_input.clear()
+            return
+        timestamp = now_iso()
+        self._overview_state.checklist_items.append(
+            OverviewChecklistItem(
+                item_id=uuid4().hex,
+                label=normalized,
+                completed=False,
+                created_at=timestamp,
+                updated_at=timestamp,
+            )
+        )
+        self._render_overview_checklist()
+        self.overview_checklist_input.clear()
+        self._persist_overview_state()
+
+    def _toggle_overview_checklist_item(self, item_id: str) -> None:
+        for item in self._overview_state.checklist_items:
+            if item.item_id != item_id:
+                continue
+            item.completed = not item.completed
+            item.updated_at = now_iso()
+            break
+        self._render_overview_checklist()
+        self._persist_overview_state()
+
+    def _delete_overview_checklist_item(self, item_id: str) -> None:
+        self._overview_state.checklist_items = [
+            item for item in self._overview_state.checklist_items if item.item_id != item_id
+        ]
+        self._render_overview_checklist()
+        self._persist_overview_state()
+
+    def _handle_overview_notes_changed(self) -> None:
+        if self._applying_overview_state:
+            return
+        self._overview_state.notes = self.overview_notes_edit.toPlainText()
+        if self._active_workspace_id:
+            self._overview_notes_timer.start()
+
+    def _persist_overview_state(self) -> None:
+        if not self._active_workspace_id:
+            return
+        self.workspace_store.save_overview_state(self._active_workspace_id, self._overview_state)
+
     def _start_scan_for_target(self, target_input: str, label: str = "") -> None:
         if self._switch_in_progress:
             return
@@ -1876,7 +2160,6 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self) -> None:
         self._refresh_context_panels()
-        self._refresh_workspace_alerts()
 
     def _refresh_audit_table(self) -> None:
         self.scanner_panel.set_audit_rows([entry.to_dict() for entry in reversed(self._audit_entries[-100:])])
@@ -2068,6 +2351,7 @@ class MainWindow(QMainWindow):
 
     def _load_workspace_state(self, workspace_id: str) -> None:
         workspace_id = str(workspace_id or "")
+        self._overview_notes_timer.stop()
         self._active_workspace_id = workspace_id
         self.workspace_store.set_active_workspace(workspace_id)
         self._workspaces = self.workspace_store.load_workspaces()
@@ -2090,6 +2374,7 @@ class MainWindow(QMainWindow):
             self._run_snapshots[snapshot.run_id] = snapshot
         self._selected_run_id = next(iter(self._run_snapshots), None)
         self._sync_workspace_list()
+        self._load_current_overview_state(workspace_id)
         self._refresh_audit_table()
         self._sync_run_table()
         self._refresh_dashboard()
@@ -2128,7 +2413,6 @@ class MainWindow(QMainWindow):
         if (workspace_id or "") == self._active_workspace_id:
             self._audit_entries = self.workspace_store.load_audit(workspace_id)
             self._refresh_audit_table()
-            self._refresh_workspace_alerts()
 
     # Compatibility wrappers while the rest of the GUI/tests fully rename away from engagement terminology.
     def _sync_engagement_list(self) -> None:
@@ -2145,86 +2429,7 @@ class MainWindow(QMainWindow):
         self._update_workspace_action_state()
 
     def _refresh_context_panels(self) -> None:
-        self._refresh_workspace_brief()
-        self._refresh_run_brief()
         self._refresh_header_context()
-        self._refresh_workspace_alerts()
-
-    def _refresh_workspace_alerts(self) -> None:
-        snapshot = self._selected_snapshot()
-        lines: list[str] = []
-        if snapshot is not None:
-            metrics = finding_metrics(snapshot.findings, self._finding_states_by_run.get(snapshot.run_id, {}))
-            issue_count = int(snapshot.execution_issues_summary.get("total_count", 0) or 0)
-            if metrics["critical_high"]:
-                lines.append(f"- {metrics['critical_high']} critical/high findings on {snapshot.scan_name}")
-            pending_validation = sum(
-                1
-                for finding in snapshot.findings
-                if (
-                    self._finding_states_by_run.get(snapshot.run_id, {}).get(str(finding.get("finding_id") or "")) is None
-                    or self._finding_states_by_run.get(snapshot.run_id, {}).get(str(finding.get("finding_id") or "")).status == "needs-validation"
-                )
-            )
-            if pending_validation:
-                lines.append(f"- {pending_validation} findings still need validation")
-            if issue_count:
-                lines.append(f"- {issue_count} execution issue(s) affecting completeness on {snapshot.scan_name}")
-        recent_failures = [item for item in self._run_snapshots.values() if item.state in {"failed", "blocked"}][:3]
-        for failed in recent_failures:
-            lines.append(f"- {failed.scan_name} is {title_case_label(failed.state)}")
-        if not lines:
-            lines.append("- No urgent operator alerts. Use quick filters in Findings to drill into triage queues.")
-        self.workspace_alerts_text.setPlainText("\n".join(lines))
-
-    def _refresh_workspace_brief(self) -> None:
-        workspace = self._active_workspace()
-        if workspace is None:
-            self.workspace_brief.setHtml(
-                f"<h3>No Workspace</h3><p>Ad-hoc session mode is active.</p><p><b>Home:</b> {ad_hoc_output_home()}<br>"
-                "<b>Saved Projects:</b> Use the workspace editor or startup chooser whenever you want project-scoped context.</p>"
-            )
-            return
-        active_runs = [item for item in self._run_snapshots.values() if item.state == "running"]
-        finding_total = sum(len(item.findings) for item in self._run_snapshots.values())
-        latest_audit = next(
-            (entry.summary for entry in reversed(self._audit_entries) if entry.workspace_id == workspace.workspace_id),
-            "No recent workspace activity.",
-        )
-        self.workspace_brief.setHtml(
-            f"<h3>{workspace.name}</h3>"
-            f"<p><b>Client:</b> {workspace.client_name or 'Unassigned'}<br>"
-            f"<b>Home:</b> {workspace.home_dir}<br>"
-            f"<b>Scope:</b> {workspace.scope_summary or 'Scope not documented yet.'}</p>"
-            f"<p><b>Operational Snapshot:</b> {len(self._run_snapshots)} tracked runs, {len(active_runs)} active, {finding_total} findings captured.</p>"
-            f"<p><b>Latest Activity:</b> {latest_audit}</p>"
-        )
-
-    def _refresh_run_brief(self) -> None:
-        snapshot = self._selected_snapshot()
-        if snapshot is None:
-            self.run_progress_label.setText("No run selected")
-            self.run_progress_bar.setValue(0)
-            self.run_brief.setHtml("<h3>Run Brief</h3><p>Select a run to review progress, triage posture, and current operator health.</p>")
-            return
-        metrics = finding_metrics(snapshot.findings, self._finding_states_by_run.get(snapshot.run_id, {}))
-        self.run_progress_label.setText(
-            f"{format_progress(snapshot.completed_tasks, snapshot.total_tasks)} | State: {title_case_label(snapshot.state)}"
-        )
-        self.run_progress_bar.setValue(progress_percent(snapshot.completed_tasks, snapshot.total_tasks))
-        self.run_brief.setHtml(
-            f"<h3>{snapshot.scan_name}</h3>"
-            f"<p><b>Workspace:</b> {snapshot.workspace_name or 'Ad-Hoc Session'}<br>"
-            f"<b>Target Summary:</b> {summarize_target_input(snapshot.target_input)}<br>"
-            f"<b>Current Task:</b> {snapshot.current_task}<br>"
-            f"<b>Elapsed:</b> {format_duration(snapshot.elapsed_seconds)} | <b>ETA:</b> {format_duration(snapshot.eta_seconds)}</p>"
-            f"<p><b>Triage Snapshot:</b> {metrics['critical_high']} critical/high, {metrics['report_ready']} report-ready, "
-            f"{metrics['confirmed']} confirmed findings.</p>"
-            f"<p><b>Execution Health:</b> {title_case_label(snapshot.completeness_status)} with "
-            f"{snapshot.execution_issues_summary.get('total_count', 0)} issue(s). Review Scanner &gt; Issues for detail.</p>"
-            f"<p><b>Surface:</b> {len(snapshot.assets)} assets, {len(snapshot.services)} services, {len(snapshot.web_apps)} web apps, "
-            f"{len(snapshot.technologies)} technologies.</p>"
-        )
 
     def _refresh_header_context(self) -> None:
         return

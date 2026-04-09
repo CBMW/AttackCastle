@@ -8,6 +8,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QProcess, QPoint, QRect, Qt
 from PySide6.QtGui import QShortcut
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton, QMenu
 
 from attackcastle.gui.main_window import MainWindow
@@ -29,6 +30,18 @@ def _make_window(tmp_path: Path) -> MainWindow:
         workspace_store=WorkspaceStore(tmp_path / "workspace.json"),
         extension_store=GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json"),
     )
+
+
+def _make_workspace_window(tmp_path: Path, active_workspace_id: str, *workspace_names: tuple[str, str]) -> tuple[MainWindow, WorkspaceStore]:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profile_store = GuiProfileStore(tmp_path / "profiles.json")
+    workspace_store = WorkspaceStore(tmp_path / "workspace.json")
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    for workspace_id, name in workspace_names:
+        workspace_store.save_engagement(Engagement(engagement_id=workspace_id, name=name))
+    workspace_store.set_active_workspace(active_workspace_id)
+    return MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store), workspace_store
 
 
 def test_navigation_defaults_to_workspace_and_uses_workflow_sections(tmp_path: Path) -> None:
@@ -412,8 +425,8 @@ def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path)
         workspace_titles = {group.title() for group in window.workspace_page.findChildren(QGroupBox)}
         scanner_titles = {group.title() for group in window.runs_page.findChildren(QGroupBox)}
 
-        assert "Launch" not in workspace_titles
-        assert "Launch" in scanner_titles
+        assert "Start New Scan" not in workspace_titles
+        assert "Start New Scan" in scanner_titles
         assert window.start_scan_button.parentWidget() is not None
         assert window.runs_page.isAncestorOf(window.start_scan_button)
     finally:
@@ -426,13 +439,11 @@ def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: 
 
     try:
         assert window.body_split.count() == 2
-        assert window.workspace_sidebar_split.count() == 2
+        assert window.workspace_primary_split.count() == 2
         assert window.runs_page_split.count() == 2
         assert window.runs_top_split.count() == 2
         assert window.runs_body_split.count() == 2
-        assert window.output_tab.content_split.count() == 2
         assert window.output_tab.main_split.count() == 2
-        assert window.assets_tab.content_split.count() == 2
         assert window.assets_tab.main_split.count() == 2
         assert window.settings_split.count() == 2
     finally:
@@ -550,7 +561,9 @@ def test_responsive_layout_uses_horizontal_splits_on_wide_width(tmp_path: Path) 
         window._sync_responsive_layouts()
 
         assert window.workspace_content_split.orientation() == Qt.Horizontal
-        assert window.runs_top_split.orientation() == Qt.Horizontal
+        assert window.runs_page_split.orientation() == Qt.Horizontal
+        assert window.runs_top_split.orientation() == Qt.Vertical
+        assert window.runs_body_split.orientation() == Qt.Horizontal
         assert window.output_tab.main_split.orientation() == Qt.Horizontal
     finally:
         window._refresh_timer.stop()
@@ -914,6 +927,134 @@ def test_workspace_tab_reflects_only_the_active_workspace(tmp_path: Path) -> Non
         assert not window.open_workspace_button.isVisible()
         assert not window.open_workspace_button.isEnabled()
         assert window.start_scan_button.isEnabled()
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_overview_checklist_add_updates_visible_rows(tmp_path: Path) -> None:
+    window, _store = _make_workspace_window(tmp_path, "eng_alpha", ("eng_alpha", "Alpha"))
+
+    try:
+        assert window.overview_checklist_input.text() == ""
+        assert len(window._overview_checklist_rows) == 0
+
+        window.overview_checklist_input.setText("Confirm scope boundaries")
+        window.overview_checklist_add_button.click()
+
+        assert len(window._overview_checklist_rows) == 1
+        assert window._overview_state.checklist_items[0].label == "Confirm scope boundaries"
+        assert window.overview_checklist_input.text() == ""
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_overview_checklist_row_click_toggles_completion(tmp_path: Path) -> None:
+    window, _store = _make_workspace_window(tmp_path, "eng_alpha", ("eng_alpha", "Alpha"))
+
+    try:
+        window._add_overview_checklist_item("Validate exclusions")
+        row = next(iter(window._overview_checklist_rows.values()))
+        window.show()
+        QApplication.processEvents()
+
+        QTest.mouseClick(row, Qt.LeftButton, pos=row.rect().center())
+
+        assert window._overview_state.checklist_items[0].completed is True
+        assert row.toggle_button.text() == "X"
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_overview_checklist_delete_removes_item(tmp_path: Path) -> None:
+    window, _store = _make_workspace_window(tmp_path, "eng_alpha", ("eng_alpha", "Alpha"))
+
+    try:
+        window._add_overview_checklist_item("Review attack path")
+        row = next(iter(window._overview_checklist_rows.values()))
+        row.delete_button.setVisible(True)
+        row.delete_button.click()
+
+        assert window._overview_state.checklist_items == []
+        assert len(window._overview_checklist_rows) == 0
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_workspace_overview_state_persists_across_window_reopen(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profile_store = GuiProfileStore(tmp_path / "profiles.json")
+    workspace_store = WorkspaceStore(tmp_path / "workspace.json")
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    workspace_store.save_engagement(Engagement(engagement_id="eng_alpha", name="Alpha"))
+    workspace_store.set_active_workspace("eng_alpha")
+
+    first = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+    try:
+        first._add_overview_checklist_item("Capture recon notes")
+        first.overview_notes_edit.setPlainText("Important operator context")
+        first._persist_overview_state()
+    finally:
+        first._refresh_timer.stop()
+        first.close()
+
+    second = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+    try:
+        assert len(second._overview_state.checklist_items) == 1
+        assert second._overview_state.checklist_items[0].label == "Capture recon notes"
+        assert second.overview_notes_edit.toPlainText() == "Important operator context"
+    finally:
+        second._refresh_timer.stop()
+        second.close()
+
+
+def test_ad_hoc_overview_state_does_not_persist_across_window_reopen(tmp_path: Path) -> None:
+    first = _make_window(tmp_path)
+    try:
+        first._add_overview_checklist_item("Temporary ad-hoc note")
+        first.overview_notes_edit.setPlainText("Lost on refresh")
+    finally:
+        first._refresh_timer.stop()
+        first.close()
+
+    second = _make_window(tmp_path)
+    try:
+        assert second._overview_state.checklist_items == []
+        assert second.overview_notes_edit.toPlainText() == ""
+    finally:
+        second._refresh_timer.stop()
+        second.close()
+
+
+def test_workspace_switch_swaps_overview_state_between_saved_workspaces(tmp_path: Path) -> None:
+    window, _store = _make_workspace_window(
+        tmp_path,
+        "eng_alpha",
+        ("eng_alpha", "Alpha"),
+        ("eng_beta", "Beta"),
+    )
+
+    try:
+        window._add_overview_checklist_item("Alpha task")
+        window.overview_notes_edit.setPlainText("Alpha notes")
+        window._persist_overview_state()
+
+        assert window._switch_workspace("eng_beta") is True
+        assert window._overview_state.checklist_items == []
+        assert window.overview_notes_edit.toPlainText() == ""
+
+        window._add_overview_checklist_item("Beta task")
+        window.overview_notes_edit.setPlainText("Beta notes")
+        window._persist_overview_state()
+
+        assert window._switch_workspace("eng_alpha") is True
+        assert len(window._overview_state.checklist_items) == 1
+        assert window._overview_state.checklist_items[0].label == "Alpha task"
+        assert window.overview_notes_edit.toPlainText() == "Alpha notes"
     finally:
         window._refresh_timer.stop()
         window.close()

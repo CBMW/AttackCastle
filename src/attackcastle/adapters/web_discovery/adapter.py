@@ -24,7 +24,7 @@ from attackcastle.adapters.web_discovery.parser import (
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, Technology, WebApplication, new_id, now_utc
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
-from attackcastle.normalization.correlator import collect_web_targets
+from attackcastle.normalization.correlator import collect_confirmed_web_targets
 from attackcastle.proxy import open_url
 
 BLOCKING_STATUS_CODES = {403, 406, 429, 503}
@@ -100,7 +100,7 @@ class WebDiscoveryAdapter:
     cost_score = 5
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
-        return [f"crawl {item['url']}" for item in collect_web_targets(run_data)[:25]]
+        return [f"crawl {item['url']}" for item in collect_confirmed_web_targets(run_data)[:25]]
 
     def _ensure_web_entity(
         self,
@@ -244,7 +244,7 @@ class WebDiscoveryAdapter:
         total_libraries = 0
         coverage_gaps: list[dict[str, Any]] = []
 
-        for target in collect_web_targets(run_data):
+        for target in collect_confirmed_web_targets(run_data):
             base_url = str(target["url"])
             if base_url in existing_scanned:
                 continue

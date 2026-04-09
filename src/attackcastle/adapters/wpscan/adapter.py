@@ -131,6 +131,23 @@ class WPScanAdapter:
         result = AdapterResult()
         wpscan_path = shutil.which("wpscan")
 
+        if not bool(context.config.get("wpscan", {}).get("enabled", True)):
+            ended_at = now_utc()
+            result.facts["wpscan.available"] = False
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="wpscan (disabled)",
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    status="skipped",
+                    execution_id=new_id("exec"),
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            return result
+
         if not wpscan_path:
             ended_at = now_utc()
             result.warnings.append("wpscan binary was not found in PATH. Skipping WordPress scan stage.")

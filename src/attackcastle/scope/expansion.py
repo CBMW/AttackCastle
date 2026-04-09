@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+from urllib.parse import urlsplit
 
 from attackcastle.core.enums import TargetType
 from attackcastle.core.models import RunData, ScanTarget
@@ -29,22 +30,39 @@ def normalize_target_for_host_scan(target: ScanTarget) -> str | None:
     return target.value
 
 
+def normalize_host_scan_value(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    candidate = text
+    if "://" in candidate:
+        candidate = urlsplit(candidate).hostname or ""
+    elif "/" in candidate or " " in candidate:
+        return None
+    candidate = candidate.strip().lower().rstrip(".")
+    if not candidate:
+        return None
+    return candidate
+
+
 def collect_host_scan_targets(run_data: RunData) -> list[str]:
     targets: set[str] = set()
     for target in run_data.scope:
-        normalized = normalize_target_for_host_scan(target)
+        normalized = normalize_host_scan_value(normalize_target_for_host_scan(target))
         if normalized:
             targets.add(normalized)
-    if targets:
-        return sorted(targets)
-
-    fallback: set[str] = set()
     for asset in run_data.assets:
-        if asset.ip:
-            fallback.add(asset.ip)
-        elif asset.name:
-            fallback.add(asset.name)
-    return sorted(fallback)
+        for candidate in (asset.ip, asset.name, *list(asset.aliases)):
+            normalized = normalize_host_scan_value(candidate)
+            if normalized:
+                targets.add(normalized)
+    discovered_hosts = run_data.facts.get("subdomain_enum.discovered_hosts", [])
+    if isinstance(discovered_hosts, list):
+        for candidate in discovered_hosts:
+            normalized = normalize_host_scan_value(str(candidate or ""))
+            if normalized:
+                targets.add(normalized)
+    return sorted(targets)
 
 
 def collect_network_targets(run_data: RunData) -> list[str]:

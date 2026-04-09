@@ -4,9 +4,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-from attackcastle.gui.models import AuditEntry, EntityNote, FindingState, MigrationState, RunRegistryEntry, Workspace, now_iso
+from attackcastle.gui.models import (
+    AuditEntry,
+    EntityNote,
+    FindingState,
+    MigrationState,
+    RunRegistryEntry,
+    Workspace,
+    WorkspaceOverviewState,
+    now_iso,
+)
 
-WORKSPACE_STORE_VERSION = 4
+WORKSPACE_STORE_VERSION = 5
 LEGACY_WORKSPACE_STORE_VERSION = 2
 NO_WORKSPACE_SCOPE_ID = "__no_workspace__"
 
@@ -40,9 +49,17 @@ def _workspace_has_meaningful_data(workspace: Workspace, payload: dict[str, Any]
         )
     ):
         return True
-    for section_name in ("run_registry", "finding_states", "entity_notes", "audit"):
+    for section_name in ("run_registry", "finding_states", "entity_notes", "audit", "overview_state"):
         section = payload.get(section_name, {})
-        if isinstance(section, dict) and section.get(workspace.workspace_id):
+        if not isinstance(section, dict):
+            continue
+        workspace_section = section.get(workspace.workspace_id)
+        if section_name == "overview_state":
+            state = WorkspaceOverviewState.from_dict(workspace_section if isinstance(workspace_section, dict) else {})
+            if state.notes.strip() or state.checklist_items:
+                return True
+            continue
+        if workspace_section:
             return True
     return False
 
@@ -65,6 +82,7 @@ def _default_payload() -> dict[str, Any]:
         "finding_states": {NO_WORKSPACE_SCOPE_ID: {}},
         "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}},
         "audit": {NO_WORKSPACE_SCOPE_ID: []},
+        "overview_state": {},
         "ui_layout": {},
         "migration_state": MigrationState(completed=True).to_dict(),
     }
@@ -148,6 +166,7 @@ class WorkspaceStore:
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), workspaces)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
+        payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
         payload["ui_layout"] = self._normalized_ui_layout(payload.get("ui_layout"))
         migration_state = MigrationState.from_dict(payload.get("migration_state", {}))
         if version < WORKSPACE_STORE_VERSION:
@@ -271,6 +290,19 @@ class WorkspaceStore:
             result[workspace_id] = normalized_rows[-500:]
         return result
 
+    def _normalized_overview_state(self, raw: Any, workspaces: list[Workspace]) -> dict[str, dict[str, Any]]:
+        valid_ids = {workspace.workspace_id for workspace in workspaces}
+        result: dict[str, dict[str, Any]] = {}
+        if not isinstance(raw, dict):
+            return result
+        for workspace_id, payload in raw.items():
+            if workspace_id not in valid_ids or not isinstance(payload, dict):
+                continue
+            state = WorkspaceOverviewState.from_dict(payload)
+            if state.notes.strip() or state.checklist_items:
+                result[workspace_id] = state.to_dict()
+        return result
+
     def load_workspaces(self) -> list[Workspace]:
         payload = self._read_payload()
         if not _uses_workspace_model(payload):
@@ -311,6 +343,7 @@ class WorkspaceStore:
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), remaining)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), remaining)
         payload["audit"] = self._normalized_audit(payload.get("audit"), remaining)
+        payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), remaining)
         if not str(payload.get("active_workspace_id") or ""):
             payload["active_workspace_id"] = workspace.workspace_id
         return self._write_payload(payload)
@@ -323,6 +356,7 @@ class WorkspaceStore:
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), workspaces)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
+        payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
         if str(payload.get("active_workspace_id") or "") == workspace_id:
             payload["active_workspace_id"] = workspaces[0].workspace_id if workspaces else ""
         return self._write_payload(payload)
@@ -582,6 +616,36 @@ class WorkspaceStore:
         layout[orientation_key] = normalized_sizes
         return self._write_payload(payload)
 
+    def load_overview_state(self, workspace_id: str | None = None) -> WorkspaceOverviewState:
+        normalized = self._normalized_payload()
+        raw = normalized.get("overview_state", {})
+        if not isinstance(raw, dict):
+            return WorkspaceOverviewState()
+        if workspace_id is None:
+            workspace_id = self.get_active_workspace_id()
+        workspace_id = str(workspace_id or "").strip()
+        if not workspace_id:
+            return WorkspaceOverviewState()
+        payload = raw.get(workspace_id, {})
+        return WorkspaceOverviewState.from_dict(payload if isinstance(payload, dict) else {})
+
+    def save_overview_state(self, workspace_id: str | None, state: WorkspaceOverviewState) -> Path:
+        if not isinstance(state, WorkspaceOverviewState):
+            raise TypeError("state must be a WorkspaceOverviewState")
+        workspace_id = str(workspace_id or "").strip()
+        if not workspace_id:
+            return self.path
+        payload = self._normalized_payload()
+        overview_state = payload.setdefault("overview_state", {})
+        if not isinstance(overview_state, dict):
+            overview_state = {}
+            payload["overview_state"] = overview_state
+        if state.notes.strip() or state.checklist_items:
+            overview_state[workspace_id] = state.to_dict()
+        else:
+            overview_state.pop(workspace_id, None)
+        return self._write_payload(payload)
+
     def apply_migration(
         self,
         *,
@@ -612,6 +676,7 @@ class WorkspaceStore:
                 workspace_id: [entry.to_dict() for entry in rows[-500:]]
                 for workspace_id, rows in audit.items()
             },
+            "overview_state": {},
             "ui_layout": {},
             "migration_state": MigrationState(
                 completed=True,

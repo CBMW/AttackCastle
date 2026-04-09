@@ -1,13 +1,36 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import urlparse, urlsplit
 
 from attackcastle.core.enums import TargetType
 from attackcastle.core.models import RunData
+from attackcastle.scope.expansion import is_ip_literal
 
 HTTP_LIKE_PORTS = {80, 443, 8000, 8080, 8443}
 TLS_LIKE_PORTS = {443, 465, 587, 993, 995, 8443}
+COMMON_WEB_PROMOTION_PORTS = (443, 80, 8443, 8080)
+
+
+def _normalize_hostname(value: str | None) -> str:
+    host = str(value or "").strip().lower().rstrip(".")
+    return host if host and not is_ip_literal(host) else ""
+
+
+def _normalize_url(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    host = (parsed.hostname or "").lower()
+    if not parsed.scheme or not host:
+        return raw
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{host}:{parsed.port}"
+    path = parsed.path or "/"
+    return f"{parsed.scheme.lower()}://{netloc}{path}" + (f"?{parsed.query}" if parsed.query else "")
 
 
 def _asset_lookup(run_data: RunData) -> dict[str, str]:
@@ -20,25 +43,120 @@ def _asset_lookup(run_data: RunData) -> dict[str, str]:
     return lookup
 
 
+def _asset_graph(run_data: RunData) -> tuple[dict[str, Any], dict[str, list[Any]]]:
+    asset_by_id = {asset.asset_id: asset for asset in run_data.assets}
+    children_by_parent: dict[str, list[Any]] = defaultdict(list)
+    for asset in run_data.assets:
+        parent_asset_id = str(asset.parent_asset_id or "").strip()
+        if parent_asset_id:
+            children_by_parent[parent_asset_id].append(asset)
+    return asset_by_id, children_by_parent
+
+
+def _service_hostnames(run_data: RunData, asset_id: str) -> list[str]:
+    asset_by_id, children_by_parent = _asset_graph(run_data)
+    hostnames: list[str] = []
+    seen: set[str] = set()
+
+    def _append(value: str | None) -> None:
+        normalized = _normalize_hostname(value)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            hostnames.append(normalized)
+
+    asset = asset_by_id.get(asset_id)
+    if asset is not None:
+        _append(asset.name)
+        for alias in getattr(asset, "aliases", []):
+            _append(alias)
+        parent_asset_id = str(asset.parent_asset_id or "").strip()
+        if parent_asset_id:
+            parent = asset_by_id.get(parent_asset_id)
+            if parent is not None:
+                _append(parent.name)
+                for alias in getattr(parent, "aliases", []):
+                    _append(alias)
+        for child in children_by_parent.get(asset.asset_id, []):
+            _append(child.name)
+            for alias in getattr(child, "aliases", []):
+                _append(alias)
+    return hostnames
+
+
+def _candidate_web_hosts(run_data: RunData) -> list[str]:
+    hosts: list[str] = []
+    seen: set[str] = set()
+
+    def _append(value: str | None) -> None:
+        normalized = _normalize_hostname(value)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            hosts.append(normalized)
+
+    for scope_target in run_data.scope:
+        if scope_target.target_type in {
+            TargetType.DOMAIN,
+            TargetType.WILDCARD_DOMAIN,
+            TargetType.URL,
+            TargetType.HOST_PORT,
+        }:
+            _append(scope_target.host or scope_target.value)
+            for alias in scope_target.aliases:
+                _append(alias)
+
+    for asset in run_data.assets:
+        if asset.kind in {"domain", "scope_target"} or not asset.ip:
+            _append(asset.name)
+            for alias in getattr(asset, "aliases", []):
+                _append(alias)
+
+    discovered_hosts = run_data.facts.get("subdomain_enum.discovered_hosts", [])
+    if isinstance(discovered_hosts, list):
+        for host in discovered_hosts:
+            _append(str(host or ""))
+
+    return hosts
+
+
+def _add_target(
+    targets: list[dict[str, str | int]],
+    seen: set[str],
+    *,
+    url: str,
+    asset_id: str = "",
+    service_id: str = "",
+    webapp_id: str = "",
+    candidate_source: str = "",
+) -> None:
+    normalized_url = _normalize_url(url)
+    if not normalized_url or normalized_url in seen:
+        return
+    seen.add(normalized_url)
+    row: dict[str, str | int] = {
+        "url": normalized_url,
+        "asset_id": asset_id,
+        "service_id": service_id,
+    }
+    if webapp_id:
+        row["webapp_id"] = webapp_id
+    if candidate_source:
+        row["candidate_source"] = candidate_source
+    targets.append(row)
+
+
 def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
     targets: list[dict[str, str | int]] = []
-    seen = set()
-    assets = _asset_lookup(run_data)
+    seen: set[str] = set()
 
     for scope_target in run_data.scope:
         if scope_target.target_type == TargetType.URL:
-            parsed = urlparse(scope_target.value)
-            url = scope_target.value
-            key = ("scope", url)
-            if key not in seen:
-                seen.add(key)
-                targets.append(
-                    {
-                        "url": url,
-                        "asset_id": scope_target.target_id,
-                        "service_id": "",
-                    }
-                )
+            _add_target(
+                targets,
+                seen,
+                url=scope_target.value,
+                asset_id=scope_target.target_id,
+                candidate_source="scope_url",
+            )
         elif (
             scope_target.target_type == TargetType.HOST_PORT
             and scope_target.host
@@ -51,40 +169,57 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
                 url = f"{scheme}://{scope_target.host}"
             else:
                 url = f"{scheme}://{scope_target.host}:{scope_target.port}"
-            key = ("scope", url)
-            if key not in seen:
-                seen.add(key)
-                targets.append(
-                    {
-                        "url": url,
-                        "asset_id": scope_target.target_id,
-                        "service_id": "",
-                    }
-                )
+            _add_target(
+                targets,
+                seen,
+                url=url,
+                asset_id=scope_target.target_id,
+                candidate_source="scope_host_port",
+            )
 
     for service in run_data.services:
         name = (service.name or "").lower()
         if service.port in HTTP_LIKE_PORTS or "http" in name:
-            host = assets.get(service.asset_id)
-            if not host:
-                continue
             scheme = "https" if service.port in {443, 8443} or "https" in name else "http"
-            if (scheme == "http" and service.port == 80) or (
-                scheme == "https" and service.port == 443
-            ):
+            service_hosts = _service_hostnames(run_data, service.asset_id)
+            fallback_host = _asset_lookup(run_data).get(service.asset_id)
+            if fallback_host and not service_hosts:
+                service_hosts = [fallback_host]
+            for host in service_hosts:
+                if (scheme == "http" and service.port == 80) or (
+                    scheme == "https" and service.port == 443
+                ):
+                    url = f"{scheme}://{host}"
+                else:
+                    url = f"{scheme}://{host}:{service.port}"
+                _add_target(
+                    targets,
+                    seen,
+                    url=url,
+                    asset_id=service.asset_id,
+                    service_id=service.service_id,
+                    candidate_source="service",
+                )
+
+    normalized_confirmed_urls = {
+        _normalize_url(str(web_app.url or "").strip())
+        for web_app in run_data.web_apps
+        if str(web_app.url or "").strip()
+    }
+    for host in _candidate_web_hosts(run_data):
+        for port in COMMON_WEB_PROMOTION_PORTS:
+            scheme = "https" if port in {443, 8443} else "http"
+            if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
                 url = f"{scheme}://{host}"
             else:
-                url = f"{scheme}://{host}:{service.port}"
-            key = ("service", url)
-            if key in seen:
+                url = f"{scheme}://{host}:{port}"
+            if _normalize_url(url) in normalized_confirmed_urls:
                 continue
-            seen.add(key)
-            targets.append(
-                {
-                    "url": url,
-                    "asset_id": service.asset_id,
-                    "service_id": service.service_id,
-                }
+            _add_target(
+                targets,
+                seen,
+                url=url,
+                candidate_source="host_promotion",
             )
 
     discovery_candidates = run_data.facts.get("web_discovery.url_candidates", [])
@@ -95,17 +230,14 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
             url = str(candidate.get("url", "")).strip()
             if not url:
                 continue
-            key = ("discovery", url)
-            if key in seen:
-                continue
-            seen.add(key)
-            targets.append(
-                {
-                    "url": url,
-                    "asset_id": str(candidate.get("asset_id") or ""),
-                    "service_id": str(candidate.get("service_id") or ""),
-                    "webapp_id": str(candidate.get("webapp_id") or ""),
-                }
+            _add_target(
+                targets,
+                seen,
+                url=url,
+                asset_id=str(candidate.get("asset_id") or ""),
+                service_id=str(candidate.get("service_id") or ""),
+                webapp_id=str(candidate.get("webapp_id") or ""),
+                candidate_source="web_discovery",
             )
 
     discovered_urls = run_data.facts.get("web_discovery.discovered_urls", [])
@@ -114,11 +246,12 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
             url = str(url_value).strip()
             if not url:
                 continue
-            key = ("discovery_list", url)
-            if key in seen:
-                continue
-            seen.add(key)
-            targets.append({"url": url, "asset_id": "", "service_id": "", "webapp_id": ""})
+            _add_target(
+                targets,
+                seen,
+                url=url,
+                candidate_source="web_discovery_list",
+            )
     vhost_candidates = run_data.facts.get("vhost_discovery.url_candidates", [])
     if isinstance(vhost_candidates, list):
         for candidate in vhost_candidates:
@@ -127,18 +260,30 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
             url = str(candidate.get("url", "")).strip()
             if not url:
                 continue
-            key = ("vhost", url)
-            if key in seen:
-                continue
-            seen.add(key)
-            targets.append(
-                {
-                    "url": url,
-                    "asset_id": str(candidate.get("asset_id") or ""),
-                    "service_id": str(candidate.get("service_id") or ""),
-                    "webapp_id": "",
-                }
+            _add_target(
+                targets,
+                seen,
+                url=url,
+                asset_id=str(candidate.get("asset_id") or ""),
+                service_id=str(candidate.get("service_id") or ""),
+                candidate_source="vhost_discovery",
             )
+    return targets
+
+
+def collect_confirmed_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
+    targets: list[dict[str, str | int]] = []
+    seen: set[str] = set()
+    for web_app in run_data.web_apps:
+        _add_target(
+            targets,
+            seen,
+            url=web_app.url,
+            asset_id=web_app.asset_id,
+            service_id=web_app.service_id or "",
+            webapp_id=web_app.webapp_id,
+            candidate_source="confirmed_web_app",
+        )
     return targets
 
 

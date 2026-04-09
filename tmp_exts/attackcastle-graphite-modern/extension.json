@@ -1,0 +1,196 @@
+{
+  "capabilities": [
+    "theme"
+  ],
+  "description": "Modern graphite AttackCastle theme with premium blue-violet accents and cleaner contrast.",
+  "id": "attackcastle-graphite-modern",
+  "name": "AttackCastle Graphite Modern",
+  "schema_version": "extensions/v1",
+  "theme": {
+    "qss_append": "",
+    "tokens": {
+      "gradients": {
+        "app_shell": {
+          "end": "#07090d",
+          "mid": "#0b0e13",
+          "start": "#111318"
+        },
+        "panel": {
+          "end": "#0b1017",
+          "mid": "#111722",
+          "start": "#161c25"
+        },
+        "summary_accent": {
+          "end": "#58d4ff",
+          "mid": "#4f86ff",
+          "start": "#6f9bff"
+        },
+        "surface": {
+          "end": "#0d1219",
+          "start": "#141a23"
+        }
+      },
+      "palette": {
+        "accent_border": "#73a2ff",
+        "accent_primary": "#78a6ff",
+        "accent_secondary": "#4e84ff",
+        "accent_soft": "#68d1ff",
+        "border": "#2b3747",
+        "border_soft": "#1e2834",
+        "chip_bg": "#101720",
+        "chip_hover": "#172130",
+        "hero_end": "#07090d",
+        "hero_glow": "#131b27",
+        "hero_mid": "#0b1016",
+        "input_bg": "#0c1219",
+        "panel_bottom": "#0b1017",
+        "panel_mid": "#111722",
+        "panel_top": "#171e28",
+        "progress_end": "#5fd8ff",
+        "progress_mid": "#5a8eff",
+        "progress_start": "#4ade80",
+        "scrollbar": "rgba(99, 115, 142, 0.72)",
+        "scrollbar_hover": "rgba(124, 147, 185, 0.88)",
+        "scrollbar_pressed": "rgba(146, 177, 225, 0.94)",
+        "selection_bg": "#1d3556",
+        "selection_fg": "#f7fbff",
+        "surface_bottom": "#0d1218",
+        "surface_top": "#141b24",
+        "text_muted": "#9aa9be",
+        "text_primary": "#d7e1ef",
+        "text_soft": "#8191a6",
+        "text_strong": "#f7fbff",
+        "window_bg": "#090b10",
+        "window_bg_secondary": "#06080c"
+      },
+      "radii": {
+        "badge": "12px",
+        "button": "11px",
+        "input": "14px",
+        "panel": "18px",
+        "surface": "16px"
+      },
+      "semantic_colors": {
+        "change": {
+          "existing": {
+            "background": "#1b212b",
+            "foreground": "#b0bccd"
+          },
+          "live": {
+            "background": "#132b20",
+            "foreground": "#86efac"
+          },
+          "new": {
+            "background": "#15263c",
+            "foreground": "#8ec5ff"
+          }
+        },
+        "run_states": {
+          "blocked": {
+            "background": "#3a2a16",
+            "foreground": "#ffd089"
+          },
+          "cancelled": {
+            "background": "#1b212b",
+            "foreground": "#b0bccd"
+          },
+          "completed": {
+            "background": "#142a20",
+            "foreground": "#8ff0b0"
+          },
+          "failed": {
+            "background": "#35171d",
+            "foreground": "#ff9aaa"
+          },
+          "idle": {
+            "background": "#1b212b",
+            "foreground": "#b0bccd"
+          },
+          "paused": {
+            "background": "#2a2237",
+            "foreground": "#c8b4ff"
+          },
+          "running": {
+            "background": "#13243a",
+            "foreground": "#8ec5ff"
+          }
+        },
+        "severity": {
+          "critical": {
+            "background": "#3a131c",
+            "foreground": "#ff8fa3"
+          },
+          "high": {
+            "background": "#40200f",
+            "foreground": "#ffb37a"
+          },
+          "info": {
+            "background": "#15263c",
+            "foreground": "#8ec5ff"
+          },
+          "low": {
+            "background": "#132b20",
+            "foreground": "#86efac"
+          },
+          "medium": {
+            "background": "#3b3012",
+            "foreground": "#ffd87a"
+          }
+        },
+        "tool_status": {
+          "blocked": {
+            "background": "#3a2a16",
+            "foreground": "#ffd089"
+          },
+          "cancelled": {
+            "background": "#1b212b",
+            "foreground": "#b0bccd"
+          },
+          "completed": {
+            "background": "#142a20",
+            "foreground": "#8ff0b0"
+          },
+          "failed": {
+            "background": "#35171d",
+            "foreground": "#ff9aaa"
+          },
+          "running": {
+            "background": "#13243a",
+            "foreground": "#8ec5ff"
+          }
+        },
+        "workflow": {
+          "confirmed": {
+            "background": "#132b20",
+            "foreground": "#86efac"
+          },
+          "duplicate": {
+            "background": "#1b212b",
+            "foreground": "#b0bccd"
+          },
+          "needs-validation": {
+            "background": "#3b3012",
+            "foreground": "#ffd87a"
+          },
+          "suppressed": {
+            "background": "#281d40",
+            "foreground": "#cdb4ff"
+          }
+        }
+      },
+      "spacing": {
+        "button_padding": "11px 16px",
+        "chip_padding": "7px 12px",
+        "status_padding": "8px 12px"
+      },
+      "typography": {
+        "base_size": "13px",
+        "mono_family": "\"Cascadia Mono\", \"JetBrains Mono\", \"Consolas\", monospace",
+        "section_title_size": "15px",
+        "title_size": "28px",
+        "ui_family": "\"Segoe UI Variable\", \"Inter\", \"Segoe UI\", \"Noto Sans\", sans-serif"
+      }
+    }
+  },
+  "version": "1.0.0"
+}

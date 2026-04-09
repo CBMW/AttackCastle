@@ -5,11 +5,13 @@ import ipaddress
 from attackcastle.core.enums import TargetType
 from attackcastle.core.models import RunData
 from attackcastle.normalization.correlator import (
+    collect_confirmed_web_targets,
     collect_sqlmap_targets,
     collect_tls_targets,
     collect_web_targets,
     collect_wordpress_targets,
 )
+from attackcastle.scope.expansion import collect_host_scan_targets
 
 
 def condition_always(_: RunData) -> tuple[bool, str]:
@@ -38,6 +40,62 @@ def _looks_like_ip(value: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _normalize_host_target(value: str) -> str:
+    item = str(value or "").strip()
+    if not item:
+        return ""
+    return item if _looks_like_ip(item) else item.lower()
+
+
+def _signature(values: list[str]) -> str:
+    normalized = sorted({str(item).strip() for item in values if str(item).strip()})
+    return "|".join(normalized)
+
+
+def _pending_host_signature(run_data: RunData) -> str:
+    scanned = {
+        _normalize_host_target(item)
+        for item in run_data.facts.get("nmap.scanned_targets", [])
+        if str(item).strip()
+    }
+    pending = [
+        _normalize_host_target(item)
+        for item in collect_host_scan_targets(run_data)
+        if _normalize_host_target(item) and _normalize_host_target(item) not in scanned
+    ]
+    return _signature(pending)
+
+
+def _pending_candidate_web_signature(run_data: RunData, fact_key: str) -> str:
+    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    pending = [
+        str(item.get("url") or "").strip()
+        for item in collect_web_targets(run_data)
+        if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
+    ]
+    return _signature(pending)
+
+
+def _pending_confirmed_web_signature(run_data: RunData, fact_key: str) -> str:
+    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    pending = [
+        str(item.get("url") or "").strip()
+        for item in collect_confirmed_web_targets(run_data)
+        if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
+    ]
+    return _signature(pending)
+
+
+def _pending_wordpress_signature(run_data: RunData) -> str:
+    scanned = {str(item).strip() for item in run_data.facts.get("wpscan.scanned_urls", []) if str(item).strip()}
+    pending = [
+        str(item.get("url") or "").strip()
+        for item in collect_wordpress_targets(run_data)
+        if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
+    ]
+    return _signature(pending)
 
 
 def has_network_scan_targets(run_data: RunData) -> tuple[bool, str]:
@@ -131,4 +189,15 @@ CONDITION_MAP = {
     "has_service_targets": has_service_targets,
     "has_framework_targets": has_framework_targets,
     "has_enrichment_targets": has_enrichment_targets,
+}
+
+
+INPUT_SIGNATURE_MAP = {
+    "run-nmap": _pending_host_signature,
+    "probe-web": lambda run_data: _pending_candidate_web_signature(run_data, "web_probe.scanned_urls"),
+    "discover-web": lambda run_data: _pending_confirmed_web_signature(run_data, "web_discovery.scanned_urls"),
+    "fingerprint-web": lambda run_data: _pending_confirmed_web_signature(run_data, "whatweb.scanned_urls"),
+    "assess-web": lambda run_data: _pending_confirmed_web_signature(run_data, "nikto.scanned_urls"),
+    "run-nuclei": lambda run_data: _pending_confirmed_web_signature(run_data, "nuclei.scanned_urls"),
+    "run-wpscan": _pending_wordpress_signature,
 }

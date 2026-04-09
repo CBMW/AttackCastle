@@ -54,6 +54,7 @@ tasks:
     noise_score: 4
     cost_score: 7
     stage: recon
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.6
@@ -74,6 +75,7 @@ tasks:
     noise_score: 4
     cost_score: 4
     stage: enumeration
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.4
@@ -156,6 +158,7 @@ tasks:
     noise_score: 5
     cost_score: 5
     stage: enumeration
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.4
@@ -176,6 +179,7 @@ tasks:
     noise_score: 4
     cost_score: 4
     stage: enumeration
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.4
@@ -238,6 +242,7 @@ tasks:
     noise_score: 6
     cost_score: 6
     stage: enumeration
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.5
@@ -258,6 +263,7 @@ tasks:
     noise_score: 6
     cost_score: 6
     stage: enumeration
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.5
@@ -301,6 +307,7 @@ tasks:
     noise_score: 6
     cost_score: 7
     stage: enumeration
+    repeatable_on_new_inputs: true
     retryable: true
     max_retries: 1
     backoff_seconds: 0.6

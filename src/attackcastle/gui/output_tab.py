@@ -42,7 +42,6 @@ from attackcastle.gui.common import (
     ensure_table_defaults,
     format_progress,
     is_previewable_image,
-    refresh_widget_style,
     set_tooltip,
     set_tooltips,
     style_button,
@@ -72,8 +71,6 @@ class OutputTab(QWidget):
         self._current_finding_id = ""
         self._current_path = ""
         self._preview_path = ""
-        self._quick_filter = "all"
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
@@ -122,38 +119,7 @@ class OutputTab(QWidget):
             )
         )
         filter_layout.addLayout(self.filter_grid)
-        self.filter_status_label = QLabel("Live inventory will appear here once a run is selected.")
-        self.filter_status_label.setObjectName("helperText")
-        self.filter_status_label.setWordWrap(True)
-        filter_layout.addWidget(self.filter_status_label)
-        self.attention_banner = QLabel("Select a run to focus findings, health signals, and validation changes.")
-        self.attention_banner.setObjectName("attentionBanner")
-        self.attention_banner.setProperty("tone", "neutral")
-        self.attention_banner.setWordWrap(True)
-        filter_layout.addWidget(self.attention_banner)
-
-        quick_filter_row = FlowButtonRow()
-        self.quick_filter_buttons: dict[str, QPushButton] = {}
-        focus_label = QLabel("Focus")
-        focus_label.setObjectName("helperText")
-        quick_filter_row.addWidget(focus_label)
-        for key, label in (
-            ("all", "All Activity"),
-            ("critical-high", "Critical / High"),
-            ("needs-validation", "Needs Validation"),
-            ("report-ready", "Report Ready"),
-            ("new", "New Since Compare"),
-        ):
-            button = QPushButton(label)
-            button.setCheckable(True)
-            style_button(button, role="chip")
-            button.clicked.connect(lambda checked=False, selected=key: self._set_quick_filter(selected))
-            set_tooltip(button, f"Focus the workspace on {label.lower()} items.")
-            self.quick_filter_buttons[key] = button
-            quick_filter_row.addWidget(button)
-        filter_layout.addWidget(quick_filter_row)
         top_layout.addWidget(filter_panel)
-        self.quick_filter_buttons["all"].setChecked(True)
 
         self.assets_model = MappingTableModel(
             [("Change", "change"), ("Kind", "kind"), ("Name", "name"), ("IP", lambda row: row.get("ip") or ""), ("Aliases", lambda row: ", ".join(row.get("aliases") or []))]
@@ -493,14 +459,6 @@ class OutputTab(QWidget):
         self._finding_states = finding_states or {}
         self._refresh_models()
 
-    def _set_quick_filter(self, quick_filter: str) -> None:
-        self._quick_filter = quick_filter
-        for key, button in self.quick_filter_buttons.items():
-            button.blockSignals(True)
-            button.setChecked(key == quick_filter)
-            button.blockSignals(False)
-        self._refresh_models()
-
     def _refresh_models(self) -> None:
         snapshot = self._snapshot
         if snapshot is None:
@@ -532,11 +490,7 @@ class OutputTab(QWidget):
             self.overview_text.clear()
             self.detail_text.clear()
             self.raw_text.clear()
-            self.filter_status_label.setText("Live inventory will appear here once a run is selected.")
             self.inspector_summary.setText("Select an item to inspect technical details and artifacts.")
-            self.attention_banner.setText("Select a run to focus findings, health signals, and validation changes.")
-            self.attention_banner.setProperty("tone", "neutral")
-            refresh_widget_style(self.attention_banner)
             self.screenshot_preview.setPixmap(QPixmap())
             self.screenshot_preview.setText("Screenshot preview")
             self.preview_meta_label.setText("No artifact selected")
@@ -587,7 +541,6 @@ class OutputTab(QWidget):
         filtered_findings = self._filter_findings(findings)
         report_rows = [item for item in filtered_findings if item.get("include_in_report")]
         critical_high = sum(1 for item in findings if str(item.get("effective_severity", "")).lower() in {"critical", "high"})
-        needs_validation = sum(1 for item in findings if str(item.get("workflow_status") or "") == "needs-validation")
         issue_count = int(issue_summary.get("total_count", 0) or 0)
         completeness_status = str(issue_summary.get("completeness_status") or getattr(snapshot, "completeness_status", "healthy"))
         self.assets_model.set_rows(filtered_assets)
@@ -612,38 +565,6 @@ class OutputTab(QWidget):
         self.services_model.set_rows(filtered_services)
         self.findings_model.set_rows(filtered_findings)
         self.report_model.set_rows(report_rows)
-
-        attention_items: list[str] = []
-        if critical_high:
-            attention_items.append(f"{critical_high} critical/high findings")
-        if needs_validation:
-            attention_items.append(f"{needs_validation} findings still need validation")
-        if issue_count:
-            attention_items.append(f"{issue_count} execution issue(s) affecting completeness")
-        if self._quick_filter == "new" and self._compare_snapshot is None:
-            attention_items.append("Select a comparison run to isolate new inventory")
-        if attention_items:
-            banner_text = "Attention required: " + " | ".join(attention_items)
-            if issue_count:
-                banner_text += " | Open Scanner > Issues to review"
-            self.attention_banner.setText(banner_text)
-            self.attention_banner.setProperty("tone", "alert")
-        else:
-            self.attention_banner.setText("Monitoring looks healthy. Use the focus chips to zero in on critical findings or report-ready items.")
-            self.attention_banner.setProperty("tone", "ok")
-        refresh_widget_style(self.attention_banner)
-        self.filter_status_label.setText(
-            "Showing "
-            f"{len(filtered_findings)}/{len(findings)} findings, "
-            f"{len(filtered_assets)}/{len(snapshot.assets)} assets, "
-            f"{len(filtered_services)}/{len(snapshot.services)} services, "
-            f"{len(filtered_attack_paths)}/{len(snapshot.attack_paths)} attack paths, "
-            f"{len(filtered_validation_tasks)}/{len(snapshot.validation_tasks)} validation tasks, "
-            f"{len(filtered_replay_requests)}/{len(snapshot.replay_requests)} replay requests, "
-            f"{len(filtered_evidence)}/{len(snapshot.evidence)} evidence records, "
-            f"{issue_count}/{len(execution_issues)} issues"
-            + (f" | Compare: {self._compare_snapshot.scan_name}" if self._compare_snapshot else "")
-        )
         self.overview_text.setHtml(
             f"<h3>Operator Overview</h3>"
             f"<p><b>Workspace:</b> {snapshot.workspace_name or 'Unassigned'}<br>"
@@ -691,7 +612,7 @@ class OutputTab(QWidget):
 
     def _filter_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         search = self.search_edit.text().strip().lower()
-        diff_only = self.diff_filter.currentText() == "New Since Compare" or self._quick_filter == "new"
+        diff_only = self.diff_filter.currentText() == "New Since Compare"
         result: list[dict[str, Any]] = []
         for row in rows:
             if diff_only and row.get("change") != "new":
@@ -709,12 +630,6 @@ class OutputTab(QWidget):
             if severity != "All Severities" and str(row.get("effective_severity") or "").lower() != severity:
                 continue
             if workflow != "All Workflow States" and str(row.get("workflow_status") or "") != workflow:
-                continue
-            if self._quick_filter == "critical-high" and str(row.get("effective_severity") or "").lower() not in {"critical", "high"}:
-                continue
-            if self._quick_filter == "needs-validation" and str(row.get("workflow_status") or "") != "needs-validation":
-                continue
-            if self._quick_filter == "report-ready" and not row.get("include_in_report"):
                 continue
             result.append(row)
         return result

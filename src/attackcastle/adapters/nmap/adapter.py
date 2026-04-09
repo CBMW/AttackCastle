@@ -27,6 +27,11 @@ class NmapAdapter:
     def _collect_scope_targets(self, run_data: RunData) -> list[str]:
         return collect_host_scan_targets(run_data)
 
+    @staticmethod
+    def _normalize_target(value: str) -> str:
+        item = str(value or "").strip()
+        return item if "." in item and item.replace(".", "").isdigit() else item.lower()
+
     def _strip_port_flags(self, command: list[str]) -> list[str]:
         cleaned = list(command)
         for flag in ("--top-ports", "-p"):
@@ -81,6 +86,23 @@ class NmapAdapter:
         started_at = now_utc()
         result = AdapterResult()
 
+        if not bool(context.config.get("nmap", {}).get("enabled", True)):
+            ended_at = now_utc()
+            result.facts["nmap.available"] = False
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="nmap (disabled)",
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    status="skipped",
+                    execution_id=new_id("exec"),
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            return result
+
         nmap_path = shutil.which("nmap")
         if not nmap_path:
             ended_at = now_utc()
@@ -104,7 +126,17 @@ class NmapAdapter:
         timeout = int(context.config.get("scan", {}).get("default_timeout_seconds", 120))
         udp_top_ports = int(context.config.get("nmap", {}).get("udp_top_ports", 0))
         jobs: list[dict[str, Any]] = []
-        targets = self._collect_scope_targets(run_data)
+        known_targets = self._collect_scope_targets(run_data)
+        existing_scanned = {
+            self._normalize_target(item)
+            for item in run_data.facts.get("nmap.scanned_targets", [])
+            if str(item).strip()
+        }
+        targets = [
+            target
+            for target in known_targets
+            if self._normalize_target(target) not in existing_scanned
+        ]
         if targets:
             jobs.append(
                 {
@@ -283,6 +315,9 @@ class NmapAdapter:
         result.facts["nmap.discovered_hosts"] = discovered_hosts_total
         result.facts["nmap.service_detection_runs"] = completed_jobs
         result.facts["nmap.udp_top_ports"] = udp_top_ports
+        result.facts["nmap.scanned_targets"] = sorted(
+            existing_scanned.union(self._normalize_target(item) for item in targets)
+        )
 
         context.audit.write(
             "adapter.completed",
@@ -310,7 +345,16 @@ class NmapAdapter:
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
         nmap_path = shutil.which("nmap") or "nmap"
-        targets = self._collect_scope_targets(run_data)
+        existing_scanned = {
+            self._normalize_target(item)
+            for item in run_data.facts.get("nmap.scanned_targets", [])
+            if str(item).strip()
+        }
+        targets = [
+            target
+            for target in self._collect_scope_targets(run_data)
+            if self._normalize_target(target) not in existing_scanned
+        ]
         if not targets:
             return []
         xml_output = context.run_store.artifact_path(self.name, "nmap_output.xml")
