@@ -7,6 +7,7 @@ from attackcastle.gui.extensions import (
     DEFAULT_THEME_EXTENSION_NAME,
     ExtensionValidationError,
     LEGACY_DEFAULT_THEME_EXTENSION_ID,
+    build_default_theme_manifest,
     build_starter_command_hook_manifest,
 )
 from attackcastle.gui.extensions_store import GuiExtensionStore
@@ -47,6 +48,23 @@ def test_extension_store_migrates_legacy_default_theme_state(tmp_path) -> None:
     assert state.active_theme_id == DEFAULT_THEME_EXTENSION_ID
     assert state.last_opened_extension_id == DEFAULT_THEME_EXTENSION_ID
     assert state.enabled_extensions[DEFAULT_THEME_EXTENSION_ID] is True
+
+
+def test_extension_store_reuses_existing_default_theme_with_custom_directory_name(tmp_path) -> None:
+    extensions_root = tmp_path / "extensions"
+    custom_dir = extensions_root / "graphite-theme-custom-dir"
+    custom_dir.mkdir(parents=True)
+    custom_dir.joinpath("extension.json").write_text(
+        json.dumps(build_default_theme_manifest().to_dict(), indent=2),
+        encoding="utf-8",
+    )
+
+    store = GuiExtensionStore(extensions_root, tmp_path / "extensions_state.json")
+
+    records = store.discover()
+    assert [record.extension_id for record in records].count(DEFAULT_THEME_EXTENSION_ID) == 1
+    assert any(record.directory.name == "graphite-theme-custom-dir" for record in records)
+    assert not (extensions_root / DEFAULT_THEME_EXTENSION_ID / "extension.json").exists()
 
 
 def test_extension_store_rejects_invalid_manifest_save(tmp_path) -> None:

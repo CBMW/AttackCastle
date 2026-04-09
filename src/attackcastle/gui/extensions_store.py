@@ -56,10 +56,26 @@ class GuiExtensionStore:
         self.root_path.mkdir(parents=True, exist_ok=True)
         self.ensure_bootstrapped()
 
+    def _manifest_directories_by_id(self, extension_id: str) -> list[Path]:
+        directories: list[Path] = []
+        for extension_dir in self.root_path.iterdir():
+            if not extension_dir.is_dir():
+                continue
+            manifest_path = extension_dir / "extension.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                raw_text = manifest_path.read_text(encoding="utf-8")
+                manifest = parse_extension_text(raw_text)
+            except (OSError, ExtensionValidationError):
+                continue
+            if manifest.extension_id == extension_id:
+                directories.append(extension_dir)
+        return directories
+
     def ensure_bootstrapped(self) -> None:
         default_manifest = build_default_theme_manifest()
-        default_manifest_path = self.root_path / extension_folder_name(default_manifest) / "extension.json"
-        if not default_manifest_path.exists():
+        if not self._manifest_directories_by_id(default_manifest.extension_id):
             self.save_manifest(default_manifest)
         state = self.load_state()
         state.enabled_extensions.setdefault(DEFAULT_THEME_EXTENSION_ID, True)
@@ -193,11 +209,11 @@ class GuiExtensionStore:
         preferred_directory_name: str | None = None,
     ) -> ExtensionManifest:
         directory_name = preferred_directory_name or extension_folder_name(manifest)
-        existing_records = [record for record in self.discover() if record.extension_id == manifest.extension_id]
-        if preferred_directory_name is None and existing_records:
+        existing_directories = self._manifest_directories_by_id(manifest.extension_id)
+        if preferred_directory_name is None and existing_directories:
             raise ValueError(f"Duplicate extension id: {manifest.extension_id}")
-        for existing in existing_records:
-            if existing.directory.name != directory_name:
+        for existing_directory in existing_directories:
+            if existing_directory.name != directory_name:
                 raise ValueError(f"Duplicate extension id: {manifest.extension_id}")
         manifest_dir = self.root_path / directory_name
         manifest_dir.mkdir(parents=True, exist_ok=True)

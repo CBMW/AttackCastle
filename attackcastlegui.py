@@ -2,19 +2,23 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
-import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
 RUNTIME_DIR = ROOT / ".attackcastle-runtime"
 BOOTSTRAP_STATE_PATH = RUNTIME_DIR / "bootstrap_state.json"
+TOOL_CHECK_CACHE_PATH = RUNTIME_DIR / "tool_check_cache.json"
 MINIMUM_PYTHON = (3, 12)
 BOOTSTRAP_STATE_VERSION = 1
+TOOL_CHECK_CACHE_VERSION = 1
+TOOL_CHECK_CACHE_TTL_SECONDS = 600
 
 
 IMPORT_CHECK_SNIPPET = """
@@ -150,9 +154,11 @@ def _runtime_imports_ready(runtime_python: Path) -> bool:
     return result.returncode == 0
 
 
-def _ensure_runtime_packages(runtime_python: Path, *, force: bool = False) -> int:
+def _ensure_runtime_packages(runtime_python: Path, *, force: bool = False, verify: bool = False) -> int:
     state_matches = _load_bootstrap_state() == _bootstrap_state()
-    if not force and state_matches and _runtime_imports_ready(runtime_python):
+    if not force and state_matches and not verify:
+        return 0
+    if not force and state_matches and verify and _runtime_imports_ready(runtime_python):
         return 0
 
     _status("Installing/updating AttackCastle GUI dependencies in the local runtime")
@@ -171,7 +177,76 @@ def _ensure_runtime_packages(runtime_python: Path, *, force: bool = False) -> in
     return 0
 
 
-def _check_tools(runtime_python: Path) -> int:
+def _tool_check_cache_state() -> dict[str, object]:
+    path_hash = hashlib.sha256(os.environ.get("PATH", "").encode("utf-8")).hexdigest()
+    return {
+        "cache_version": TOOL_CHECK_CACHE_VERSION,
+        "path_hash": path_hash,
+    }
+
+
+def _load_tool_check_cache() -> dict[str, object]:
+    if not TOOL_CHECK_CACHE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(TOOL_CHECK_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_tool_check_cache(missing: list[object]) -> None:
+    payload = {
+        **_tool_check_cache_state(),
+        "checked_at": int(time.time()),
+        "missing": missing,
+    }
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    TOOL_CHECK_CACHE_PATH.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _cached_missing_tool_rows() -> list[object] | None:
+    payload = _load_tool_check_cache()
+    if not payload:
+        return None
+    if payload.get("cache_version") != TOOL_CHECK_CACHE_VERSION:
+        return None
+    if payload.get("path_hash") != _tool_check_cache_state()["path_hash"]:
+        return None
+    checked_at = payload.get("checked_at")
+    if not isinstance(checked_at, int):
+        return None
+    if time.time() - checked_at > TOOL_CHECK_CACHE_TTL_SECONDS:
+        return None
+    missing = payload.get("missing")
+    return missing if isinstance(missing, list) else None
+
+
+def _print_missing_tool_rows(missing: list[object]) -> None:
+    for row in missing:
+        if not isinstance(row, dict):
+            continue
+        command = str(row.get("command") or "unknown")
+        apt_package = str(row.get("apt_package") or "")
+        suggestion = str(row.get("suggestion") or "")
+        package_hint = f" | apt: {apt_package}" if apt_package else ""
+        suffix = f" | {suggestion}" if suggestion else ""
+        print(f"  - {command}{package_hint}{suffix}")
+
+
+def _check_tools(runtime_python: Path, *, refresh: bool = False) -> int:
+    if not refresh:
+        cached_missing = _cached_missing_tool_rows()
+        if cached_missing is not None:
+            if cached_missing:
+                _status(
+                    "Tool check: using cached result. Some external scanner tools are still missing. "
+                    "Run with --refresh-tool-check to rescan now."
+                )
+            else:
+                _status("Tool check: using cached result. All configured external scanner tools were found.")
+            return 0
+
     result = _run([str(runtime_python), "-c", TOOL_CHECK_SNIPPET], capture=True)
     if result.returncode != 0:
         return _fail("Could not complete the external tool readiness check.", detail=result.stderr or result.stdout)
@@ -184,20 +259,13 @@ def _check_tools(runtime_python: Path) -> int:
     missing = payload.get("missing", [])
     if not isinstance(missing, list):
         missing = []
+    _write_tool_check_cache(missing)
     if not missing:
         _status("Tool check: all configured external scanner tools were found.")
         return 0
 
     _status("Tool check: some external scanner tools are missing. The GUI can still launch, but coverage will be reduced.")
-    for row in missing:
-        if not isinstance(row, dict):
-            continue
-        command = str(row.get("command") or "unknown")
-        apt_package = str(row.get("apt_package") or "")
-        suggestion = str(row.get("suggestion") or "")
-        package_hint = f" | apt: {apt_package}" if apt_package else ""
-        suffix = f" | {suggestion}" if suggestion else ""
-        print(f"  - {command}{package_hint}{suffix}")
+    _print_missing_tool_rows(missing)
     return 0
 
 
@@ -226,6 +294,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Run runtime and tool checks, then exit without launching the GUI.",
     )
+    parser.add_argument(
+        "--refresh-tool-check",
+        action="store_true",
+        help="Force a fresh external tool scan instead of using the cached result.",
+    )
     args = parser.parse_args(argv)
 
     python_check = _ensure_supported_python()
@@ -237,12 +310,16 @@ def main(argv: list[str] | None = None) -> int:
         return runtime_check
 
     runtime_python = _runtime_python_path()
-    package_check = _ensure_runtime_packages(runtime_python, force=args.rebuild_runtime)
+    package_check = _ensure_runtime_packages(
+        runtime_python,
+        force=args.rebuild_runtime,
+        verify=args.check_only,
+    )
     if package_check:
         return package_check
 
     if not args.skip_tool_check:
-        tool_check = _check_tools(runtime_python)
+        tool_check = _check_tools(runtime_python, refresh=args.refresh_tool_check)
         if tool_check:
             return tool_check
 
