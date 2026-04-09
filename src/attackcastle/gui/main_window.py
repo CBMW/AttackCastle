@@ -40,10 +40,16 @@ from PySide6.QtWidgets import (
 from attackcastle.gui.common import (
     FlowButtonRow,
     MappingTableModel,
+    PAGE_CARD_SPACING,
+    PAGE_SECTION_SPACING,
     PersistentSplitterController,
     RUN_STATE_ORDER,
     SummaryCard,
     apply_responsive_splitter,
+    build_inspector_panel,
+    build_page_header,
+    build_surface_frame,
+    build_table_section,
     build_workstation_stylesheet,
     configure_scroll_surface,
     ensure_table_defaults,
@@ -52,9 +58,11 @@ from attackcastle.gui.common import (
     format_progress,
     progress_percent,
     refresh_widget_style,
+    style_button,
     set_tooltip,
     set_tooltips,
     summarize_target_input,
+    table_height_for_rows,
     title_case_label,
 )
 from attackcastle.gui.assets_tab import AssetsTab
@@ -169,12 +177,20 @@ class MainWindow(QMainWindow):
             self.workspace_content_split.setOrientation(Qt.Vertical)
             self.workspace_primary_split.setOrientation(Qt.Vertical if width < 980 else Qt.Horizontal)
             self._apply_splitter_layout(
+                "workspace_content_split",
+                [max(int(self.height() * 0.56), 420), max(int(self.height() * 0.44), 280)],
+            )
+            self._apply_splitter_layout(
                 "workspace_primary_split",
                 [max(int(width * 0.34), 280), max(int(self.height() * 0.48), 320)],
             )
         else:
             self.workspace_content_split.setOrientation(Qt.Horizontal)
             self.workspace_primary_split.setOrientation(Qt.Horizontal)
+            self._apply_splitter_layout(
+                "workspace_content_split",
+                [max(int(width * 0.72), 760), max(int(width * 0.28), 320)],
+            )
             self._apply_splitter_layout(
                 "workspace_primary_split",
                 [max(int(width * 0.28), 260), max(int(width * 0.42), 420)],
@@ -270,7 +286,7 @@ class MainWindow(QMainWindow):
         central.setObjectName("appRoot")
         root = QVBoxLayout(central)
         root.setContentsMargins(22, 22, 22, 22)
-        root.setSpacing(16)
+        root.setSpacing(PAGE_SECTION_SPACING)
 
         self.general_status = QLabel("Ready")
         self.general_status.setObjectName("statusBanner")
@@ -278,6 +294,10 @@ class MainWindow(QMainWindow):
         self.general_status_detail = QLabel("Workspace, run actions, and findings stay in sync across every section.")
         self.general_status_detail.setObjectName("helperText")
         self.general_status_detail.setWordWrap(True)
+        status_panel, status_layout = build_surface_frame(object_name="toolbarPanel", spacing=6)
+        status_layout.addWidget(self.general_status)
+        status_layout.addWidget(self.general_status_detail)
+        root.addWidget(status_panel)
 
         body_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (0, 1))
         self.body_split = body_split
@@ -358,11 +378,18 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(PAGE_SECTION_SPACING)
+
+        header_panel, _header_title, _header_summary, self.workspace_page_meta_label, _header_status = build_page_header(
+            "Workspace Control",
+            "Keep the active workspace, live run queue, and selected run context in view without jumping between sections.",
+            meta_text="The active workspace drives the session-scoped queue and inspection context.",
+        )
+        layout.addWidget(header_panel)
 
         card_grid = QGridLayout()
-        card_grid.setHorizontalSpacing(14)
-        card_grid.setVerticalSpacing(14)
+        card_grid.setHorizontalSpacing(PAGE_CARD_SPACING)
+        card_grid.setVerticalSpacing(PAGE_CARD_SPACING)
         self.workspace_card_grid = card_grid
         self.card_active_runs = SummaryCard("Active Runs")
         self.card_critical_findings = SummaryCard("Critical + High")
@@ -380,16 +407,17 @@ class MainWindow(QMainWindow):
 
         content_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
         self.workspace_content_split = content_split
+        self._register_splitter(self.workspace_content_split, "workspace_content_split")
         self.workspace_primary_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 3))
         self._register_splitter(self.workspace_primary_split, "workspace_primary_split")
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(12)
+        left_layout.setSpacing(PAGE_SECTION_SPACING)
         left_top_panel = QWidget()
         left_top_layout = QVBoxLayout(left_top_panel)
         left_top_layout.setContentsMargins(0, 0, 0, 0)
-        left_top_layout.setSpacing(12)
+        left_top_layout.setSpacing(10)
         left_title = QLabel("Workspaces")
         left_title.setObjectName("sectionTitle")
         left_top_layout.addWidget(left_title)
@@ -406,7 +434,7 @@ class MainWindow(QMainWindow):
         set_tooltip(self.workspace_list, "Shows the active workspace for this session. Switch active workspace from Settings.")
         left_top_layout.addWidget(self.workspace_list, 1)
         engagement_buttons = FlowButtonRow()
-        self.new_workspace_button = QPushButton("New")
+        self.new_workspace_button = QPushButton("New Workspace")
         self.new_workspace_button.clicked.connect(self._new_workspace)
         self.edit_workspace_button = QPushButton("Edit")
         self.edit_workspace_button.clicked.connect(self._edit_selected_workspace)
@@ -419,6 +447,11 @@ class MainWindow(QMainWindow):
         self.new_engagement_button = self.new_workspace_button
         self.edit_engagement_button = self.edit_workspace_button
         self.delete_engagement_button = self.delete_workspace_button
+        style_button(self.new_workspace_button)
+        style_button(self.edit_workspace_button, role="secondary")
+        style_button(self.open_workspace_button, role="secondary")
+        style_button(self.no_workspace_button, role="secondary")
+        style_button(self.delete_workspace_button, role="secondary")
         engagement_buttons.addWidget(self.new_workspace_button)
         engagement_buttons.addWidget(self.edit_workspace_button)
         engagement_buttons.addWidget(self.open_workspace_button)
@@ -441,37 +474,52 @@ class MainWindow(QMainWindow):
         set_tooltip(self.workspace_summary, "Read-only workspace details for the selected saved project.")
         self.workspace_sidebar_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
         self._register_splitter(self.workspace_sidebar_split, "workspace_sidebar_split")
+        workspace_summary_panel, _workspace_summary_title, _workspace_summary_summary = build_inspector_panel(
+            "Workspace Details",
+            self.workspace_summary,
+            summary_text="Saved project summary, client context, and scope notes for the selected workspace.",
+        )
         self.workspace_sidebar_split.addWidget(left_top_panel)
-        self.workspace_sidebar_split.addWidget(self._wrap_group("Workspace Details", self.workspace_summary))
+        self.workspace_sidebar_split.addWidget(workspace_summary_panel)
         left_layout.addWidget(self.workspace_sidebar_split, 1)
         self.workspace_primary_split.addWidget(left_panel)
 
         center_panel = QWidget()
         center_layout = QVBoxLayout(center_panel)
-        center_layout.setSpacing(12)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(PAGE_SECTION_SPACING)
         workspace_runs = QWidget()
         workspace_runs_layout = QVBoxLayout(workspace_runs)
         workspace_runs_layout.setContentsMargins(0, 0, 0, 0)
         workspace_runs_layout.setSpacing(10)
         filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(0, 0, 0, 0)
+        filter_row.setSpacing(10)
         self.workspace_run_search_edit = QLineEdit()
         self.workspace_run_search_edit.setPlaceholderText("Search current session runs")
         self.workspace_run_search_edit.textChanged.connect(self._sync_workspace_run_table)
         set_tooltip(self.workspace_run_search_edit, "Filter current-session runs by scan name, state, task, or progress.")
         filter_row.addWidget(QLabel("Search"))
         filter_row.addWidget(self.workspace_run_search_edit, 1)
-        workspace_runs_layout.addLayout(filter_row)
         self.workspace_run_results_label = QLabel("Showing 0/0 runs")
         self.workspace_run_results_label.setObjectName("helperText")
         self.workspace_run_results_label.setWordWrap(True)
-        workspace_runs_layout.addWidget(self.workspace_run_results_label)
         self.workspace_run_model = MappingTableModel(
             [("Scan Name", "scan_name"), ("State", "state"), ("Current Task", "current_task"), ("Progress", lambda row: row.get("progress") or "--")]
         )
         self.workspace_run_table = configure_scroll_surface(QTableView())
         self.workspace_run_table.setObjectName("dataGrid")
         self.workspace_run_table.setModel(self.workspace_run_model)
-        ensure_table_defaults(self.workspace_run_table)
+        ensure_table_defaults(
+            self.workspace_run_table,
+            column_policies=(
+                {"mode": "stretch", "min": 220},
+                {"mode": "content", "min": 110, "max": 150},
+                {"mode": "stretch", "min": 280},
+                {"mode": "mixed", "min": 170, "width": 190},
+            ),
+            minimum_rows=11,
+        )
         self.workspace_run_table.clicked.connect(self._workspace_run_selected)
         self.workspace_run_table.doubleClicked.connect(self._focus_output_tab)
         self.workspace_run_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -480,9 +528,19 @@ class MainWindow(QMainWindow):
         )
         set_tooltip(self.workspace_run_table, "Select a run to inspect it, or double-click to jump into Findings.")
         workspace_runs_layout.addWidget(self.workspace_run_table, 1)
-        center_layout.addWidget(self._wrap_group("Runs In Workspace", workspace_runs), 1)
+        workspace_toolbar, workspace_toolbar_layout = build_surface_frame(padding=0, spacing=8)
+        workspace_toolbar.setObjectName("toolbarPanel")
+        workspace_toolbar_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_toolbar_layout.addLayout(filter_row)
+        runs_panel, _runs_title, _runs_summary = build_table_section(
+            "Runs In Workspace",
+            workspace_runs,
+            summary_text="Live session queue for the current workspace. Double-click a row to jump into Findings.",
+            toolbar=workspace_toolbar,
+            status_label=self.workspace_run_results_label,
+        )
+        center_layout.addWidget(runs_panel, 1)
         self.workspace_primary_split.addWidget(center_panel)
-        content_split.addWidget(self.workspace_primary_split)
 
         self.workspace_brief = configure_scroll_surface(QTextEdit())
         self.workspace_brief.setObjectName("richBrief")
@@ -504,6 +562,26 @@ class MainWindow(QMainWindow):
         self.workspace_alerts_text.setObjectName("consoleText")
         self.workspace_alerts_text.setReadOnly(True)
         self.workspace_alerts_text.setMinimumHeight(140)
+
+        inspector_body = QWidget()
+        inspector_layout = QVBoxLayout(inspector_body)
+        inspector_layout.setContentsMargins(0, 0, 0, 0)
+        inspector_layout.setSpacing(10)
+        run_status_panel, run_status_layout = build_surface_frame(padding=12, spacing=8)
+        run_status_layout.addWidget(self.run_progress_label)
+        run_status_layout.addWidget(self.run_progress_bar)
+        inspector_layout.addWidget(run_status_panel)
+        inspector_layout.addWidget(self.workspace_brief, 1)
+        inspector_layout.addWidget(self.run_brief, 1)
+        inspector_layout.addWidget(self.workspace_alerts_text, 1)
+        inspector_panel, _inspector_title, _inspector_summary = build_inspector_panel(
+            "Selected Context",
+            inspector_body,
+            summary_text="Workspace notes, selected run brief, and recent execution alerts stay docked here while the queue remains primary.",
+        )
+
+        content_split.addWidget(self.workspace_primary_split)
+        content_split.addWidget(inspector_panel)
         layout.addWidget(content_split, 1)
         return page
 
@@ -511,25 +589,27 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(PAGE_SECTION_SPACING)
 
-        launch_panel = QWidget()
-        launch_layout = QVBoxLayout(launch_panel)
-        launch_layout.setContentsMargins(0, 0, 0, 0)
-        launch_layout.setSpacing(10)
+        header_panel, _header_title, _header_summary, self.runs_page_meta_label, _header_status = build_page_header(
+            "Scanner Operations",
+            "Launch new scans, control the selected run, and keep the live queue centered as the primary operator surface.",
+            meta_text="Run actions stay docked above the queue so the scanner detail can use the rest of the page.",
+        )
+        layout.addWidget(header_panel)
+
+        launch_panel, launch_layout = build_surface_frame(spacing=10)
         launch_helper = QLabel("Launch a new scan for the active workspace or continue in the current ad-hoc session.")
         launch_helper.setObjectName("helperText")
         launch_helper.setWordWrap(True)
         self.start_scan_button = QPushButton("New Scan")
         self.start_scan_button.clicked.connect(self._start_scan)
         self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
+        style_button(self.start_scan_button)
         launch_layout.addWidget(launch_helper)
         launch_layout.addWidget(self.start_scan_button, 0, Qt.AlignLeft)
 
-        controls_panel = QWidget()
-        controls_layout = QVBoxLayout(controls_panel)
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(10)
+        controls_panel, controls_layout = build_surface_frame(spacing=10)
         self.selected_run_status_label = QLabel("No run selected. Choose a run from the table before using Scanner controls.")
         self.selected_run_status_label.setObjectName("infoBanner")
         self.selected_run_status_label.setWordWrap(True)
@@ -575,7 +655,7 @@ class MainWindow(QMainWindow):
             self.open_output_button,
             self.open_health_button,
         ):
-            button.setProperty("variant", "secondary")
+            style_button(button, role="secondary")
             controls_row.addWidget(button)
         controls_layout.addWidget(controls_row)
         self.run_actions_hint_label = QLabel("Scanner controls stay disabled until a run is selected.")
@@ -634,7 +714,19 @@ class MainWindow(QMainWindow):
         self.run_table = configure_scroll_surface(QTableView())
         self.run_table.setObjectName("dataGrid")
         self.run_table.setModel(self.run_model)
-        ensure_table_defaults(self.run_table)
+        ensure_table_defaults(
+            self.run_table,
+            column_policies=(
+                {"mode": "stretch", "min": 220},
+                {"mode": "content", "min": 110, "max": 150},
+                {"mode": "content", "min": 90, "max": 110},
+                {"mode": "content", "min": 90, "max": 110},
+                {"mode": "stretch", "min": 240},
+                {"mode": "stretch", "min": 240},
+                {"mode": "content", "min": 90, "max": 110},
+            ),
+            minimum_rows=10,
+        )
         self.run_table.clicked.connect(self._run_selected)
         self.run_table.doubleClicked.connect(self._focus_output_tab)
         self.run_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -647,8 +739,18 @@ class MainWindow(QMainWindow):
         self.scanner_panel.set_context_menu_handler(self._handle_scanner_context_menu)
         self.runs_body_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (3, 4))
         self._register_splitter(self.runs_body_split, "runs_body_split")
-        self.runs_body_split.addWidget(self._wrap_group("Run Queue", run_panel))
-        self.runs_body_split.addWidget(self._wrap_group("Scanner Detail", self.scanner_panel))
+        run_queue_panel, _queue_title, _queue_summary = build_table_section(
+            "Run Queue",
+            run_panel,
+            summary_text="The queue is the primary scanner workspace. Select a row to drive actions and detail tabs below.",
+        )
+        scanner_detail_panel, _scanner_title, _scanner_summary = build_inspector_panel(
+            "Scanner Detail",
+            self.scanner_panel,
+            summary_text="Tasks, tool runs, health, and audit detail stay docked below the queue.",
+        )
+        self.runs_body_split.addWidget(run_queue_panel)
+        self.runs_body_split.addWidget(scanner_detail_panel)
         self.runs_page_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 6))
         self._register_splitter(self.runs_page_split, "runs_page_split")
         self.runs_page_split.addWidget(runs_top_panel)
@@ -660,20 +762,19 @@ class MainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
-        helper = QLabel("Utility paths, about information, and keyboard-first workflow hints live here instead of being buried in a header menu.")
-        helper.setObjectName("helperText")
-        helper.setWordWrap(True)
-        layout.addWidget(helper)
+        layout.setSpacing(PAGE_SECTION_SPACING)
+        header_panel, _header_title, _header_summary, self.settings_page_meta_label, _header_status = build_page_header(
+            "Settings",
+            "Keep the current session workspace, storage paths, and utility actions in one compact operator settings page.",
+            meta_text="Settings stay focused on session context and useful local paths instead of acting like a miscellaneous dump.",
+        )
+        layout.addWidget(header_panel)
         self.settings_summary_label = QLabel("Operator settings and storage paths.")
         self.settings_summary_label.setObjectName("infoBanner")
         self.settings_summary_label.setWordWrap(True)
         layout.addWidget(self.settings_summary_label)
 
-        session_panel = QWidget()
-        session_layout = QVBoxLayout(session_panel)
-        session_layout.setContentsMargins(0, 0, 0, 0)
-        session_layout.setSpacing(12)
+        session_panel, session_layout = build_surface_frame(spacing=12)
         self.active_workspace_status_label = QLabel("Session workspace: Ad-Hoc")
         self.active_workspace_status_label.setObjectName("infoBanner")
         self.active_workspace_status_label.setWordWrap(True)
@@ -684,10 +785,10 @@ class MainWindow(QMainWindow):
         session_actions = FlowButtonRow()
         self.apply_workspace_button = QPushButton("Apply Workspace")
         self.apply_workspace_button.clicked.connect(self._apply_settings_workspace_selection)
-        self.apply_workspace_button.setProperty("variant", "secondary")
         self.settings_ad_hoc_button = QPushButton("Use Ad-Hoc Session")
         self.settings_ad_hoc_button.clicked.connect(self._switch_to_no_workspace)
-        self.settings_ad_hoc_button.setProperty("variant", "secondary")
+        style_button(self.apply_workspace_button)
+        style_button(self.settings_ad_hoc_button, role="secondary")
         set_tooltips(
             (
                 (self.settings_workspace_combo, "Choose which workspace should be active for this GUI session."),
@@ -703,26 +804,23 @@ class MainWindow(QMainWindow):
         session_layout.addWidget(session_actions)
         self.settings_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
         self._register_splitter(self.settings_split, "settings_split")
-        self.settings_split.addWidget(self._wrap_group("Session Workspace", session_panel))
+        self.settings_split.addWidget(session_panel)
 
-        store_panel = QWidget()
-        store_layout = QVBoxLayout(store_panel)
-        store_layout.setContentsMargins(0, 0, 0, 0)
-        store_layout.setSpacing(12)
+        store_panel, store_layout = build_surface_frame(spacing=12)
         self.profile_store_path_label = QLabel("")
         self.profile_store_path_label.setObjectName("monoLabel")
         self.profile_store_path_label.setWordWrap(True)
         open_profiles = QPushButton("Open Profile Store Folder")
-        open_profiles.setProperty("variant", "secondary")
+        style_button(open_profiles, role="secondary")
         open_profiles.clicked.connect(lambda: self._open_local_path(str(self.store.path.parent)))
         self.workspace_store_path_label = QLabel("")
         self.workspace_store_path_label.setObjectName("monoLabel")
         self.workspace_store_path_label.setWordWrap(True)
         open_workspace = QPushButton("Open Workspace Store Folder")
-        open_workspace.setProperty("variant", "secondary")
+        style_button(open_workspace, role="secondary")
         open_workspace.clicked.connect(lambda: self._open_local_path(str(self.workspace_store.path.parent)))
         about_button = QPushButton("About AttackCastle")
-        about_button.setProperty("variant", "secondary")
+        style_button(about_button, role="secondary")
         about_button.clicked.connect(self._show_about)
         set_tooltips(
             (
@@ -742,7 +840,7 @@ class MainWindow(QMainWindow):
         store_layout.addWidget(open_workspace, 0, Qt.AlignLeft)
         store_layout.addWidget(about_button, 0, Qt.AlignLeft)
         store_layout.addWidget(shortcuts_label)
-        self.settings_split.addWidget(self._wrap_group("Settings & Paths", store_panel))
+        self.settings_split.addWidget(store_panel)
         layout.addWidget(self.settings_split, 1)
         return page
 
@@ -1573,7 +1671,7 @@ class MainWindow(QMainWindow):
         self._select_run_by_id(snapshot.run_id)
         self._set_run_table_current_row(table, snapshot.run_id, index)
         menu, pause_action, resume_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
-        action = menu.exec(table.viewport().mapToGlobal(point))
+        action = self._exec_menu(menu, table.viewport().mapToGlobal(point))
         self._set_run_table_current_row(table, snapshot.run_id, index)
         if action is pause_action:
             self._send_control_action("pause")
@@ -1595,7 +1693,7 @@ class MainWindow(QMainWindow):
         if snapshot is None:
             return
         menu, pause_action, resume_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
-        action = menu.exec(table.viewport().mapToGlobal(point))
+        action = self._exec_menu(menu, table.viewport().mapToGlobal(point))
         if action is pause_action:
             self._send_control_action("pause")
         elif action is resume_action:
@@ -1606,6 +1704,13 @@ class MainWindow(QMainWindow):
             task_row = row if context_kind == "task" else None
             tool_row = row if context_kind == "tool" else None
             self._show_debug_log_dialog(snapshot, task_row=task_row, tool_row=tool_row, initial_tab=2)
+
+    @staticmethod
+    def _exec_menu(menu: QMenu, global_point: QPoint):
+        app = QApplication.instance()
+        if app is not None and app.platformName().strip().lower() in {"offscreen", "minimal"}:
+            return None
+        return menu.exec(global_point)
 
     def _selected_snapshot(self) -> RunSnapshot | None:
         if self._selected_run_id and self._selected_run_id in self._run_snapshots:

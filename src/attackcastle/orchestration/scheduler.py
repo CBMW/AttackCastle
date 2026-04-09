@@ -240,6 +240,12 @@ class WorkflowScheduler:
                                 merge_adapter_result(run_data, result)
                                 _emit_adapter_result_runtime_events(context, result)
                                 refresh_autonomy_state(run_data, context.config)
+                                if result.errors:
+                                    error_message = "; ".join(
+                                        str(item).strip() for item in result.errors if str(item).strip()
+                                    ) or "adapter reported one or more execution errors"
+                                    status = TaskStatus.FAILED.value
+                                    circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
                         except Exception as exc:  # noqa: BLE001
                             context.logger.exception("Task failed: %s", task.key)
                             error_message = str(exc)

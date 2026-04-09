@@ -8,16 +8,10 @@ from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Asset, Evidence, NormalizedEntity, Observation, RunData, new_id
 from attackcastle.scan_policy import build_scan_policy
+from attackcastle.scope.domains import canonical_hostname, registrable_domain
 from attackcastle.scope.expansion import is_ip_literal
 
 HOSTNAME_RE = re.compile(r"^(?:\*\.)?[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?)+$", re.IGNORECASE)
-
-
-def _root_domain(host: str) -> str:
-    parts = [item for item in host.split(".") if item]
-    if len(parts) < 2:
-        return host
-    return ".".join(parts[-2:])
 
 
 class SubdomainEnumAdapter:
@@ -26,21 +20,40 @@ class SubdomainEnumAdapter:
     noise_score = 2
     cost_score = 3
 
-    def _collect_root_domains(self, run_data: RunData) -> list[str]:
-        roots: set[str] = set()
+    def _build_enumeration_plan(self, run_data: RunData) -> list[dict[str, Any]]:
+        roots: dict[str, dict[str, Any]] = {}
         for target in run_data.scope:
-            if target.target_type in {TargetType.DOMAIN, TargetType.WILDCARD_DOMAIN} and target.host:
-                roots.add(target.host.lower())
-            elif target.target_type in {TargetType.URL, TargetType.HOST_PORT} and target.host:
-                host = target.host.lower()
-                if not is_ip_literal(host):
-                    roots.add(_root_domain(host))
-        return sorted(roots)
+            host = canonical_hostname(target.host)
+            root: str | None = None
+            if target.target_type in {TargetType.DOMAIN, TargetType.WILDCARD_DOMAIN} and host:
+                root = registrable_domain(host) or host
+            elif target.target_type in {TargetType.URL, TargetType.HOST_PORT} and host and not is_ip_literal(host):
+                root = registrable_domain(host) or host
+            if not root:
+                continue
+            entry = roots.setdefault(
+                root,
+                {
+                    "root_domain": root,
+                    "source_targets": [],
+                    "source_target_ids": [],
+                    "source_target_types": [],
+                },
+            )
+            if target.value not in entry["source_targets"]:
+                entry["source_targets"].append(target.value)
+            if target.target_id not in entry["source_target_ids"]:
+                entry["source_target_ids"].append(target.target_id)
+            target_type = target.target_type.value
+            if target_type not in entry["source_target_types"]:
+                entry["source_target_types"].append(target_type)
+        return [roots[root] for root in sorted(roots)]
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
         policy = build_scan_policy(context.profile_name, context.config)
         previews: list[str] = []
-        for root in self._collect_root_domains(run_data)[:20]:
+        for item in self._build_enumeration_plan(run_data)[:20]:
+            root = str(item["root_domain"])
             previews.append(
                 f"subfinder -silent -all -d {root} -rl {policy.subfinder_rate_limit} -t {policy.global_concurrency}"
             )
@@ -54,11 +67,15 @@ class SubdomainEnumAdapter:
         max_candidates = int(config.get("max_candidates", 500))
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip() or None
 
-        roots = self._collect_root_domains(run_data)
+        plan = self._build_enumeration_plan(run_data)
         discovered: set[str] = set()
         source_counts: dict[str, int] = {}
+        discovered_by_root: dict[str, list[str]] = {}
+        failed_roots: list[dict[str, Any]] = []
+        successful_roots = 0
 
-        for root in roots:
+        for entry in plan:
+            root = str(entry["root_domain"])
             command_result = run_command_spec(
                 context,
                 CommandSpec(
@@ -87,6 +104,19 @@ class SubdomainEnumAdapter:
             if command_result.task_result.status == "skipped":
                 result.warnings.extend(command_result.task_result.warnings)
                 break
+            if command_result.task_result.status != "completed":
+                source_counts[root] = 0
+                failed_roots.append(
+                    {
+                        "root_domain": root,
+                        "source_targets": list(entry["source_targets"]),
+                        "source_target_ids": list(entry["source_target_ids"]),
+                        "source_target_types": list(entry["source_target_types"]),
+                        "termination_reason": command_result.task_result.termination_reason,
+                        "termination_detail": command_result.task_result.termination_detail,
+                    }
+                )
+                continue
 
             root_hits: list[str] = []
             for line in command_result.stdout_text.splitlines():
@@ -161,16 +191,34 @@ class SubdomainEnumAdapter:
                 "entities_updated": 0,
             }
             source_counts[root] = len(root_hits)
+            discovered_by_root[root] = root_hits
+            successful_roots += 1
 
-        result.facts["subdomain_enum.domain_count"] = len(roots)
+        if failed_roots:
+            failure_summary = ", ".join(
+                f"{item['root_domain']} ({item.get('termination_reason') or 'failed'})" for item in failed_roots[:5]
+            )
+            if successful_roots == 0:
+                result.errors.append(
+                    f"subdomain enumeration failed for {len(failed_roots)} root domain(s): {failure_summary}"
+                )
+            else:
+                result.warnings.append(
+                    f"subdomain enumeration partially failed for {len(failed_roots)} root domain(s): {failure_summary}"
+                )
+
+        result.facts["subdomain_enum.domain_count"] = len(plan)
         result.facts["subdomain_enum.discovered_count"] = len(discovered)
         result.facts["subdomain_enum.discovered_hosts"] = sorted(discovered)[:max_candidates]
         result.facts["subdomain_enum.source_counts"] = source_counts
+        result.facts["subdomain_enum.execution_plan"] = plan
+        result.facts["subdomain_enum.discovered_by_root"] = discovered_by_root
+        result.facts["subdomain_enum.failed_roots"] = failed_roots
         context.audit.write(
             "adapter.completed",
             {
                 "adapter": self.name,
-                "root_domains": len(roots),
+                "root_domains": len(plan),
                 "discovered": len(discovered),
             },
         )

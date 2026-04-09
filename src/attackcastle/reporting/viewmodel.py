@@ -11,6 +11,7 @@ from attackcastle.core.execution_issues import build_execution_issues, summarize
 from attackcastle.core.models import RunData, iso, now_utc, to_serializable
 from attackcastle.reporting.audience import is_consultant_audience, normalize_report_audience
 from attackcastle.scope.compiler import classify_cloud_provider
+from attackcastle.scope.domains import registrable_domain
 
 SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
 SEVERITY_WEIGHTS = {"critical": 20, "high": 10, "medium": 5, "low": 2, "info": 1}
@@ -156,10 +157,7 @@ def _is_ip_value(value: str | None) -> bool:
 def _root_domain_hint(hostname: str | None) -> str | None:
     if not hostname or _is_ip_value(hostname):
         return None
-    parts = [item for item in str(hostname).lower().strip(".").split(".") if item]
-    if len(parts) < 2:
-        return parts[0] if parts else None
-    return ".".join(parts[-2:])
+    return registrable_domain(hostname)
 
 
 def _netblock_hint(ip_value: str | None) -> str | None:

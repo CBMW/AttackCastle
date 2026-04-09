@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from attackcastle.gui.common import FlowButtonRow, set_tooltip, set_tooltips
+from attackcastle.gui.common import apply_form_layout_defaults, style_button
 from attackcastle.gui.models import GuiProfile
 
 
@@ -180,8 +181,8 @@ class ProfileFieldsMixin:
         group = QGroupBox(title)
         group.setObjectName("panelGroup")
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
         helper = QLabel(description)
         helper.setObjectName("sectionHelper")
         helper.setWordWrap(True)
@@ -523,7 +524,7 @@ class ProfileFieldsMixin:
         for name in PROFILE_RECIPES:
             button = QPushButton(name)
             button.setCheckable(True)
-            button.setProperty("variant", "chip")
+            style_button(button, role="chip")
             button.clicked.connect(lambda checked=False, preset=name: self._apply_profile_recipe(preset))
             set_tooltip(button, f"{PROFILE_RECIPES[name]['description']} Apply this preset to quickly align tools and guardrails.")
             self._recipe_buttons[name] = button
@@ -540,7 +541,7 @@ class ProfileFieldsMixin:
     def _build_identity_form(self) -> QWidget:
         identity_form = QWidget()
         identity_layout = QFormLayout(identity_form)
-        identity_layout.setContentsMargins(0, 0, 0, 0)
+        apply_form_layout_defaults(identity_layout)
         identity_layout.addRow("Name", self.profile_name_edit)
         identity_layout.addRow("Description", self.description_edit)
         return identity_form
@@ -558,7 +559,7 @@ class ProfileFieldsMixin:
 
         scope_form = QWidget()
         scope_layout = QFormLayout(scope_form)
-        scope_layout.setContentsMargins(0, 0, 0, 0)
+        apply_form_layout_defaults(scope_layout)
         scope_layout.addRow("Base Profile", self.base_profile_combo)
         scope_layout.addRow("Risk Mode", self.risk_mode_combo)
         scope_layout.addRow("Rate Mode", self.rate_mode_combo)
@@ -568,7 +569,7 @@ class ProfileFieldsMixin:
     def _build_performance_form(self) -> QWidget:
         performance_form = QWidget()
         performance_layout = QFormLayout(performance_form)
-        performance_layout.setContentsMargins(0, 0, 0, 0)
+        apply_form_layout_defaults(performance_layout)
         performance_layout.addRow("Concurrency", self.concurrency_spin)
         performance_layout.addRow("CPU Cores", self.cpu_cores_spin)
         performance_layout.addRow("Adaptive Control", self.adaptive_execution_checkbox)
@@ -579,7 +580,7 @@ class ProfileFieldsMixin:
     def _build_proxy_form(self) -> QWidget:
         proxy_form = QWidget()
         proxy_layout = QFormLayout(proxy_form)
-        proxy_layout.setContentsMargins(0, 0, 0, 0)
+        apply_form_layout_defaults(proxy_layout)
         helper = QLabel(
             "Applies to AttackCastle HTTP requests, browser screenshots, and supported web scanners. Raw network discovery remains direct."
         )
@@ -593,7 +594,7 @@ class ProfileFieldsMixin:
     def _build_active_validation_form(self) -> QWidget:
         active_validation_form = QWidget()
         active_validation_layout = QFormLayout(active_validation_form)
-        active_validation_layout.setContentsMargins(0, 0, 0, 0)
+        apply_form_layout_defaults(active_validation_layout)
         active_validation_layout.addRow("Validation Mode", self.active_validation_mode_combo)
         active_validation_layout.addRow(self.request_replay_enabled_checkbox)
         active_validation_layout.addRow("Budget Per Target", self.validation_budget_spin)
@@ -683,15 +684,15 @@ class ProfileFieldsMixin:
 
         actions = FlowButtonRow()
         self.enable_recommended_button = QPushButton("Enable Recommended")
-        self.enable_recommended_button.setProperty("variant", "secondary")
         self.enable_recommended_button.clicked.connect(self._enable_recommended_tools)
         self.reset_preset_button = QPushButton("Reset To Preset")
-        self.reset_preset_button.setProperty("variant", "secondary")
         self.reset_preset_button.clicked.connect(self._reset_tools_to_active_recipe)
         self.expert_toggle_button = QPushButton("Show Expert Toggles")
         self.expert_toggle_button.setCheckable(True)
-        self.expert_toggle_button.setProperty("variant", "secondary")
         self.expert_toggle_button.toggled.connect(self._toggle_expert_tools)
+        style_button(self.enable_recommended_button, role="secondary")
+        style_button(self.reset_preset_button, role="secondary")
+        style_button(self.expert_toggle_button, role="secondary")
         set_tooltips(
             (
                 (self.enable_recommended_button, "Turn on the tool set recommended for the current base or preset posture."),
@@ -750,7 +751,7 @@ class ProfileFieldsMixin:
     def _build_wordlists_form(self) -> QWidget:
         wordlists_form = QWidget()
         wordlists_form_layout = QFormLayout(wordlists_form)
-        wordlists_form_layout.setContentsMargins(0, 0, 0, 0)
+        apply_form_layout_defaults(wordlists_form_layout)
         wordlists_form_layout.addRow(
             "Endpoint Wordlist",
             self._file_row(self.endpoint_wordlist_edit, lambda: self._browse_file(self.endpoint_wordlist_edit, "Select endpoint wordlist")),
@@ -927,6 +928,7 @@ class ProfileFieldsMixin:
         row_layout.addWidget(edit)
         browse_button = QPushButton("Browse")
         browse_button.clicked.connect(browse_callback)
+        style_button(browse_button, role="secondary")
         set_tooltip(browse_button, "Choose a file from disk and place its path into this field.")
         row_layout.addWidget(browse_button)
         return row

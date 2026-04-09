@@ -176,3 +176,37 @@ def test_scheduler_emits_live_result_events_and_persists_task_rows_in_checkpoint
         "tool_execution.recorded",
     }
     assert states[0].status == "completed"
+
+
+def test_scheduler_marks_adapter_results_with_errors_as_failed(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-error-state")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-error-state"),
+        audit=_AuditStub(),
+    )
+
+    def _runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        return AdapterResult(errors=["subdomain enumeration failed for 2 root domain(s)"])
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="enumerate-subdomains",
+                label="Enumerate Subdomains",
+                capability="subdomain_enumeration",
+                stage="enumeration",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+                retryable=False,
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert states[0].status == "failed"
+    assert "subdomain enumeration failed" in str(states[0].error)

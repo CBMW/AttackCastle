@@ -29,11 +29,13 @@ from PySide6.QtWidgets import (
 )
 
 from attackcastle.gui.common import (
+    apply_form_layout_defaults,
     configure_scroll_surface,
     refresh_widget_style,
     set_tooltip,
     set_tooltips,
     size_dialog_to_screen,
+    style_button,
     title_case_label,
 )
 from attackcastle.gui.extensions import ExtensionRecord
@@ -78,7 +80,7 @@ class WorkspaceDialog(QDialog):
         content_layout.addWidget(self.validation_label)
 
         form = QFormLayout()
-        form.setSpacing(10)
+        apply_form_layout_defaults(form)
         self.name_edit = QLineEdit()
         self.home_dir_edit = QLineEdit()
         self.client_edit = QLineEdit()
@@ -102,6 +104,10 @@ class WorkspaceDialog(QDialog):
         self.scope_edit.textChanged.connect(self._refresh_validation)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        if buttons.button(QDialogButtonBox.Ok) is not None:
+            style_button(buttons.button(QDialogButtonBox.Ok))
+        if buttons.button(QDialogButtonBox.Cancel) is not None:
+            style_button(buttons.button(QDialogButtonBox.Cancel), role="secondary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -195,6 +201,8 @@ class DebugLogDialog(QDialog):
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         buttons.button(QDialogButtonBox.Close).clicked.connect(self.close)
+        if buttons.button(QDialogButtonBox.Close) is not None:
+            style_button(buttons.button(QDialogButtonBox.Close), role="secondary")
         layout.addWidget(buttons)
 
     def _build_text_tab(self, text: str) -> QWidget:
@@ -303,7 +311,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         essentials = QGroupBox("Launch Essentials")
         essentials_layout = QFormLayout(essentials)
         essentials_layout.setContentsMargins(16, 16, 16, 16)
-        essentials_layout.setSpacing(10)
+        apply_form_layout_defaults(essentials_layout)
         essentials_layout.addRow("Scan Name", self.scan_name_edit)
         essentials_layout.addRow("Profile", self.profile_picker)
         essentials_layout.addRow("Target Input", target_input_panel)
@@ -355,7 +363,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
 
         self.advanced_toggle = QPushButton("Show Advanced Overrides")
         self.advanced_toggle.setCheckable(True)
-        self.advanced_toggle.setProperty("variant", "secondary")
+        style_button(self.advanced_toggle, role="secondary")
         self.advanced_toggle.toggled.connect(self._toggle_advanced_options)
         set_tooltip(self.advanced_toggle, "Show or hide the full advanced profile override form for this launch.")
         content_layout.addWidget(self.advanced_toggle, 0, Qt.AlignLeft)
@@ -392,6 +400,10 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self.payload_wordlist_edit.textChanged.connect(self._refresh_launch_summary)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        if buttons.button(QDialogButtonBox.Ok) is not None:
+            style_button(buttons.button(QDialogButtonBox.Ok))
+        if buttons.button(QDialogButtonBox.Cancel) is not None:
+            style_button(buttons.button(QDialogButtonBox.Cancel), role="secondary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -773,8 +785,10 @@ class WorkspaceChooserDialog(QDialog):
         self.create_button.clicked.connect(self._create_workspace)
         self.no_workspace_button.clicked.connect(self._launch_without_workspace)
         cancel_button.clicked.connect(self.reject)
-        for button in (self.create_button, self.no_workspace_button, cancel_button):
-            button.setProperty("variant", "secondary")
+        style_button(self.open_button)
+        style_button(self.create_button, role="secondary")
+        style_button(self.no_workspace_button, role="secondary")
+        style_button(cancel_button, role="secondary")
         set_tooltips(
             (
                 (self.open_button, "Open the selected workspace and make it the active session context."),

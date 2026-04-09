@@ -23,11 +23,14 @@ from PySide6.QtWidgets import (
 
 from attackcastle.gui.common import (
     FlowButtonRow,
+    PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
+    build_page_header,
     configure_scroll_surface,
     refresh_widget_style,
     set_tooltips,
+    style_button,
     title_case_label,
 )
 from attackcastle.gui.extensions import ExtensionManifest, ExtensionValidationError
@@ -55,12 +58,14 @@ class ExtensionsTab(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(PAGE_SECTION_SPACING)
 
-        helper = QLabel("Browse installed GUI extensions, edit raw JSON manifests, and apply theme extensions live without leaving AttackCastle.")
-        helper.setObjectName("helperText")
-        helper.setWordWrap(True)
-        root.addWidget(helper)
+        header_panel, _header_title, _header_summary, self.header_meta_label, _header_status = build_page_header(
+            "Extensions",
+            "Browse installed GUI extensions, keep manifest state readable, and give the raw editor the space it needs to be useful.",
+            meta_text="Theme and command-hook extensions stay editable without leaving the workstation UI.",
+        )
+        root.addWidget(header_panel)
 
         splitter = apply_responsive_splitter(QSplitter(), (2, 3, 5))
         self.splitter = splitter
@@ -113,8 +118,10 @@ class ExtensionsTab(QWidget):
         self.duplicate_button = QPushButton("Duplicate")
         self.save_button = QPushButton("Save")
         self.reload_button = QPushButton("Reload")
-        for button in (self.duplicate_button, self.reload_button):
-            button.setProperty("variant", "secondary")
+        style_button(self.new_button, role="secondary")
+        style_button(self.duplicate_button, role="secondary")
+        style_button(self.save_button)
+        style_button(self.reload_button, role="secondary")
         self.new_button.clicked.connect(self._create_extension)
         self.duplicate_button.clicked.connect(self._duplicate_selected)
         self.save_button.clicked.connect(self._save_current)
@@ -124,11 +131,11 @@ class ExtensionsTab(QWidget):
 
         secondary_actions = FlowButtonRow()
         self.toggle_enabled_button = QPushButton("Enable")
-        self.toggle_enabled_button.setProperty("variant", "secondary")
         self.apply_theme_button = QPushButton("Apply Theme")
-        self.apply_theme_button.setProperty("variant", "secondary")
         self.open_folder_button = QPushButton("Open Folder")
-        self.open_folder_button.setProperty("variant", "secondary")
+        style_button(self.toggle_enabled_button, role="secondary")
+        style_button(self.apply_theme_button, role="secondary")
+        style_button(self.open_folder_button, role="secondary")
         self.toggle_enabled_button.clicked.connect(self._toggle_enabled)
         self.apply_theme_button.clicked.connect(self._apply_theme)
         self.open_folder_button.clicked.connect(self._open_folder)
@@ -194,11 +201,11 @@ class ExtensionsTab(QWidget):
     def sync_responsive_mode(self, width: int) -> None:
         if width >= 1400:
             self.splitter.setOrientation(Qt.Horizontal)
-            self._splitter_controller.apply([300, 380, max(width - 680, 760)])
+            self._splitter_controller.apply([280, 340, max(width - 620, 860)])
             return
         if width >= 1120:
             self.splitter.setOrientation(Qt.Horizontal)
-            self._splitter_controller.apply([260, 320, max(width - 580, 620)])
+            self._splitter_controller.apply([240, 300, max(width - 540, 660)])
             return
         self.splitter.setOrientation(Qt.Vertical)
         self._splitter_controller.apply([220, 240, max(self.height() - 460, 360)])

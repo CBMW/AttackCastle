@@ -20,10 +20,13 @@ from PySide6.QtWidgets import (
 
 from attackcastle.gui.common import (
     FlowButtonRow,
+    PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
+    build_page_header,
     configure_scroll_surface,
     set_tooltips,
+    style_button,
     title_case_label,
 )
 from attackcastle.gui.forms import ProfileFieldsMixin
@@ -47,7 +50,13 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(16)
+        root.setSpacing(PAGE_SECTION_SPACING)
+        header_panel, _header_title, _header_summary, self.header_meta_label, _header_status = build_page_header(
+            "Profile Library",
+            "Save reusable launch presets, keep essentials prominent, and push expert overrides into clearer grouped sections.",
+            meta_text="Profiles are stored as JSON and translated into launch overrides without changing CLI behavior.",
+        )
+        root.addWidget(header_panel)
         self.splitter = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
         self._splitter_controller = PersistentSplitterController(
             self.splitter,
@@ -134,8 +143,12 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         self.import_button.clicked.connect(self._import_profiles)
         self.export_button.clicked.connect(self._export_profiles)
         self.reload_button.clicked.connect(self.reload_profiles)
-        for button in (self.duplicate_button, self.delete_button, self.import_button, self.export_button, self.reload_button):
-            button.setProperty("variant", "secondary")
+        style_button(self.new_button, role="secondary")
+        style_button(self.save_button)
+        for button in (self.duplicate_button,):
+            style_button(button, role="secondary")
+        for button in (self.delete_button, self.import_button, self.export_button, self.reload_button):
+            style_button(button, role="secondary")
         set_tooltips(
             (
                 (self.profile_list, "Browse saved GUI profiles and load one into the editor."),

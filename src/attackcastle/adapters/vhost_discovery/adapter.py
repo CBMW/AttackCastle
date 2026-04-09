@@ -12,6 +12,7 @@ from attackcastle.adapters.web_probe.parser import extract_title
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, WebApplication, new_id, now_utc
+from attackcastle.scope.domains import registrable_domain
 
 
 def _safe_name(value: str) -> str:
@@ -117,12 +118,7 @@ def _candidate_hosts_for_asset(run_data: RunData, asset_id: str, service_id: str
                 if host and not _is_ip_literal(host):
                     candidates.add(host)
 
-    root_domains = {
-        ".".join(parts[-2:])
-        for host in candidates
-        for parts in [[item for item in host.split(".") if item]]
-        if len(parts) >= 2
-    }
+    root_domains = {root for host in candidates if (root := registrable_domain(host))}
     common_prefixes = (
         "admin",
         "api",

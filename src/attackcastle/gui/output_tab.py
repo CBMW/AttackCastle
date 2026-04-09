@@ -32,10 +32,16 @@ from attackcastle.gui.common import (
     FINDING_STATUSES,
     FlowButtonRow,
     MappingTableModel,
+    PAGE_CARD_SPACING,
+    PAGE_SECTION_SPACING,
     PersistentSplitterController,
     SEVERITY_ORDER,
     SummaryCard,
     apply_responsive_splitter,
+    apply_form_layout_defaults,
+    build_inspector_panel,
+    build_page_header,
+    build_table_section,
     configure_scroll_surface,
     ensure_table_defaults,
     format_duration,
@@ -45,6 +51,7 @@ from attackcastle.gui.common import (
     refresh_widget_style,
     set_tooltip,
     set_tooltips,
+    style_button,
     summarize_target_input,
     title_case_label,
 )
@@ -75,38 +82,29 @@ class OutputTab(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(PAGE_SECTION_SPACING)
 
-        hero = QFrame()
-        hero.setObjectName("heroPanel")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(18, 18, 18, 18)
-        hero_layout.setSpacing(10)
-        self.output_title = QLabel("Findings Workspace")
-        self.output_title.setObjectName("heroTitle")
-        self.summary_label = QLabel("Select a run from Workspace or Scanner to inspect findings, validation queues, and evidence.")
-        self.summary_label.setObjectName("outputSummary")
-        self.summary_label.setWordWrap(True)
-        self.progress_label = QLabel("No run selected")
+        hero, self.output_title, self.summary_label, self.progress_label, self.hero_status_label = build_page_header(
+            "Findings Workspace",
+            "Inspect findings, validation queues, evidence, and report staging with the data region kept primary and the inspector clearly secondary.",
+            meta_text="No run selected",
+        )
         self.progress_label.setObjectName("headerMeta")
-        self.progress_label.setWordWrap(True)
+        self.hero_status_label.hide()
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setValue(0)
-        hero_layout.addWidget(self.output_title)
-        hero_layout.addWidget(self.summary_label)
-        hero_layout.addWidget(self.progress_label)
-        hero_layout.addWidget(self.progress_bar)
+        hero.layout().addWidget(self.progress_bar)
         top_panel = QWidget()
         top_layout = QVBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(16)
+        top_layout.setSpacing(PAGE_SECTION_SPACING)
         top_layout.addWidget(hero)
 
         cards = QGridLayout()
-        cards.setHorizontalSpacing(12)
-        cards.setVerticalSpacing(12)
+        cards.setHorizontalSpacing(PAGE_CARD_SPACING)
+        cards.setVerticalSpacing(PAGE_CARD_SPACING)
         self.summary_cards_grid = cards
         self.findings_card = SummaryCard("Findings")
         self.critical_card = SummaryCard("Critical + High")
@@ -129,8 +127,8 @@ class OutputTab(QWidget):
         filter_panel = QFrame()
         filter_panel.setObjectName("toolbarPanel")
         filter_layout = QVBoxLayout(filter_panel)
-        filter_layout.setContentsMargins(16, 16, 16, 16)
-        filter_layout.setSpacing(12)
+        filter_layout.setContentsMargins(14, 14, 14, 14)
+        filter_layout.setSpacing(10)
         self.filter_grid = QGridLayout()
         self.filter_grid.setHorizontalSpacing(10)
         self.filter_grid.setVerticalSpacing(10)
@@ -189,7 +187,7 @@ class OutputTab(QWidget):
         ):
             button = QPushButton(label)
             button.setCheckable(True)
-            button.setProperty("variant", "chip")
+            style_button(button, role="chip")
             button.clicked.connect(lambda checked=False, selected=key: self._set_quick_filter(selected))
             set_tooltip(button, f"Focus the workspace on {label.lower()} items.")
             self.quick_filter_buttons[key] = button
@@ -309,10 +307,10 @@ class OutputTab(QWidget):
         self.preview_meta_label.setWordWrap(True)
         self.open_path_button = QPushButton("Open File")
         self.open_path_button.clicked.connect(self.open_current_artifact)
-        self.open_path_button.setProperty("variant", "secondary")
+        style_button(self.open_path_button, role="secondary")
         self.open_folder_button = QPushButton("Open Folder")
         self.open_folder_button.clicked.connect(self._open_current_folder)
-        self.open_folder_button.setProperty("variant", "secondary")
+        style_button(self.open_folder_button, role="secondary")
 
         self.finding_status_combo = QComboBox()
         self.finding_status_combo.addItems(FINDING_STATUSES)
@@ -325,6 +323,7 @@ class OutputTab(QWidget):
         self.finding_repro_edit.setMinimumHeight(60)
         self.finding_save_button = QPushButton("Save Workflow State")
         self.finding_save_button.clicked.connect(self._save_workflow_state)
+        style_button(self.finding_save_button)
         set_tooltips(
             (
                 (self.open_path_button, "Open the currently selected artifact or evidence file."),
@@ -352,8 +351,8 @@ class OutputTab(QWidget):
         self.findings_tabs = QTabWidget()
         self.findings_tabs.setObjectName("subTabs")
         self.findings_tabs.setDocumentMode(True)
-        self.findings_tabs.addTab(self._section("Findings Queue", self.findings_view), "Findings")
-        self.findings_tabs.addTab(self._section("Report Staging", self.report_view), "Report")
+        self.findings_tabs.addTab(self._table_surface("Findings Queue", self.findings_view), "Findings")
+        self.findings_tabs.addTab(self._table_surface("Report Staging", self.report_view), "Report")
         self.findings_tabs.addTab(self._section("Overview", self.overview_text), "Overview")
         findings_layout.addWidget(self.findings_tabs)
         self.primary_tabs.addTab(findings_page, "Findings")
@@ -364,14 +363,14 @@ class OutputTab(QWidget):
         self.validation_tabs = QTabWidget()
         self.validation_tabs.setObjectName("subTabs")
         self.validation_tabs.setDocumentMode(True)
-        self.validation_tabs.addTab(self._section("Coverage Lanes", self.attack_paths_view), "Coverage Lanes")
-        self.validation_tabs.addTab(self._section("Next Best Actions", self.investigation_steps_view), "Actions")
-        self.validation_tabs.addTab(self._section("Validation Queue", self.validation_tasks_view), "Queue")
-        self.validation_tabs.addTab(self._section("Surface Signals", self.surface_signals_view), "Signals")
-        self.validation_tabs.addTab(self._section("Hypotheses", self.hypotheses_view), "Hypotheses")
-        self.validation_tabs.addTab(self._section("Replay Requests", self.replay_requests_view), "Replay")
-        self.validation_tabs.addTab(self._section("Validation Results", self.validation_results_view), "Results")
-        self.validation_tabs.addTab(self._section("Coverage Gaps", self.coverage_gaps_view), "Coverage")
+        self.validation_tabs.addTab(self._table_surface("Coverage Lanes", self.attack_paths_view), "Coverage Lanes")
+        self.validation_tabs.addTab(self._table_surface("Next Best Actions", self.investigation_steps_view), "Actions")
+        self.validation_tabs.addTab(self._table_surface("Validation Queue", self.validation_tasks_view), "Queue")
+        self.validation_tabs.addTab(self._table_surface("Surface Signals", self.surface_signals_view), "Signals")
+        self.validation_tabs.addTab(self._table_surface("Hypotheses", self.hypotheses_view), "Hypotheses")
+        self.validation_tabs.addTab(self._table_surface("Replay Requests", self.replay_requests_view), "Replay")
+        self.validation_tabs.addTab(self._table_surface("Validation Results", self.validation_results_view), "Results")
+        self.validation_tabs.addTab(self._table_surface("Coverage Gaps", self.coverage_gaps_view), "Coverage")
         validation_layout.addWidget(self.validation_tabs)
         self.primary_tabs.addTab(validation_page, "Validation")
 
@@ -381,9 +380,9 @@ class OutputTab(QWidget):
         self.evidence_tabs = QTabWidget()
         self.evidence_tabs.setObjectName("subTabs")
         self.evidence_tabs.setDocumentMode(True)
-        self.evidence_tabs.addTab(self._section("Evidence", self.evidence_view), "Evidence")
-        self.evidence_tabs.addTab(self._section("Artifacts", self.artifacts_view), "Artifacts")
-        self.evidence_tabs.addTab(self._section("Screenshots", self.screenshots_view), "Screenshots")
+        self.evidence_tabs.addTab(self._table_surface("Evidence", self.evidence_view), "Evidence")
+        self.evidence_tabs.addTab(self._table_surface("Artifacts", self.artifacts_view), "Artifacts")
+        self.evidence_tabs.addTab(self._table_surface("Screenshots", self.screenshots_view), "Screenshots")
         evidence_layout.addWidget(self.evidence_tabs)
         self.primary_tabs.addTab(evidence_page, "Evidence")
         self.primary_tabs.setTabToolTip(0, "Review findings, report staging, and the run overview.")
@@ -399,6 +398,7 @@ class OutputTab(QWidget):
         self.inspector_tabs.addTab(self._section("Raw", self.raw_text), "Raw")
         workflow_widget = QWidget()
         workflow_layout = QFormLayout(workflow_widget)
+        apply_form_layout_defaults(workflow_layout)
         workflow_layout.addRow("Status", self.finding_status_combo)
         workflow_layout.addRow("Severity Override", self.finding_severity_combo)
         workflow_layout.addRow("Report", self.finding_include_checkbox)
@@ -445,17 +445,37 @@ class OutputTab(QWidget):
         section = QWidget()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         label = QLabel(title)
         label.setObjectName("sectionTitle")
         layout.addWidget(label)
         layout.addWidget(widget)
         return section
 
+    def _table_surface(self, title: str, table: QTableView) -> QWidget:
+        surface, _title, _summary = build_table_section(
+            title,
+            table,
+            summary_text="The active table remains expanded so live and future run data are readable even before population.",
+        )
+        return surface
+
     def _make_table(self, model: MappingTableModel, callback: Callable[[QModelIndex], None]) -> QTableView:
         table = configure_scroll_surface(QTableView())
         table.setObjectName("dataGrid")
         table.setModel(model)
-        ensure_table_defaults(table)
+        headings = [str(column[0]).lower() for column in model._columns]
+        policies = []
+        for heading in headings:
+            if heading in {"state", "status", "severity", "workflow", "change", "include", "report", "port", "eta", "elapsed", "forms", "priority", "confidence", "replay", "auto"}:
+                policies.append({"mode": "content", "min": 90, "max": 130})
+            elif heading in {"url", "title", "next action", "summary", "snippet", "artifact", "path", "note"}:
+                policies.append({"mode": "stretch", "min": 220})
+            elif heading in {"kind", "category", "family", "tool", "source", "protocol", "method"}:
+                policies.append({"mode": "content", "min": 110, "max": 160})
+            else:
+                policies.append({"mode": "mixed", "min": 140, "width": 180})
+        ensure_table_defaults(table, column_policies=policies, minimum_rows=9)
         table.clicked.connect(callback)
         set_tooltip(table, "Select a row to inspect more detail in the panel on the right.")
         return table
@@ -464,12 +484,12 @@ class OutputTab(QWidget):
         columns = 3 if width >= 1480 else 2 if width >= 1180 else 1
         self._arrange_cards(self.summary_cards_grid, self.summary_cards, columns)
         self._arrange_filter_controls(width)
-        top_height = 360 if width >= 1480 else 400 if width >= 1180 else 460
+        top_height = 284 if width >= 1480 else 324 if width >= 1180 else 380
         self.content_split.setOrientation(Qt.Vertical)
         self.content_split_controller.apply([max(top_height, 260), max(self.height() - top_height, 360)])
         self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
         if width >= 1180:
-            self.main_split_controller.apply([max(int(width * 0.6), 520), max(int(width * 0.4), 360)])
+            self.main_split_controller.apply([max(int(width * 0.64), 640), max(int(width * 0.36), 380)])
         else:
             self.main_split_controller.apply([max(int(self.height() * 0.6), 320), max(int(self.height() * 0.4), 260)])
 

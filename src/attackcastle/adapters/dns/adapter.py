@@ -11,6 +11,7 @@ from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Asset, Evidence, NormalizedEntity, Observation, RunData, new_id
 from attackcastle.scan_policy import build_scan_policy
 from attackcastle.scope.compiler import classify_cloud_provider
+from attackcastle.scope.domains import registrable_domain
 
 IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 
@@ -47,14 +48,6 @@ def _is_ip_literal(value: str | None) -> bool:
     if len(parts) != 4:
         return False
     return all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
-
-
-def _root_domain(host: str) -> str:
-    parts = [item for item in host.split(".") if item]
-    if len(parts) < 2:
-        return host
-    return ".".join(parts[-2:])
-
 
 def _provider_from_records(values: list[str]) -> str | None:
     for item in values:
@@ -250,7 +243,11 @@ class DNSAdapter:
                 NormalizedEntity(
                     entity_id=new_id("entity"),
                     entity_type="Hostname",
-                    attributes={"fqdn": host, "root_domain": _root_domain(host), "source": "dnsx"},
+                    attributes={
+                        "fqdn": host,
+                        "root_domain": registrable_domain(host) or host,
+                        "source": "dnsx",
+                    },
                     source_tool="dnsx",
                     source_task_id=result.task_results[-1].task_id if result.task_results else None,
                     source_execution_id=execution_id,
@@ -274,7 +271,7 @@ class DNSAdapter:
             has_tls_rpt = any("v=tlsrptv1" in record.lower() for record in tls_rpt_records)
             provider = _provider_from_records(cname_records)
             takeover_candidate = bool(cname_records) and not ips and provider is not None
-            root = _root_domain(host)
+            root = registrable_domain(host) or host
             if root not in root_ns_cache:
                 if proxy_url:
                     root_ns_cache[root] = resolve_ns(root, timeout_seconds=timeout_seconds, proxy_url=proxy_url)

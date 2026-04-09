@@ -33,12 +33,18 @@ from attackcastle.gui.asset_inventory import (
 )
 from attackcastle.gui.common import (
     MappingTableModel,
+    PAGE_CARD_SPACING,
+    PAGE_SECTION_SPACING,
     PersistentSplitterController,
     SummaryCard,
     apply_responsive_splitter,
+    build_inspector_panel,
+    build_page_header,
+    build_table_section,
     configure_scroll_surface,
     ensure_table_defaults,
     set_tooltip,
+    style_button,
     splitter_orientation_key,
     title_case_label,
 )
@@ -97,38 +103,29 @@ class AssetsTab(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(PAGE_SECTION_SPACING)
 
         content_panel = QWidget()
         content_layout = QVBoxLayout(content_panel)
         content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(16)
+        content_layout.setSpacing(PAGE_SECTION_SPACING)
 
-        hero = QFrame()
-        hero.setObjectName("heroPanel")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(18, 18, 18, 18)
-        hero_layout.setSpacing(10)
-        self.title_label = QLabel("Assets Workspace")
-        self.title_label.setObjectName("heroTitle")
-        self.summary_label = QLabel("Select a run to organize discovered hosts, services, URLs, routes, and technologies.")
-        self.summary_label.setObjectName("outputSummary")
-        self.summary_label.setWordWrap(True)
-        self.status_label = QLabel("No run selected")
+        hero, self.title_label, self.summary_label, self.status_label, self.header_helper_label = build_page_header(
+            "Assets Workspace",
+            "Organize discovered hosts, services, URLs, routes, and technologies with the inventory tables as the primary working surface.",
+            meta_text="No run selected",
+        )
         self.status_label.setObjectName("headerMeta")
-        self.status_label.setWordWrap(True)
-        hero_layout.addWidget(self.title_label)
-        hero_layout.addWidget(self.summary_label)
-        hero_layout.addWidget(self.status_label)
+        self.header_helper_label.hide()
         overview_panel = QWidget()
         overview_layout = QVBoxLayout(overview_panel)
         overview_layout.setContentsMargins(0, 0, 0, 0)
-        overview_layout.setSpacing(16)
+        overview_layout.setSpacing(PAGE_SECTION_SPACING)
         overview_layout.addWidget(hero)
 
         cards = QGridLayout()
-        cards.setHorizontalSpacing(12)
-        cards.setVerticalSpacing(12)
+        cards.setHorizontalSpacing(PAGE_CARD_SPACING)
+        cards.setVerticalSpacing(PAGE_CARD_SPACING)
         self.assets_card = SummaryCard("Assets")
         self.services_card = SummaryCard("Services")
         self.web_card = SummaryCard("Web")
@@ -150,8 +147,8 @@ class AssetsTab(QWidget):
         toolbar = QFrame()
         toolbar.setObjectName("toolbarPanel")
         toolbar_layout = QVBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(16, 16, 16, 16)
-        toolbar_layout.setSpacing(10)
+        toolbar_layout.setContentsMargins(14, 14, 14, 14)
+        toolbar_layout.setSpacing(8)
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Search"))
         self.search_edit = QLineEdit()
@@ -264,8 +261,8 @@ class AssetsTab(QWidget):
         self.inventory_tabs = QTabWidget()
         self.inventory_tabs.setObjectName("subTabs")
         self.inventory_tabs.setDocumentMode(True)
-        self.inventory_tabs.addTab(self._section("Discovered Assets", self.assets_view), "Assets")
-        self.inventory_tabs.addTab(self._section("Discovered Services", self.services_view), "Services")
+        self.inventory_tabs.addTab(self._table_surface("Discovered Assets", self.assets_view), "Assets")
+        self.inventory_tabs.addTab(self._table_surface("Discovered Services", self.services_view), "Services")
 
         web_page = QWidget()
         web_layout = QVBoxLayout(web_page)
@@ -273,16 +270,16 @@ class AssetsTab(QWidget):
         self.web_tabs = QTabWidget()
         self.web_tabs.setObjectName("subTabs")
         self.web_tabs.setDocumentMode(True)
-        self.web_tabs.addTab(self._section("Web Applications", self.web_apps_view), "Web Apps")
-        self.web_tabs.addTab(self._section("Endpoints", self.endpoints_view), "Endpoints")
-        self.web_tabs.addTab(self._section("Parameters", self.parameters_view), "Parameters")
-        self.web_tabs.addTab(self._section("Forms", self.forms_view), "Forms")
-        self.web_tabs.addTab(self._section("Login Surfaces", self.login_surfaces_view), "Login")
-        self.web_tabs.addTab(self._section("Routes", self.site_map_view), "Routes")
+        self.web_tabs.addTab(self._table_surface("Web Applications", self.web_apps_view), "Web Apps")
+        self.web_tabs.addTab(self._table_surface("Endpoints", self.endpoints_view), "Endpoints")
+        self.web_tabs.addTab(self._table_surface("Parameters", self.parameters_view), "Parameters")
+        self.web_tabs.addTab(self._table_surface("Forms", self.forms_view), "Forms")
+        self.web_tabs.addTab(self._table_surface("Login Surfaces", self.login_surfaces_view), "Login")
+        self.web_tabs.addTab(self._table_surface("Routes", self.site_map_view), "Routes")
         web_layout.addWidget(self.web_tabs)
         self.inventory_tabs.addTab(web_page, "Web")
 
-        self.inventory_tabs.addTab(self._section("Technology Inventory", self.technologies_view), "Technology")
+        self.inventory_tabs.addTab(self._table_surface("Technology Inventory", self.technologies_view), "Technology")
         self.content_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
         self.content_split_controller = PersistentSplitterController(
             self.content_split,
@@ -295,34 +292,38 @@ class AssetsTab(QWidget):
         self.content_split.addWidget(self.inventory_tabs)
         content_layout.addWidget(self.content_split, 1)
 
-        self.detail_card = QFrame()
-        self.detail_card.setObjectName("subtlePanel")
-        self.detail_card.setMinimumWidth(0)
-        detail_layout = QVBoxLayout(self.detail_card)
-        detail_layout.setContentsMargins(16, 16, 16, 16)
-        detail_layout.setSpacing(10)
+        detail_body = QWidget()
+        detail_body_layout = QVBoxLayout(detail_body)
+        detail_body_layout.setContentsMargins(0, 0, 0, 0)
+        detail_body_layout.setSpacing(10)
         card_header = QHBoxLayout()
         self.detail_title = QLabel("Asset Details")
         self.detail_title.setObjectName("sectionTitle")
         card_header.addWidget(self.detail_title)
         card_header.addStretch(1)
         self.detail_close_button = QPushButton("Close")
-        self.detail_close_button.setProperty("variant", "secondary")
+        style_button(self.detail_close_button, role="secondary")
         self.detail_close_button.clicked.connect(self._hide_detail_card)
         card_header.addWidget(self.detail_close_button)
-        detail_layout.addLayout(card_header)
+        detail_body_layout.addLayout(card_header)
         self.detail_summary = QLabel("")
         self.detail_summary.setObjectName("helperText")
         self.detail_summary.setWordWrap(True)
-        detail_layout.addWidget(self.detail_summary)
+        detail_body_layout.addWidget(self.detail_summary)
         self.detail_text = configure_scroll_surface(QTextEdit())
         self.detail_text.setReadOnly(True)
         self.detail_text.setObjectName("consoleText")
         self.detail_text.setMinimumHeight(280)
-        detail_layout.addWidget(self.detail_text, 1)
+        detail_body_layout.addWidget(self.detail_text, 1)
         self.detail_title.setText("Asset Details")
         self.detail_summary.setText("Select an asset, service, route, or technology to inspect details.")
         self.detail_text.setPlainText("Choose an item from the inventory to open the docked inspector.")
+        self.detail_card, _detail_title, _detail_summary = build_inspector_panel(
+            "Selection Inspector",
+            detail_body,
+            summary_text="Selected entity details, notes context, and launch actions stay docked here while the inventory tables remain primary.",
+        )
+        self.detail_card.setMinimumWidth(0)
 
         self.main_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
         self.main_split_controller = PersistentSplitterController(
@@ -347,12 +348,88 @@ class AssetsTab(QWidget):
         layout.addWidget(widget)
         return section
 
+    def _table_surface(self, title: str, table: QTableView) -> QWidget:
+        section, _title, _summary = build_table_section(
+            title,
+            table,
+            summary_text="The inventory grid expands to show populated data as runs complete and notes are attached.",
+        )
+        return section
+
     def _make_table(self, model: MappingTableModel, entity_kind: str) -> QTableView:
         table = configure_scroll_surface(QTableView())
         table.setObjectName("dataGrid")
         table.setProperty("entity_kind", entity_kind)
         table.setModel(model)
-        ensure_table_defaults(table)
+        policies = {
+            "asset": (
+                {"mode": "content", "min": 110, "max": 140},
+                {"mode": "stretch", "min": 180},
+                {"mode": "content", "min": 110, "max": 160},
+                {"mode": "stretch", "min": 220},
+                {"mode": "content", "min": 90, "max": 110},
+                {"mode": "content", "min": 100, "max": 120},
+                {"mode": "stretch", "min": 220},
+            ),
+            "service": (
+                {"mode": "stretch", "min": 180},
+                {"mode": "content", "min": 80, "max": 90},
+                {"mode": "content", "min": 90, "max": 110},
+                {"mode": "content", "min": 90, "max": 120},
+                {"mode": "content", "min": 120, "max": 170},
+                {"mode": "stretch", "min": 240},
+                {"mode": "stretch", "min": 220},
+            ),
+            "web_app": (
+                {"mode": "stretch", "min": 280},
+                {"mode": "content", "min": 80, "max": 100},
+                {"mode": "stretch", "min": 220},
+                {"mode": "content", "min": 80, "max": 100},
+                {"mode": "stretch", "min": 220},
+            ),
+            "endpoint": (
+                {"mode": "content", "min": 90, "max": 120},
+                {"mode": "content", "min": 90, "max": 110},
+                {"mode": "stretch", "min": 320},
+                {"mode": "stretch", "min": 180},
+                {"mode": "stretch", "min": 220},
+            ),
+            "parameter": (
+                {"mode": "stretch", "min": 160},
+                {"mode": "content", "min": 110, "max": 140},
+                {"mode": "content", "min": 90, "max": 100},
+                {"mode": "stretch", "min": 220},
+                {"mode": "stretch", "min": 220},
+            ),
+            "form": (
+                {"mode": "stretch", "min": 300},
+                {"mode": "content", "min": 90, "max": 110},
+                {"mode": "stretch", "min": 220},
+                {"mode": "content", "min": 90, "max": 100},
+                {"mode": "stretch", "min": 220},
+            ),
+            "login_surface": (
+                {"mode": "stretch", "min": 260},
+                {"mode": "stretch", "min": 220},
+                {"mode": "stretch", "min": 220},
+                {"mode": "stretch", "min": 220},
+                {"mode": "stretch", "min": 220},
+            ),
+            "site_map": (
+                {"mode": "content", "min": 110, "max": 140},
+                {"mode": "stretch", "min": 320},
+                {"mode": "stretch", "min": 180},
+                {"mode": "stretch", "min": 220},
+            ),
+            "technology": (
+                {"mode": "stretch", "min": 180},
+                {"mode": "content", "min": 100, "max": 140},
+                {"mode": "content", "min": 110, "max": 160},
+                {"mode": "content", "min": 110, "max": 150},
+                {"mode": "stretch", "min": 220},
+            ),
+        }
+        ensure_table_defaults(table, column_policies=policies.get(entity_kind), minimum_rows=9)
         table.doubleClicked.connect(lambda index, view=table: self._open_detail_for_index(view, index))
         table.setContextMenuPolicy(Qt.CustomContextMenu)
         table.customContextMenuRequested.connect(lambda point, view=table: self._open_context_menu(view, point))
@@ -364,12 +441,12 @@ class AssetsTab(QWidget):
         self.search_edit.selectAll()
 
     def sync_responsive_mode(self, width: int) -> None:
-        top_height = 360 if width >= 1480 else 400 if width >= 1180 else 460
+        top_height = 276 if width >= 1480 else 312 if width >= 1180 else 360
         self.content_split.setOrientation(Qt.Vertical)
         self.content_split_controller.apply([max(top_height, 300), max(self.height() - top_height, 320)])
         self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
         if width >= 1280:
-            self.main_split_controller.apply([max(int(width * 0.7), 720), max(int(width * 0.3), 320)])
+            self.main_split_controller.apply([max(int(width * 0.74), 760), max(int(width * 0.26), 340)])
         else:
             self.main_split_controller.apply([max(int(self.height() * 0.68), 420), max(int(self.height() * 0.32), 220)])
 

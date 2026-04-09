@@ -14,6 +14,7 @@ from attackcastle.core.models import (
     normalize_confidence,
 )
 from attackcastle.normalization.dedupe import make_key
+from attackcastle.scope.domains import registrable_domain
 
 
 def _merge_facts(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
@@ -216,7 +217,7 @@ def _legacy_entities_to_normalized(result: AdapterResult) -> list[NormalizedEnti
                     {
                         "fqdn": asset.name if "." in asset.name else None,
                         "value": asset.name,
-                        "root_domain": asset.name.split(".", 1)[-1] if "." in asset.name else asset.name,
+                        "root_domain": registrable_domain(asset.name) or asset.name,
                         "source": asset.source_tool,
                     },
                     source_tool=asset.source_tool,
@@ -242,7 +243,11 @@ def _legacy_entities_to_normalized(result: AdapterResult) -> list[NormalizedEnti
             normalized.append(
                 _normalized_entity(
                     "Hostname",
-                    {"fqdn": asset.name, "root_domain": asset.name.split(".", 1)[-1], "source": asset.source_tool},
+                    {
+                        "fqdn": asset.name,
+                        "root_domain": registrable_domain(asset.name) or asset.name,
+                        "source": asset.source_tool,
+                    },
                     source_tool=asset.source_tool,
                     source_execution_id=asset.source_execution_id,
                     parser_version=asset.parser_version,

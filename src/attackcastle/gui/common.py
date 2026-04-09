@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
@@ -11,10 +11,13 @@ from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
     QDialog,
+    QFormLayout,
     QFrame,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QLayout,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QStyle,
@@ -46,6 +49,180 @@ SEVERITY_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["severity"])
 WORKFLOW_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["workflow"])
 CHANGE_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["change"])
 TOOL_STATUS_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["tool_status"])
+
+PAGE_CONTENT_MARGIN = 0
+PAGE_SECTION_SPACING = 14
+PAGE_CARD_SPACING = 10
+PANEL_CONTENT_PADDING = 14
+PANEL_COMPACT_PADDING = 12
+TOOLBAR_SPACING = 10
+INSPECTOR_SPACING = 10
+BUTTON_MIN_HEIGHT = 40
+BUTTON_CHIP_MIN_HEIGHT = 32
+TABLE_ROW_HEIGHT = 34
+
+
+def page_vbox(parent: QWidget | None = None) -> QVBoxLayout:
+    layout = QVBoxLayout(parent)
+    layout.setContentsMargins(PAGE_CONTENT_MARGIN, PAGE_CONTENT_MARGIN, PAGE_CONTENT_MARGIN, PAGE_CONTENT_MARGIN)
+    layout.setSpacing(PAGE_SECTION_SPACING)
+    return layout
+
+
+def style_button(
+    button: QAbstractButton,
+    *,
+    role: str = "primary",
+    min_height: int | None = None,
+) -> QAbstractButton:
+    if role == "secondary":
+        button.setProperty("variant", "secondary")
+        button.setMinimumHeight(min_height or BUTTON_MIN_HEIGHT)
+    elif role == "chip":
+        button.setProperty("variant", "chip")
+        button.setMinimumHeight(min_height or BUTTON_CHIP_MIN_HEIGHT)
+    else:
+        button.setMinimumHeight(min_height or BUTTON_MIN_HEIGHT)
+    button.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+    return button
+
+
+def build_page_header(
+    title: str,
+    summary: str,
+    *,
+    meta_text: str = "",
+    status_text: str = "",
+    parent: QWidget | None = None,
+) -> tuple[QFrame, QLabel, QLabel, QLabel, QLabel]:
+    frame = QFrame(parent)
+    frame.setObjectName("heroPanel")
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+    layout.setSpacing(8)
+
+    title_label = QLabel(title)
+    title_label.setObjectName("heroTitle")
+    title_label.setWordWrap(True)
+    summary_label = QLabel(summary)
+    summary_label.setObjectName("outputSummary")
+    summary_label.setWordWrap(True)
+    meta_label = QLabel(meta_text)
+    meta_label.setObjectName("headerMeta")
+    meta_label.setWordWrap(True)
+    status_label = QLabel(status_text)
+    status_label.setObjectName("helperText")
+    status_label.setWordWrap(True)
+    status_label.setVisible(bool(status_text))
+
+    layout.addWidget(title_label)
+    layout.addWidget(summary_label)
+    layout.addWidget(meta_label)
+    layout.addWidget(status_label)
+    return frame, title_label, summary_label, meta_label, status_label
+
+
+def build_surface_frame(
+    *,
+    object_name: str = "toolbarPanel",
+    padding: int = PANEL_CONTENT_PADDING,
+    spacing: int = TOOLBAR_SPACING,
+    parent: QWidget | None = None,
+) -> tuple[QFrame, QVBoxLayout]:
+    frame = QFrame(parent)
+    frame.setObjectName(object_name)
+    layout = QVBoxLayout(frame)
+    layout.setContentsMargins(padding, padding, padding, padding)
+    layout.setSpacing(spacing)
+    return frame, layout
+
+
+def build_section_header(
+    title: str,
+    *,
+    summary: str = "",
+    parent: QWidget | None = None,
+) -> tuple[QWidget, QLabel, QLabel]:
+    header = QWidget(parent)
+    layout = QVBoxLayout(header)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(4)
+    title_label = QLabel(title)
+    title_label.setObjectName("sectionTitle")
+    summary_label = QLabel(summary)
+    summary_label.setObjectName("helperText")
+    summary_label.setWordWrap(True)
+    summary_label.setVisible(bool(summary))
+    layout.addWidget(title_label)
+    layout.addWidget(summary_label)
+    return header, title_label, summary_label
+
+
+def build_table_section(
+    title: str,
+    table: QWidget,
+    *,
+    summary_text: str = "",
+    toolbar: QWidget | None = None,
+    status_label: QLabel | None = None,
+    parent: QWidget | None = None,
+) -> tuple[QFrame, QLabel, QLabel]:
+    frame, layout = build_surface_frame(parent=parent)
+    header, title_label, summary_label = build_section_header(title, summary=summary_text)
+    layout.addWidget(header)
+    if toolbar is not None:
+        layout.addWidget(toolbar)
+    if status_label is not None:
+        status_label.setObjectName("helperText")
+        status_label.setWordWrap(True)
+        layout.addWidget(status_label)
+    layout.addWidget(table, 1)
+    return frame, title_label, summary_label
+
+
+def build_inspector_panel(
+    title: str,
+    body: QWidget,
+    *,
+    summary_text: str = "",
+    footer: QWidget | None = None,
+    parent: QWidget | None = None,
+) -> tuple[QFrame, QLabel, QLabel]:
+    frame, layout = build_surface_frame(object_name="subtlePanel", parent=parent, spacing=INSPECTOR_SPACING)
+    header_row = QHBoxLayout()
+    header_row.setContentsMargins(0, 0, 0, 0)
+    header_row.setSpacing(10)
+    title_label = QLabel(title)
+    title_label.setObjectName("sectionTitle")
+    summary_label = QLabel(summary_text)
+    summary_label.setObjectName("helperText")
+    summary_label.setWordWrap(True)
+    summary_label.setVisible(bool(summary_text))
+    header_row.addWidget(title_label)
+    header_row.addStretch(1)
+    layout.addLayout(header_row)
+    layout.addWidget(summary_label)
+    layout.addWidget(body, 1)
+    if footer is not None:
+        layout.addWidget(footer)
+    return frame, title_label, summary_label
+
+
+def apply_form_layout_defaults(form: QFormLayout) -> None:
+    form.setContentsMargins(0, 0, 0, 0)
+    form.setSpacing(10)
+    form.setHorizontalSpacing(14)
+    form.setVerticalSpacing(10)
+    form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+    form.setLabelAlignment(Qt.AlignLeft | Qt.AlignTop)
+
+
+def table_height_for_rows(table: QTableView, rows: int) -> int:
+    header_height = table.horizontalHeader().height() or 36
+    row_height = table.verticalHeader().defaultSectionSize() or TABLE_ROW_HEIGHT
+    frame = table.frameWidth() * 2
+    scrollbar = table.horizontalScrollBar().sizeHint().height()
+    return header_height + (row_height * max(rows, 1)) + frame + scrollbar + 8
 
 
 def apply_theme_semantic_maps(tokens: dict[str, Any] | None = None) -> None:
@@ -157,20 +334,29 @@ def summarize_target_input(target_input: str) -> str:
     return f"{targets[0]} +{len(targets) - 1} more"
 
 
-def ensure_table_defaults(table: QTableView) -> None:
+def ensure_table_defaults(
+    table: QTableView,
+    *,
+    column_policies: Sequence[dict[str, Any] | str] | None = None,
+    minimum_rows: int = 8,
+) -> None:
     table.setSelectionBehavior(QTableView.SelectRows)
     table.setSelectionMode(QTableView.SingleSelection)
     table.setAlternatingRowColors(True)
     table.setSortingEnabled(True)
     table.setWordWrap(False)
     table.verticalHeader().setVisible(False)
-    table.verticalHeader().setMinimumSectionSize(26)
-    table.verticalHeader().setDefaultSectionSize(30)
+    table.verticalHeader().setMinimumSectionSize(TABLE_ROW_HEIGHT)
+    table.verticalHeader().setDefaultSectionSize(TABLE_ROW_HEIGHT)
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
     header.setMinimumSectionSize(110)
-    header.setDefaultSectionSize(160)
+    header.setDefaultSectionSize(170)
+    header.setHighlightSections(False)
     configure_scroll_surface(table)
+    table.setMinimumHeight(table_height_for_rows(table, minimum_rows))
+    if column_policies is not None:
+        table.setProperty("_column_policies", list(column_policies))
     _install_table_autosizing(table)
 
 
@@ -214,10 +400,42 @@ def _autosize_table_columns(table: QTableView) -> None:
         return
     try:
         header = table.horizontalHeader()
-        for column in range(column_count - 1):
-            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
+        policies = table.property("_column_policies")
+        if not isinstance(policies, list) or not policies:
+            for column in range(column_count - 1):
+                header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
+            table.resizeColumnsToContents()
+            return
         table.resizeColumnsToContents()
+        for column in range(column_count):
+            policy = policies[column] if column < len(policies) else {}
+            if isinstance(policy, str):
+                policy = {"mode": policy}
+            elif not isinstance(policy, dict):
+                policy = {}
+            mode = str(policy.get("mode", "content")).strip().lower() or "content"
+            min_width = max(int(policy.get("min", 110) or 110), 40)
+            width = max(int(policy.get("width", min_width) or min_width), min_width)
+            max_width = int(policy.get("max", 0) or 0)
+            if mode == "stretch":
+                header.setSectionResizeMode(column, QHeaderView.Stretch)
+                if width > 0:
+                    header.resizeSection(column, width)
+                continue
+            if mode == "fixed":
+                header.setSectionResizeMode(column, QHeaderView.Fixed)
+                header.resizeSection(column, width)
+                continue
+            header.setSectionResizeMode(column, QHeaderView.Interactive)
+            content_width = table.columnWidth(column)
+            target_width = content_width if mode == "content" else width
+            if mode == "mixed":
+                target_width = max(content_width, width)
+            target_width = max(target_width, min_width)
+            if max_width > 0:
+                target_width = min(target_width, max_width)
+            header.resizeSection(column, target_width)
     except RuntimeError:
         return
 
@@ -330,7 +548,9 @@ class FlowButtonRow(QWidget):
 
     def addWidget(self, widget: QWidget) -> None:
         if isinstance(widget, QAbstractButton):
+            role = str(widget.property("variant") or "").strip().lower()
             widget.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Fixed)
+            widget.setMinimumHeight(BUTTON_CHIP_MIN_HEIGHT if role == "chip" else BUTTON_MIN_HEIGHT)
         self._layout.addWidget(widget)
 
 
@@ -457,7 +677,7 @@ def apply_responsive_splitter(
     splitter: QSplitter,
     stretches: tuple[int, ...],
     *,
-    handle_width: int = 8,
+    handle_width: int = 12,
     children_collapsible: bool = True,
 ) -> QSplitter:
     splitter.setOpaqueResize(False)
@@ -493,10 +713,10 @@ class SummaryCard(QFrame):
         super().__init__(parent)
         self.setObjectName("summaryCard")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.setMinimumHeight(132)
+        self.setMinimumHeight(116)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 16)
-        layout.setSpacing(8)
+        layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_COMPACT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        layout.setSpacing(6)
         accent = QFrame()
         accent.setObjectName("summaryCardAccent")
         accent.setFixedHeight(3)
@@ -505,7 +725,7 @@ class SummaryCard(QFrame):
         self.title_label.setWordWrap(True)
         self.value_label = QLabel("0")
         self.value_label.setObjectName("summaryCardValue")
-        self.value_label.setMinimumHeight(44)
+        self.value_label.setMinimumHeight(36)
         self.hint_label = QLabel("")
         self.hint_label.setObjectName("summaryCardHint")
         self.hint_label.setWordWrap(True)

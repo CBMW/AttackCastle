@@ -215,7 +215,7 @@ nmap:
 subdomain_enum:
   enabled: true
   passive_http: false
-  timeout_seconds: 15
+  timeout_seconds: 60
   max_candidates: 500
   use_crtsh: true
   use_certspotter: true

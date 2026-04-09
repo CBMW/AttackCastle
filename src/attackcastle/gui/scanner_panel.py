@@ -19,6 +19,7 @@ from attackcastle.gui.common import (
     MappingTableModel,
     PersistentSplitterController,
     apply_responsive_splitter,
+    build_table_section,
     configure_scroll_surface,
     ensure_table_defaults,
     format_duration,
@@ -98,11 +99,11 @@ class ScannerPanel(QWidget):
         self.health_text.setObjectName("consoleText")
         self.health_text.setReadOnly(True)
 
-        self.tasks_tab_index = self.tabs.addTab(self._section("Tasks", self.tasks_view), "Tasks")
-        self.tools_tab_index = self.tabs.addTab(self._section("Tool Runs", self.tools_view), "Tool Runs")
-        self.issues_tab_index = self.tabs.addTab(self._section("Execution Issues", self.issues_view), "Issues")
+        self.tasks_tab_index = self.tabs.addTab(self._table_surface("Tasks", self.tasks_view), "Tasks")
+        self.tools_tab_index = self.tabs.addTab(self._table_surface("Tool Runs", self.tools_view), "Tool Runs")
+        self.issues_tab_index = self.tabs.addTab(self._table_surface("Execution Issues", self.issues_view), "Issues")
         self.health_tab_index = self.tabs.addTab(self._section("Execution Health", self.health_text), "Health")
-        self.audit_tab_index = self.tabs.addTab(self._section("Audit Trail", self.audit_view), "Audit")
+        self.audit_tab_index = self.tabs.addTab(self._table_surface("Audit Trail", self.audit_view), "Audit")
         self.tabs.setTabToolTip(self.tasks_tab_index, "Inspect task lifecycle updates for the selected run.")
         self.tabs.setTabToolTip(self.tools_tab_index, "Inspect tool execution records and stdout artifact paths.")
         self.tabs.setTabToolTip(self.issues_tab_index, "Inspect consolidated execution issues and suggested actions.")
@@ -133,10 +134,19 @@ class ScannerPanel(QWidget):
         section = QWidget()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         label = QLabel(title)
         label.setObjectName("sectionTitle")
         layout.addWidget(label)
         layout.addWidget(widget)
+        return section
+
+    def _table_surface(self, title: str, table: QTableView) -> QWidget:
+        section, _title, _summary = build_table_section(
+            title,
+            table,
+            summary_text="Scanner detail grids remain expanded so task, tool, and audit state are usable as live operator views.",
+        )
         return section
 
     def set_context_menu_handler(self, handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None) -> None:
@@ -146,7 +156,18 @@ class ScannerPanel(QWidget):
         table = configure_scroll_surface(QTableView())
         table.setObjectName("dataGrid")
         table.setModel(model)
-        ensure_table_defaults(table)
+        headings = [str(column[0]).lower() for column in model._columns]
+        policies = []
+        for heading in headings:
+            if heading in {"status", "exit"}:
+                policies.append({"mode": "content", "min": 90, "max": 120})
+            elif heading in {"task", "issue", "summary", "suggested action"}:
+                policies.append({"mode": "stretch", "min": 220})
+            elif heading in {"stdout", "run", "workspace"}:
+                policies.append({"mode": "stretch", "min": 180})
+            else:
+                policies.append({"mode": "mixed", "min": 120, "width": 160})
+        ensure_table_defaults(table, column_policies=policies, minimum_rows=8)
         table.clicked.connect(callback)
         if context_kind:
             table.setProperty("context_kind", context_kind)
@@ -158,7 +179,7 @@ class ScannerPanel(QWidget):
     def sync_responsive_mode(self, width: int) -> None:
         self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
         if width >= 1180:
-            self._main_split_controller.apply([max(int(width * 0.62), 520), max(int(width * 0.38), 320)])
+            self._main_split_controller.apply([max(int(width * 0.66), 620), max(int(width * 0.34), 320)])
         else:
             self._main_split_controller.apply([max(int(self.height() * 0.56), 280), max(int(self.height() * 0.44), 220)])
 

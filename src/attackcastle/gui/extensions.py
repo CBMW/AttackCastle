@@ -81,50 +81,50 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
             "end": "#07090d",
         },
         "panel": {
-            "start": "#171b22",
-            "mid": "#11151c",
-            "end": "#0c1016",
+            "start": "#161c25",
+            "mid": "#111722",
+            "end": "#0b1017",
         },
         "summary_accent": {
-            "start": "#7c9cff",
-            "mid": "#5b8cff",
-            "end": "#69e2ff",
+            "start": "#6f9bff",
+            "mid": "#4f86ff",
+            "end": "#58d4ff",
         },
         "surface": {
-            "start": "#141922",
-            "end": "#0e131a",
+            "start": "#141a23",
+            "end": "#0d1219",
         },
     },
     "palette": {
-        "accent_border": "#7aa2ff",
+        "accent_border": "#73a2ff",
         "accent_primary": "#78a6ff",
-        "accent_secondary": "#5b8cff",
-        "accent_soft": "#6ed7ff",
-        "border": "#273140",
-        "border_soft": "#1d2531",
-        "chip_bg": "#11161d",
-        "chip_hover": "#171e28",
+        "accent_secondary": "#4e84ff",
+        "accent_soft": "#68d1ff",
+        "border": "#2b3747",
+        "border_soft": "#1e2834",
+        "chip_bg": "#101720",
+        "chip_hover": "#172130",
         "hero_end": "#07090d",
-        "hero_glow": "#141923",
-        "hero_mid": "#0b0e13",
-        "input_bg": "#0d1218",
-        "panel_top": "#171b22",
-        "panel_mid": "#11151c",
-        "panel_bottom": "#0c1016",
+        "hero_glow": "#131b27",
+        "hero_mid": "#0b1016",
+        "input_bg": "#0c1219",
+        "panel_top": "#171e28",
+        "panel_mid": "#111722",
+        "panel_bottom": "#0b1017",
         "progress_start": "#4ade80",
-        "progress_mid": "#5b8cff",
-        "progress_end": "#9b8cff",
-        "scrollbar": "rgba(89, 103, 128, 0.72)",
-        "scrollbar_hover": "rgba(114, 136, 170, 0.86)",
-        "scrollbar_pressed": "rgba(140, 168, 214, 0.92)",
-        "selection_bg": "#22324a",
+        "progress_mid": "#5a8eff",
+        "progress_end": "#5fd8ff",
+        "scrollbar": "rgba(99, 115, 142, 0.72)",
+        "scrollbar_hover": "rgba(124, 147, 185, 0.88)",
+        "scrollbar_pressed": "rgba(146, 177, 225, 0.94)",
+        "selection_bg": "#1d3556",
         "selection_fg": "#f7fbff",
-        "surface_top": "#141922",
-        "surface_bottom": "#0e131a",
-        "text_primary": "#d6deea",
+        "surface_top": "#141b24",
+        "surface_bottom": "#0d1218",
+        "text_primary": "#d7e1ef",
         "text_strong": "#f7fbff",
-        "text_muted": "#93a0b4",
-        "text_soft": "#7f8c9f",
+        "text_muted": "#9aa9be",
+        "text_soft": "#8191a6",
         "window_bg": "#090b10",
         "window_bg_secondary": "#06080c",
     },
@@ -132,20 +132,20 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
         "ui_family": '"Segoe UI Variable", "Inter", "Segoe UI", "Noto Sans", sans-serif',
         "mono_family": '"Cascadia Mono", "JetBrains Mono", "Consolas", monospace',
         "base_size": "13px",
-        "title_size": "30px",
+        "title_size": "28px",
         "section_title_size": "15px",
     },
     "radii": {
         "badge": "12px",
-        "button": "12px",
+        "button": "11px",
         "input": "14px",
-        "panel": "22px",
-        "surface": "18px",
+        "panel": "18px",
+        "surface": "16px",
     },
     "spacing": {
-        "button_padding": "10px 16px",
-        "chip_padding": "8px 12px",
-        "status_padding": "8px 14px",
+        "button_padding": "11px 16px",
+        "chip_padding": "7px 12px",
+        "status_padding": "8px 12px",
     },
     "semantic_colors": {
         "change": {
@@ -262,7 +262,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 1px solid {palette['border']};
         border-radius: {radii['panel']};
     }}
-    QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; }}
+    QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0.2px; }}
     QLabel#appSubtitle {{ color: {palette['text_muted']}; font-size: 12px; font-weight: 600; background: transparent; }}
     QLabel#headerMeta {{ color: {palette['text_muted']}; background: transparent; }}
     QLabel#statusBadge {{
@@ -276,13 +276,13 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#statusBadge[state="paused"] {{ background: {run_states['paused'][0]}; color: {run_states['paused'][1]}; }}
     QLabel#statusBadge[state="cancelled"] {{ background: {run_states['cancelled'][0]}; color: {run_states['cancelled'][1]}; }}
     QLabel#statusBadge[state="idle"] {{ background: {run_states['idle'][0]}; color: {run_states['idle'][1]}; }}
-    QLabel#sectionTitle {{ font-size: {typography['section_title_size']}; font-weight: 700; color: {palette['text_strong']}; padding-bottom: 4px; background: transparent; }}
+    QLabel#sectionTitle {{ font-size: {typography['section_title_size']}; font-weight: 700; color: {palette['text_strong']}; padding-bottom: 2px; background: transparent; }}
     QLabel#outputSummary, QLabel#warningBanner, QLabel#statusBanner {{
-        padding: 12px 14px; background: {palette['chip_bg']}; border: 1px solid {palette['border_soft']}; color: {palette['text_strong']}; border-radius: {radii['input']};
+        padding: 10px 12px; background: {palette['chip_bg']}; border: 1px solid {palette['border_soft']}; color: {palette['text_strong']}; border-radius: {radii['input']};
     }}
     QLabel#helperText, QLabel#sectionHelper {{ color: {palette['text_soft']}; background: transparent; }}
-    QLabel#infoBanner {{ padding: 12px 14px; background: {palette['chip_bg']}; border: 1px solid {palette['border']}; color: {palette['text_primary']}; border-radius: {radii['input']}; }}
-    QLabel#attentionBanner {{ padding: 12px 14px; border-radius: {radii['input']}; border: 1px solid {palette['border']}; background: {palette['chip_bg']}; color: {palette['text_primary']}; }}
+    QLabel#infoBanner {{ padding: 10px 12px; background: {palette['chip_bg']}; border: 1px solid {palette['border']}; color: {palette['text_primary']}; border-radius: {radii['input']}; }}
+    QLabel#attentionBanner {{ padding: 10px 12px; border-radius: {radii['input']}; border: 1px solid {palette['border']}; background: {palette['chip_bg']}; color: {palette['text_primary']}; }}
     QLabel#attentionBanner[tone="alert"] {{ background: {severity['critical'][0]}; border-color: {palette['border']}; color: {severity['critical'][1]}; }}
     QLabel#attentionBanner[tone="warning"] {{ background: {severity['medium'][0]}; border-color: {palette['border']}; color: {severity['medium'][1]}; }}
     QLabel#attentionBanner[tone="ok"] {{ background: {workflow['confirmed'][0]}; border-color: {palette['border']}; color: {workflow['confirmed'][1]}; }}
@@ -290,15 +290,15 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QFrame#toolbarPanel, QFrame#sidebarPanel, QFrame#subtlePanel, QFrame#collapsibleSection {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['surface']['start']}, stop:1 {gradients['surface']['end']}); border: 1px solid {palette['border_soft']}; border-radius: {radii['surface']}; }}
     QFrame#summaryCardAccent {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {gradients['summary_accent']['start']}, stop:0.5 {gradients['summary_accent']['mid']}, stop:1 {gradients['summary_accent']['end']}); border: 0; border-radius: 2px; }}
     QLabel#summaryCardTitle {{ color: {palette['text_soft']}; font-size: 11px; font-weight: 700; background: transparent; }}
-    QLabel#summaryCardValue {{ color: {palette['text_strong']}; font-size: {typography['title_size']}; font-weight: 700; background: transparent; }}
+    QLabel#summaryCardValue {{ color: {palette['text_strong']}; font-size: 26px; font-weight: 700; background: transparent; }}
     QLabel#summaryCardHint {{ color: {palette['text_muted']}; background: transparent; }}
-    QGroupBox#panelGroup, QTabWidget::pane {{ border: 1px solid {palette['border_soft']}; background: {palette['surface_top']}; border-radius: {radii['surface']}; margin-top: 12px; padding: 10px; }}
+    QGroupBox#panelGroup, QTabWidget::pane {{ border: 1px solid {palette['border_soft']}; background: {palette['surface_top']}; border-radius: {radii['surface']}; margin-top: 10px; padding: 8px; }}
     QGroupBox#panelGroup {{ font-weight: 700; color: {palette['text_strong']}; }}
     QGroupBox#panelGroup::title {{ subcontrol-origin: margin; left: 16px; top: 1px; padding: 0 6px; color: {palette['text_strong']}; background-color: {palette['surface_top']}; }}
-    QTabBar::tab {{ padding: {spacing['button_padding']}; margin: 4px 6px 4px 0; border-radius: {radii['button']}; background: {palette['surface_top']}; border: 1px solid {palette['border_soft']}; color: {palette['text_muted']}; font-weight: 600; }}
+    QTabBar::tab {{ padding: 9px 14px; margin: 4px 6px 4px 0; border-radius: {radii['button']}; background: {palette['surface_top']}; border: 1px solid {palette['border_soft']}; color: {palette['text_muted']}; font-weight: 600; min-height: 18px; }}
     QTabBar::tab:selected {{ background: {palette['chip_hover']}; border-color: {palette['accent_border']}; color: {palette['text_strong']}; }}
     QTabBar::tab:hover {{ border-color: {palette['border']}; color: {palette['text_strong']}; }}
-    QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']}); color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 18px; }}
+    QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']}); color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 20px; }}
     QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_soft']}, stop:1 {palette['accent_primary']}); }}
     QPushButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
     QPushButton[variant="secondary"] {{ background: {palette['surface_top']}; color: {palette['text_primary']}; border: 1px solid {palette['border']}; }}
@@ -306,7 +306,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton[variant="chip"] {{ background: {palette['chip_bg']}; color: {palette['text_muted']}; border: 1px solid {palette['border']}; padding: {spacing['chip_padding']}; }}
     QPushButton[variant="chip"]:hover {{ background: {palette['chip_hover']}; color: {palette['text_strong']}; }}
     QPushButton[variant="chip"]:checked {{ background: {palette['selection_bg']}; color: {palette['selection_fg']}; border-color: {palette['accent_soft']}; }}
-    QToolButton {{ background: {palette['chip_bg']}; color: {palette['text_strong']}; border: 1px solid {palette['border']}; border-radius: {radii['button']}; padding: 8px 14px; font-weight: 600; }}
+    QToolButton {{ background: {palette['chip_bg']}; color: {palette['text_strong']}; border: 1px solid {palette['border']}; border-radius: {radii['button']}; padding: 8px 14px; font-weight: 600; min-height: 18px; }}
     QToolButton:hover {{ border-color: {palette['accent_border']}; }}
     QToolButton#sectionToggle {{ background: {palette['surface_top']}; border-color: {palette['border']}; text-align: left; }}
     QToolButton::menu-indicator {{ image: none; }}
@@ -319,12 +319,13 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QTableView#dataGrid, QTextEdit#consoleText, QLabel#monoLabel, QPlainTextEdit#extensionEditor {{
         font-family: {typography['mono_family']};
     }}
+    QTableView {{ show-decoration-selected: 1; }}
     QTextEdit#richBrief {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['surface']['start']}, stop:1 {gradients['surface']['end']}); }}
     QTextEdit#consoleText, QPlainTextEdit#extensionEditor {{ background: {palette['input_bg']}; }}
     QLabel#previewSurface {{ background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; color: {palette['text_soft']}; }}
-    QListWidget#sidebarList::item, QListWidget#navList::item {{ margin: 4px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }}
+    QListWidget#sidebarList::item, QListWidget#navList::item {{ margin: 3px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }}
     QListWidget#sidebarList::item:selected, QListWidget#navList::item:selected {{ background: {palette['selection_bg']}; border-color: {palette['accent_soft']}; color: {palette['text_strong']}; }}
-    QHeaderView::section {{ background: {palette['panel_top']}; padding: 10px 12px; border: 0; border-bottom: 1px solid {palette['border_soft']}; font-weight: 700; color: {palette['text_muted']}; }}
+    QHeaderView::section {{ background: {palette['panel_top']}; padding: 11px 12px; border: 0; border-bottom: 1px solid {palette['border_soft']}; font-weight: 700; color: {palette['text_muted']}; }}
     QFrame {{ background: {palette['surface_top']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; }}
     QProgressBar {{ background: {palette['surface_bottom']}; border: 1px solid {palette['border_soft']}; border-radius: 8px; min-height: 10px; }}
     QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {palette['progress_start']}, stop:0.55 {palette['progress_mid']}, stop:1 {palette['progress_end']}); border-radius: 8px; }}
@@ -346,11 +347,11 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QSplitter::handle {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['panel_bottom']}, stop:1 {palette['chip_hover']});
         border: 1px solid {palette['border_soft']};
-        border-radius: 4px;
+        border-radius: 5px;
         margin: 2px;
     }}
-    QSplitter::handle:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_hover']}, stop:1 {palette['selection_bg']}); border-color: {palette['border']}; }}
-    QSplitter::handle:pressed {{ background: {palette['selection_bg']}; border-color: {palette['accent_border']}; }}
+    QSplitter::handle:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_hover']}, stop:1 {palette['selection_bg']}); border-color: {palette['accent_border']}; }}
+    QSplitter::handle:pressed {{ background: {palette['selection_bg']}; border-color: {palette['accent_soft']}; }}
     """
     appended = str(qss_append or "").strip()
     return css + ("\n" + appended if appended else "")
