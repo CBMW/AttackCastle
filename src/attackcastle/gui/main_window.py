@@ -42,7 +42,9 @@ from PySide6.QtWidgets import (
 from attackcastle.gui.common import (
     FlowButtonRow,
     MappingTableModel,
+    PAGE_CARD_SPACING,
     PAGE_SECTION_SPACING,
+    PANEL_COMPACT_PADDING,
     PersistentSplitterController,
     RUN_STATE_ORDER,
     apply_responsive_splitter,
@@ -210,44 +212,37 @@ class MainWindow(QMainWindow):
 
         self._arrange_run_filters(width)
         if hasattr(self, "runs_page_split"):
-            if width >= 1520:
+            if width >= 1360:
                 self.runs_page_split.setOrientation(Qt.Horizontal)
                 self._apply_splitter_layout(
                     "runs_page_split",
-                    [max(int(width * 0.26), 320), max(int(width * 0.74), 900)],
+                    [max(int(width * 0.24), 320), max(int(width * 0.76), 920)],
                 )
             else:
                 self.runs_page_split.setOrientation(Qt.Vertical)
                 self._apply_splitter_layout(
                     "runs_page_split",
-                    [max(int(self.height() * 0.22), 190), max(int(self.height() * 0.68), 500)],
+                    [max(int(self.height() * 0.34), 280), max(int(self.height() * 0.66), 480)],
                 )
         if hasattr(self, "runs_top_split"):
-            if width >= 1520 or width < 1180:
-                self.runs_top_split.setOrientation(Qt.Vertical)
-                self._apply_splitter_layout(
-                    "runs_top_split",
-                    [max(int(self.height() * 0.16), 150), max(int(self.height() * 0.26), 220)],
-                )
-            else:
-                self.runs_top_split.setOrientation(Qt.Horizontal)
-                self._apply_splitter_layout(
-                    "runs_top_split",
-                    [max(int(width * 0.28), 280), max(int(width * 0.44), 420)],
-                )
+            self.runs_top_split.setOrientation(Qt.Vertical)
+            self._apply_splitter_layout(
+                "runs_top_split",
+                [max(int(self.height() * 0.18), 170), max(int(self.height() * 0.42), 380)],
+            )
         if hasattr(self, "runs_body_split"):
-            if width >= 1320:
+            if width >= 1240:
                 self.runs_body_split.setOrientation(Qt.Horizontal)
-                content_width = max(int(width * (0.74 if width >= 1520 else 0.96)), 960)
+                content_width = max(int(width * (0.76 if width >= 1360 else 0.96)), 920)
                 self._apply_splitter_layout(
                     "runs_body_split",
-                    [max(int(content_width * 0.42), 430), max(int(content_width * 0.58), 560)],
+                    [max(int(content_width * 0.58), 560), max(int(content_width * 0.42), 400)],
                 )
             else:
                 self.runs_body_split.setOrientation(Qt.Vertical)
                 self._apply_splitter_layout(
                     "runs_body_split",
-                    [max(int(self.height() * 0.34), 240), max(int(self.height() * 0.5), 340)],
+                    [max(int(self.height() * 0.42), 300), max(int(self.height() * 0.42), 320)],
                 )
         if hasattr(self, "settings_split"):
             self.settings_split.setOrientation(Qt.Vertical)
@@ -562,83 +557,24 @@ class MainWindow(QMainWindow):
 
     def _build_runs_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("scannerPage")
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        launch_panel, launch_layout = build_surface_frame(spacing=10)
-        launch_helper = QLabel("Start a new scan in the active workspace or continue in the current ad-hoc session.")
-        launch_helper.setObjectName("helperText")
-        launch_helper.setWordWrap(True)
-        self.start_scan_button = QPushButton("New Scan")
-        self.start_scan_button.clicked.connect(self._start_scan)
-        self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
-        style_button(self.start_scan_button)
-        launch_layout.addWidget(launch_helper)
-        launch_layout.addWidget(self.start_scan_button, 0, Qt.AlignLeft)
-
-        controls_panel, controls_layout = build_surface_frame(spacing=10)
-        self.selected_run_status_label = QLabel("No run selected. Choose a run from the table before using Scanner controls.")
-        self.selected_run_status_label.setObjectName("infoBanner")
-        self.selected_run_status_label.setWordWrap(True)
-        controls_layout.addWidget(self.selected_run_status_label)
-        controls_row = FlowButtonRow()
-        self.pause_button = QPushButton("Pause")
-        self.pause_button.clicked.connect(lambda: self._send_control_action("pause"))
-        self.pause_button.setToolTip("Pause the selected running job. Shortcut: Ctrl+P.")
-        self.resume_button = QPushButton("Resume")
-        self.resume_button.clicked.connect(lambda: self._send_control_action("resume"))
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(lambda: self._send_control_action("stop"))
-        self.skip_button = QPushButton("Skip Task")
-        self.skip_button.clicked.connect(lambda: self._send_control_action("skip"))
-        self.retry_button = QPushButton("Retry Run")
-        self.retry_button.clicked.connect(self._retry_selected_run)
-        self.retry_button.setToolTip("Relaunch the selected run configuration. Shortcut: Ctrl+R.")
-        self.open_run_button = QPushButton("Open Run Folder")
-        self.open_run_button.clicked.connect(self._open_selected_run_folder)
-        self.open_output_button = QPushButton("Open Findings")
-        self.open_output_button.clicked.connect(lambda checked=False: self._navigate_to("findings"))
-        self.open_health_button = QPushButton("Open Health")
-        self.open_health_button.clicked.connect(self._focus_health_panel)
-        set_tooltips(
-            (
-                (self.pause_button, "Pause the selected running job. Shortcut: Ctrl+P."),
-                (self.resume_button, "Resume the selected paused run."),
-                (self.stop_button, "Stop the selected run."),
-                (self.skip_button, "Skip the current task for the selected run."),
-                (self.retry_button, "Relaunch the selected run configuration. Shortcut: Ctrl+R."),
-                (self.open_run_button, "Open the selected run folder in the file manager."),
-                (self.open_output_button, "Open the Findings workspace for the selected run."),
-                (self.open_health_button, "Open the Scanner health view for the selected run."),
-            )
-        )
-        for button in (
-            self.pause_button,
-            self.resume_button,
-            self.stop_button,
-            self.skip_button,
-            self.retry_button,
-            self.open_run_button,
-            self.open_output_button,
-            self.open_health_button,
-        ):
-            style_button(button, role="secondary")
-            controls_row.addWidget(button)
-        controls_layout.addWidget(controls_row)
-        self.run_actions_hint_label = QLabel("Scanner controls stay disabled until a run is selected.")
-        self.run_actions_hint_label.setObjectName("helperText")
-        self.run_actions_hint_label.setWordWrap(True)
-        controls_layout.addWidget(self.run_actions_hint_label)
-        self.runs_top_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
+        # Keep the left rail aligned to the operator workflow: launch a scan, then act on the selected run.
+        self.runs_top_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
         self._register_splitter(self.runs_top_split, "runs_top_split")
-        self.runs_top_split.addWidget(self._wrap_group("Start New Scan", launch_panel))
-        self.runs_top_split.addWidget(self._wrap_group("Selected Run", controls_panel))
+        self.runs_top_split.setChildrenCollapsible(False)
+        self.runs_top_split.addWidget(self._wrap_group("Start New Scan", self._build_scanner_launch_card()))
+        self.runs_top_split.addWidget(self._wrap_group("Active Run", self._build_selected_run_control_card()))
         runs_control_panel = QWidget()
+        runs_control_panel.setObjectName("scannerConsoleLeftColumn")
+        runs_control_panel.setMinimumWidth(300)
         runs_control_layout = QVBoxLayout(runs_control_panel)
         runs_control_layout.setContentsMargins(0, 0, 0, 0)
         runs_control_layout.setSpacing(0)
-        runs_control_layout.addWidget(self.runs_top_split)
+        runs_control_layout.addWidget(self.runs_top_split, 1)
 
         self.run_filter_grid = QGridLayout()
         self.run_filter_grid.setHorizontalSpacing(10)
@@ -724,6 +660,180 @@ class MainWindow(QMainWindow):
         self.runs_page_split.addWidget(self.runs_body_split)
         layout.addWidget(self.runs_page_split, 1)
         return page
+
+    def _build_scanner_launch_card(self) -> QWidget:
+        card = QWidget()
+        card.setObjectName("scannerLaunchCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(PAGE_CARD_SPACING)
+
+        self.start_scan_context_label = QLabel("Session workspace: Ad-Hoc Session")
+        self.start_scan_context_label.setObjectName("scannerContextPill")
+        self.start_scan_context_label.setWordWrap(True)
+
+        launch_headline = QLabel("Queue the next external scan.")
+        launch_headline.setObjectName("scannerLeadText")
+        launch_headline.setWordWrap(True)
+
+        launch_helper = QLabel("Open the scan builder with the active session context, then push a run straight into the queue.")
+        launch_helper.setObjectName("helperText")
+        launch_helper.setWordWrap(True)
+
+        self.start_scan_button = QPushButton("Launch New Scan")
+        self.start_scan_button.setObjectName("scannerStartButton")
+        self.start_scan_button.clicked.connect(self._start_scan)
+        self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
+        style_button(self.start_scan_button, min_height=48)
+
+        layout.addWidget(self.start_scan_context_label, 0, Qt.AlignLeft)
+        layout.addWidget(launch_headline)
+        layout.addWidget(launch_helper)
+        layout.addWidget(self.start_scan_button)
+        layout.addStretch(1)
+        return card
+
+    def _build_selected_run_control_card(self) -> QWidget:
+        card = QWidget()
+        card.setObjectName("scannerRunCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(PAGE_CARD_SPACING)
+
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.setSpacing(10)
+        header_text = QVBoxLayout()
+        header_text.setContentsMargins(0, 0, 0, 0)
+        header_text.setSpacing(4)
+
+        self.selected_run_name_label = QLabel("No run selected")
+        self.selected_run_name_label.setObjectName("scannerRunName")
+        self.selected_run_name_label.setWordWrap(True)
+        self.selected_run_target_label = QLabel("Choose a run from the queue to inspect and control it here.")
+        self.selected_run_target_label.setObjectName("scannerRunContext")
+        self.selected_run_target_label.setWordWrap(True)
+        header_text.addWidget(self.selected_run_name_label)
+        header_text.addWidget(self.selected_run_target_label)
+
+        self.selected_run_state_badge = QLabel("Idle")
+        self.selected_run_state_badge.setObjectName("statusBadge")
+        self.selected_run_state_badge.setProperty("state", "idle")
+        self.selected_run_state_badge.setAlignment(Qt.AlignCenter)
+
+        header_row.addLayout(header_text, 1)
+        header_row.addWidget(self.selected_run_state_badge, 0, Qt.AlignTop)
+        layout.addLayout(header_row)
+
+        self.selected_run_status_label = QLabel("No run selected. Choose a run from the table before using Scanner controls.")
+        self.selected_run_status_label.setObjectName("scannerRunSummaryText")
+        self.selected_run_status_label.setWordWrap(True)
+        layout.addWidget(self.selected_run_status_label)
+
+        summary_grid = QGridLayout()
+        summary_grid.setContentsMargins(0, 0, 0, 0)
+        summary_grid.setHorizontalSpacing(10)
+        summary_grid.setVerticalSpacing(10)
+        progress_tile, self.selected_run_progress_value = self._build_scanner_summary_tile("Progress")
+        task_tile, self.selected_run_task_value = self._build_scanner_summary_tile("Current Task")
+        elapsed_tile, self.selected_run_elapsed_value = self._build_scanner_summary_tile("Elapsed")
+        eta_tile, self.selected_run_eta_value = self._build_scanner_summary_tile("ETA")
+        summary_grid.addWidget(progress_tile, 0, 0)
+        summary_grid.addWidget(task_tile, 0, 1)
+        summary_grid.addWidget(elapsed_tile, 1, 0)
+        summary_grid.addWidget(eta_tile, 1, 1)
+        layout.addLayout(summary_grid)
+
+        self.pause_button = QPushButton("Pause")
+        self.pause_button.clicked.connect(lambda: self._send_control_action("pause"))
+        self.resume_button = QPushButton("Resume")
+        self.resume_button.clicked.connect(lambda: self._send_control_action("resume"))
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(lambda: self._send_control_action("stop"))
+        self.skip_button = QPushButton("Skip Task")
+        self.skip_button.clicked.connect(lambda: self._send_control_action("skip"))
+        self.retry_button = QPushButton("Retry Run")
+        self.retry_button.clicked.connect(self._retry_selected_run)
+        self.open_run_button = QPushButton("Open Run Folder")
+        self.open_run_button.clicked.connect(self._open_selected_run_folder)
+        self.open_output_button = QPushButton("Open Findings")
+        self.open_output_button.clicked.connect(lambda checked=False: self._navigate_to("findings"))
+        self.open_health_button = QPushButton("Open Health")
+        self.open_health_button.clicked.connect(self._focus_health_panel)
+
+        set_tooltips(
+            (
+                (self.pause_button, "Pause the selected running job. Shortcut: Ctrl+P."),
+                (self.resume_button, "Resume the selected paused run."),
+                (self.stop_button, "Stop the selected run."),
+                (self.skip_button, "Skip the current task for the selected run."),
+                (self.retry_button, "Relaunch the selected run configuration. Shortcut: Ctrl+R."),
+                (self.open_run_button, "Open the selected run folder in the file manager."),
+                (self.open_output_button, "Open the Findings workspace for the selected run."),
+                (self.open_health_button, "Open the Scanner health view for the selected run."),
+            )
+        )
+
+        for button in (
+            self.pause_button,
+            self.resume_button,
+            self.skip_button,
+            self.retry_button,
+            self.open_run_button,
+            self.open_output_button,
+            self.open_health_button,
+        ):
+            button.setObjectName("scannerActionButton")
+            style_button(button, role="secondary", min_height=38)
+        self.stop_button.setObjectName("scannerDangerButton")
+        style_button(self.stop_button, role="danger", min_height=38)
+
+        layout.addWidget(
+            self._build_scanner_action_section("Run Control", (self.pause_button, self.resume_button, self.stop_button))
+        )
+        layout.addWidget(
+            self._build_scanner_action_section("Task Flow", (self.skip_button, self.retry_button))
+        )
+        layout.addWidget(
+            self._build_scanner_action_section("Inspect", (self.open_run_button, self.open_output_button, self.open_health_button))
+        )
+
+        self.run_actions_hint_label = QLabel("Scanner controls stay disabled until a run is selected.")
+        self.run_actions_hint_label.setObjectName("helperText")
+        self.run_actions_hint_label.setWordWrap(True)
+        layout.addWidget(self.run_actions_hint_label)
+        layout.addStretch(1)
+        return card
+
+    def _build_scanner_summary_tile(self, label: str) -> tuple[QFrame, QLabel]:
+        tile = QFrame()
+        tile.setObjectName("scannerMetricTile")
+        tile_layout = QVBoxLayout(tile)
+        tile_layout.setContentsMargins(PANEL_COMPACT_PADDING, PANEL_COMPACT_PADDING - 2, PANEL_COMPACT_PADDING, PANEL_COMPACT_PADDING - 2)
+        tile_layout.setSpacing(4)
+        key_label = QLabel(label)
+        key_label.setObjectName("scannerMetricLabel")
+        value_label = QLabel("--")
+        value_label.setObjectName("scannerMetricValue")
+        value_label.setWordWrap(True)
+        tile_layout.addWidget(key_label)
+        tile_layout.addWidget(value_label)
+        return tile, value_label
+
+    def _build_scanner_action_section(self, title: str, buttons: tuple[QPushButton, ...]) -> QWidget:
+        section = QWidget()
+        section.setObjectName("scannerActionSection")
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(6)
+        section_label = QLabel(title.upper())
+        section_label.setObjectName("scannerActionGroupLabel")
+        button_row = FlowButtonRow(h_spacing=8, v_spacing=8)
+        for button in buttons:
+            button_row.addWidget(button)
+        section_layout.addWidget(section_label)
+        section_layout.addWidget(button_row)
+        return section
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
@@ -974,6 +1084,7 @@ class MainWindow(QMainWindow):
         group.setObjectName("panelGroup")
         group_layout = QVBoxLayout(group)
         group_layout.setContentsMargins(14, 18, 14, 14)
+        group_layout.setSpacing(0)
         group_layout.addWidget(widget)
         return group
 
@@ -2397,6 +2508,7 @@ class MainWindow(QMainWindow):
         self._load_current_overview_state(workspace_id)
         self._refresh_audit_table()
         self._sync_run_table()
+        self._refresh_context_panels()
         self._refresh_dashboard()
         self._refresh_health_panel()
         self._refresh_settings_page()
@@ -2452,23 +2564,50 @@ class MainWindow(QMainWindow):
         self._refresh_header_context()
 
     def _refresh_header_context(self) -> None:
-        return
+        if not hasattr(self, "start_scan_context_label"):
+            return
+        workspace = self._active_workspace()
+        if self._switch_in_progress:
+            context = "Session workspace: Switching..."
+        elif workspace is not None:
+            context = f"Session workspace: {workspace.name}"
+        else:
+            context = "Session workspace: Ad-Hoc Session"
+        self.start_scan_context_label.setText(context)
+
+    def _set_selected_run_badge(self, state: str) -> None:
+        normalized = str(state or "idle").strip().lower() or "idle"
+        self.selected_run_state_badge.setText(title_case_label(normalized))
+        self.selected_run_state_badge.setProperty("state", normalized)
+        refresh_widget_style(self.selected_run_state_badge)
+
+    def _selected_run_context_text(self, snapshot: RunSnapshot) -> str:
+        target_summary = summarize_target_input(snapshot.target_input)
+        workspace_label = snapshot.workspace_name or "Ad-Hoc Session"
+        return f"{target_summary} | {workspace_label}"
 
     def _update_run_action_state(self) -> None:
         snapshot = self._selected_snapshot()
         has_snapshot = snapshot is not None
-        for button in (
-            self.pause_button,
-            self.resume_button,
-            self.stop_button,
-            self.skip_button,
-            self.retry_button,
-            self.open_run_button,
-            self.open_output_button,
-            self.open_health_button,
-        ):
-            button.setEnabled(has_snapshot)
         if snapshot is None:
+            for button in (
+                self.pause_button,
+                self.resume_button,
+                self.stop_button,
+                self.skip_button,
+                self.retry_button,
+                self.open_run_button,
+                self.open_output_button,
+                self.open_health_button,
+            ):
+                button.setEnabled(False)
+            self.selected_run_name_label.setText("No run selected")
+            self.selected_run_target_label.setText("Choose a run from the queue to inspect and control it here.")
+            self.selected_run_progress_value.setText("--")
+            self.selected_run_task_value.setText("--")
+            self.selected_run_elapsed_value.setText("--")
+            self.selected_run_eta_value.setText("--")
+            self._set_selected_run_badge("idle")
             self.selected_run_status_label.setText(
                 "No run selected. Choose a run from the table before using Scanner controls."
             )
@@ -2477,11 +2616,24 @@ class MainWindow(QMainWindow):
                 "Select a run to review context, health, and findings for the current session."
             )
             return
+        self.selected_run_name_label.setText(snapshot.scan_name or snapshot.run_id)
+        self.selected_run_target_label.setText(self._selected_run_context_text(snapshot))
+        self.selected_run_progress_value.setText(format_progress(snapshot.completed_tasks, snapshot.total_tasks))
+        self.selected_run_task_value.setText(snapshot.current_task or "--")
+        self.selected_run_elapsed_value.setText(format_duration(snapshot.elapsed_seconds))
+        self.selected_run_eta_value.setText(format_duration(snapshot.eta_seconds))
+        self._set_selected_run_badge(snapshot.state)
         self.selected_run_status_label.setText(
             f"{snapshot.scan_name} is {title_case_label(snapshot.state)} and {progress_percent(snapshot.completed_tasks, snapshot.total_tasks)}% complete."
         )
         self.pause_button.setEnabled(self._can_pause_snapshot(snapshot))
         self.resume_button.setEnabled(self._can_resume_snapshot(snapshot))
+        self.stop_button.setEnabled(snapshot.state in {"running", "paused"} or snapshot.resume_required)
+        self.skip_button.setEnabled(snapshot.state == "running" and not snapshot.pause_requested and not snapshot.resume_required)
+        self.retry_button.setEnabled(bool(str(snapshot.run_dir or "").strip()))
+        self.open_run_button.setEnabled(bool(str(snapshot.run_dir or "").strip()))
+        self.open_output_button.setEnabled(has_snapshot)
+        self.open_health_button.setEnabled(has_snapshot)
         self.run_actions_hint_label.setText(self._selected_run_action_hint(snapshot))
         issue_count = int(snapshot.execution_issues_summary.get("total_count", 0) or 0)
         self.general_status_detail.setText(

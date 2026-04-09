@@ -282,6 +282,19 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QLabel#helperText, QLabel#sectionHelper {{ color: {palette['text_soft']}; background: transparent; }}
     QLabel#infoBanner {{ padding: 10px 12px; background: {palette['chip_bg']}; border: 1px solid {palette['border']}; color: {palette['text_primary']}; border-radius: {radii['input']}; }}
+    QLabel#scannerLeadText {{ color: {palette['text_strong']}; font-size: 17px; font-weight: 700; background: transparent; }}
+    QLabel#scannerContextPill {{
+        padding: 6px 10px;
+        background: {palette['chip_bg']};
+        border: 1px solid {palette['border']};
+        border-radius: {radii['badge']};
+        color: {palette['text_muted']};
+        font-weight: 700;
+    }}
+    QLabel#scannerRunName {{ color: {palette['text_strong']}; font-size: 18px; font-weight: 700; background: transparent; }}
+    QLabel#scannerRunContext {{ color: {palette['text_muted']}; background: transparent; }}
+    QLabel#scannerRunSummaryText {{ color: {palette['text_primary']}; background: transparent; }}
+    QLabel#scannerActionGroupLabel {{ color: {palette['text_muted']}; font-size: 11px; font-weight: 700; letter-spacing: 0.6px; background: transparent; }}
     QLabel#attentionBanner {{ padding: 10px 12px; border-radius: {radii['input']}; border: 1px solid {palette['border']}; background: {palette['chip_bg']}; color: {palette['text_primary']}; }}
     QLabel#attentionBanner[tone="alert"] {{ background: {severity['critical'][0]}; border-color: {palette['border']}; color: {severity['critical'][1]}; }}
     QLabel#attentionBanner[tone="warning"] {{ background: {severity['medium'][0]}; border-color: {palette['border']}; color: {severity['medium'][1]}; }}
@@ -301,6 +314,8 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']}); color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 20px; }}
     QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_soft']}, stop:1 {palette['accent_primary']}); }}
     QPushButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
+    QPushButton#scannerStartButton {{ min-height: 30px; font-size: 14px; padding: 10px 16px; }}
+    QPushButton#scannerActionButton, QPushButton#scannerDangerButton {{ padding: 8px 12px; }}
     QPushButton[variant="secondary"] {{ background: {palette['surface_top']}; color: {palette['text_primary']}; border: 1px solid {palette['border']}; }}
     QPushButton[variant="secondary"]:hover {{ background: {palette['chip_hover']}; border-color: {palette['accent_border']}; }}
     QPushButton[variant="danger"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {severity['critical'][0]}, stop:1 #571924); color: {severity['critical'][1]}; border: 1px solid #8b2e3f; }}
@@ -391,6 +406,20 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 1px solid {palette['border_soft']};
         border-radius: {radii['surface']};
     }}
+    QWidget#scannerLaunchCard, QWidget#scannerRunCard, QWidget#scannerActionSection {{
+        background: transparent;
+    }}
+    QFrame#scannerMetricTile {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['input']};
+    }}
+    QFrame#scannerMetricTile:hover {{
+        border-color: {palette['border']};
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_hover']}, stop:1 {palette['surface_bottom']});
+    }}
+    QLabel#scannerMetricLabel {{ color: {palette['text_soft']}; font-size: 11px; font-weight: 700; background: transparent; }}
+    QLabel#scannerMetricValue {{ color: {palette['text_strong']}; font-weight: 700; background: transparent; }}
     QFrame#overviewChecklistItemCard {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['surface_bottom']});
         border: 1px solid {palette['border_soft']};

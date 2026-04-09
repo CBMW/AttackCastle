@@ -19,7 +19,6 @@ from attackcastle.gui.common import (
     MappingTableModel,
     PersistentSplitterController,
     apply_responsive_splitter,
-    build_table_section,
     configure_scroll_surface,
     ensure_table_defaults,
     format_duration,
@@ -102,7 +101,7 @@ class ScannerPanel(QWidget):
         self.tasks_tab_index = self.tabs.addTab(self._table_surface("Tasks", self.tasks_view), "Tasks")
         self.tools_tab_index = self.tabs.addTab(self._table_surface("Tool Runs", self.tools_view), "Tool Runs")
         self.issues_tab_index = self.tabs.addTab(self._table_surface("Execution Issues", self.issues_view), "Issues")
-        self.health_tab_index = self.tabs.addTab(self._section("Execution Health", self.health_text), "Health")
+        self.health_tab_index = self.tabs.addTab(self._tab_surface(self.health_text), "Health")
         self.audit_tab_index = self.tabs.addTab(self._table_surface("Audit Trail", self.audit_view), "Audit")
         self.tabs.setTabToolTip(self.tasks_tab_index, "Inspect task lifecycle updates for the selected run.")
         self.tabs.setTabToolTip(self.tools_tab_index, "Inspect tool execution records and stdout artifact paths.")
@@ -116,7 +115,7 @@ class ScannerPanel(QWidget):
         self.inspector_tabs.setDocumentMode(True)
         self.inspector_tabs.setMinimumWidth(300)
         self.inspector_summary = QLabel("Select a task, tool run, issue, or audit entry to inspect details.")
-        self.inspector_summary.setObjectName("warningBanner")
+        self.inspector_summary.setObjectName("helperText")
         self.inspector_summary.setWordWrap(True)
         self.inspector_tabs.setCornerWidget(self.inspector_summary, Qt.TopRightCorner)
         self.detail_text = configure_scroll_surface(QTextEdit())
@@ -125,29 +124,21 @@ class ScannerPanel(QWidget):
         self.raw_text = configure_scroll_surface(QTextEdit())
         self.raw_text.setObjectName("consoleText")
         self.raw_text.setReadOnly(True)
-        self.inspector_tabs.addTab(self._section("Details", self.detail_text), "Details")
-        self.inspector_tabs.addTab(self._section("Raw", self.raw_text), "Raw")
+        self.inspector_tabs.addTab(self._tab_surface(self.detail_text), "Details")
+        self.inspector_tabs.addTab(self._tab_surface(self.raw_text), "Raw")
         self.main_split.addWidget(self.inspector_tabs)
         self.sync_responsive_mode(self.width())
 
-    def _section(self, title: str, widget: QWidget) -> QWidget:
+    def _tab_surface(self, widget: QWidget) -> QWidget:
         section = QWidget()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        label = QLabel(title)
-        label.setObjectName("sectionTitle")
-        layout.addWidget(label)
-        layout.addWidget(widget)
+        layout.setSpacing(0)
+        layout.addWidget(widget, 1)
         return section
 
-    def _table_surface(self, title: str, table: QTableView) -> QWidget:
-        section, _title, _summary = build_table_section(
-            title,
-            table,
-            summary_text="Scanner detail grids remain expanded so task, tool, and audit state are usable as live operator views.",
-        )
-        return section
+    def _table_surface(self, _title: str, table: QTableView) -> QWidget:
+        return self._tab_surface(table)
 
     def set_context_menu_handler(self, handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None) -> None:
         self._context_menu_handler = handler

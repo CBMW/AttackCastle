@@ -196,7 +196,7 @@ class OverviewChecklistPanel(QFrame):
         header.setObjectName("overviewChecklistHeader")
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
+        header_layout.setSpacing(0)
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
@@ -209,15 +209,10 @@ class OverviewChecklistPanel(QFrame):
         self.count_badge.setObjectName("overviewChecklistCountBadge")
         self.count_badge.setAlignment(Qt.AlignCenter)
 
-        self.summary_label = QLabel("Operator follow-ups, validation steps, and reporting checkpoints.")
-        self.summary_label.setObjectName("overviewChecklistSummary")
-        self.summary_label.setWordWrap(True)
-
         title_row.addWidget(self.title_label)
         title_row.addStretch(1)
         title_row.addWidget(self.count_badge, 0, Qt.AlignTop)
         header_layout.addLayout(title_row)
-        header_layout.addWidget(self.summary_label)
 
         self.composer = OverviewChecklistComposer()
         self.composer.add_requested.connect(self.add_requested.emit)
