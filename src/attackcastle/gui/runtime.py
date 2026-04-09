@@ -12,6 +12,7 @@ from attackcastle.gui.models import GuiProfile, RunSnapshot
 from attackcastle.storage.run_store import RunStore
 
 TERMINAL_TASK_STATUSES = {"completed", "skipped", "failed", "blocked", "cancelled"}
+ACTIVE_TASK_STATUSES = {"running", "waiting"}
 RUNTIME_CHECKPOINT_KEYS = {"_runtime_state"}
 
 
@@ -251,8 +252,479 @@ def _build_artifacts(run_data) -> list[dict[str, Any]]:
                     "caption": getattr(execution, "status", ""),
                 }
             )
+    for artifact in getattr(run_data, "evidence_artifacts", []):
+        normalized = str(getattr(artifact, "path", "") or "").strip()
+        if not normalized or normalized in seen_paths:
+            continue
+        seen_paths.add(normalized)
+        rows.append(
+            {
+                "path": normalized,
+                "kind": getattr(artifact, "kind", "artifact"),
+                "source_tool": getattr(artifact, "source_tool", ""),
+                "caption": getattr(artifact, "caption", ""),
+            }
+        )
     rows.sort(key=lambda item: (item["source_tool"], item["path"]))
     return rows
+
+
+def _parse_debug_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    return parse_datetime(value)
+
+
+def _path_text(path: str) -> str:
+    return str(Path(path).expanduser()) if str(path or "").strip() else ""
+
+
+def _artifact_paths_from_task_result(result: dict[str, Any]) -> set[str]:
+    paths: set[str] = set()
+    for artifact in result.get("raw_artifacts", []):
+        if not isinstance(artifact, dict):
+            continue
+        normalized = _path_text(str(artifact.get("path") or ""))
+        if normalized:
+            paths.add(normalized)
+    return paths
+
+
+def _artifact_paths_from_tool_execution(execution: dict[str, Any]) -> set[str]:
+    paths: set[str] = set()
+    for key in ("stdout_path", "stderr_path"):
+        normalized = _path_text(str(execution.get(key) or ""))
+        if normalized:
+            paths.add(normalized)
+    for item in execution.get("raw_artifact_paths", []):
+        normalized = _path_text(str(item or ""))
+        if normalized:
+            paths.add(normalized)
+    return paths
+
+
+def _artifact_paths_from_evidence_artifact(artifact: dict[str, Any]) -> set[str]:
+    normalized = _path_text(str(artifact.get("path") or ""))
+    return {normalized} if normalized else set()
+
+
+def _task_sort_key(task: dict[str, Any]) -> tuple[float, float, str]:
+    started_at = _parse_debug_datetime(task.get("started_at"))
+    ended_at = _parse_debug_datetime(task.get("ended_at"))
+    started_value = started_at.timestamp() if started_at is not None else -1.0
+    ended_value = ended_at.timestamp() if ended_at is not None else -1.0
+    return (ended_value, started_value, str(task.get("key") or ""))
+
+
+def _execution_sort_key(row: dict[str, Any]) -> tuple[float, float, str]:
+    started_at = _parse_debug_datetime(row.get("started_at"))
+    ended_at = _parse_debug_datetime(row.get("ended_at"))
+    started_value = started_at.timestamp() if started_at is not None else -1.0
+    ended_value = ended_at.timestamp() if ended_at is not None else -1.0
+    return (started_value, ended_value, str(row.get("tool_name") or row.get("execution_id") or ""))
+
+
+def _result_sort_key(row: dict[str, Any]) -> tuple[float, float, str]:
+    started_at = _parse_debug_datetime(row.get("started_at"))
+    finished_at = _parse_debug_datetime(row.get("finished_at"))
+    started_value = started_at.timestamp() if started_at is not None else -1.0
+    finished_value = finished_at.timestamp() if finished_at is not None else -1.0
+    return (started_value, finished_value, str(row.get("task_type") or row.get("task_id") or ""))
+
+
+def _build_path_dump(path: str, label: str) -> list[str]:
+    normalized = _path_text(path)
+    lines = [f"{label}: {normalized or '[not recorded]'}"]
+    if not normalized:
+        return lines
+    file_path = Path(normalized)
+    if not file_path.exists():
+        lines.append(f"[missing file] {normalized}")
+        return lines
+    if not file_path.is_file():
+        lines.append(f"[not a file] {normalized}")
+        return lines
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        lines.append("[non-text content omitted]")
+        return lines
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"[unreadable] {exc}")
+        return lines
+    lines.append(content if content else "[empty file]")
+    return lines
+
+
+def _format_mapping_block(title: str, payload: dict[str, Any], *, skip_keys: set[str] | None = None) -> list[str]:
+    skip = skip_keys or set()
+    lines = [title]
+    for key, value in payload.items():
+        if key in skip:
+            continue
+        if isinstance(value, list):
+            lines.append(f"- {key}: {len(value)} item(s)")
+        elif isinstance(value, dict):
+            lines.append(f"- {key}: {json.dumps(value, indent=2, sort_keys=True)}")
+        else:
+            lines.append(f"- {key}: {value}")
+    return lines
+
+
+def _matching_task_results(snapshot: RunSnapshot, task_row: dict[str, Any]) -> list[dict[str, Any]]:
+    task_key = str(task_row.get("key") or "").strip()
+    task_started = _parse_debug_datetime(task_row.get("started_at"))
+    task_ended = _parse_debug_datetime(task_row.get("ended_at"))
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for result in snapshot.task_results:
+        score = 0
+        task_type = str(result.get("task_type") or "").strip()
+        if task_key and task_type == task_key:
+            score += 12
+        command = str(result.get("command") or "")
+        if task_key and task_key in command:
+            score += 3
+        started_at = _parse_debug_datetime(result.get("started_at"))
+        finished_at = _parse_debug_datetime(result.get("finished_at"))
+        if task_started is not None and started_at is not None:
+            delta = abs((started_at - task_started).total_seconds())
+            if delta <= 2:
+                score += 5
+            elif delta <= 30:
+                score += 3
+        if task_ended is not None and finished_at is not None:
+            delta = abs((finished_at - task_ended).total_seconds())
+            if delta <= 2:
+                score += 5
+            elif delta <= 30:
+                score += 3
+        if score > 0:
+            ranked.append((score, result))
+    ranked.sort(key=lambda item: (-item[0], _result_sort_key(item[1])))
+    return [result for _score, result in ranked]
+
+
+def _matching_tool_executions(
+    snapshot: RunSnapshot,
+    task_row: dict[str, Any] | None = None,
+    *,
+    preferred_tool_row: dict[str, Any] | None = None,
+    matched_results: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    preferred_execution_id = str((preferred_tool_row or {}).get("execution_id") or "").strip()
+    preferred_paths = _artifact_paths_from_tool_execution(preferred_tool_row or {})
+    task_key = str((task_row or {}).get("key") or "").strip()
+    task_label = str((task_row or {}).get("label") or "").strip().lower()
+    task_capability = ""
+    detail = (task_row or {}).get("detail", {})
+    if isinstance(detail, dict):
+        task_capability = str(detail.get("capability") or "").strip()
+    task_started = _parse_debug_datetime((task_row or {}).get("started_at"))
+    task_ended = _parse_debug_datetime((task_row or {}).get("ended_at"))
+    result_paths: set[str] = set()
+    for result in matched_results or []:
+        result_paths.update(_artifact_paths_from_task_result(result))
+
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for execution in snapshot.tool_executions:
+        score = 0
+        execution_id = str(execution.get("execution_id") or "").strip()
+        execution_paths = _artifact_paths_from_tool_execution(execution)
+        if preferred_execution_id and execution_id == preferred_execution_id:
+            score += 100
+        if preferred_paths and execution_paths.intersection(preferred_paths):
+            score += 80
+        if result_paths and execution_paths.intersection(result_paths):
+            score += 40
+        capability = str(execution.get("capability") or "").strip()
+        if task_capability and capability == task_capability:
+            score += 12
+        command = str(execution.get("command") or "")
+        lowered_command = command.lower()
+        if task_key and task_key in command:
+            score += 4
+        if task_label and task_label in lowered_command:
+            score += 2
+        started_at = _parse_debug_datetime(execution.get("started_at"))
+        ended_at = _parse_debug_datetime(execution.get("ended_at"))
+        if task_started is not None and started_at is not None:
+            delta = abs((started_at - task_started).total_seconds())
+            if delta <= 2:
+                score += 8
+            elif delta <= 30:
+                score += 5
+            elif delta <= 300:
+                score += 2
+        if task_ended is not None and ended_at is not None:
+            delta = abs((ended_at - task_ended).total_seconds())
+            if delta <= 2:
+                score += 8
+            elif delta <= 30:
+                score += 5
+            elif delta <= 300:
+                score += 2
+        if score > 0:
+            ranked.append((score, execution))
+    ranked.sort(key=lambda item: (-item[0], _execution_sort_key(item[1])))
+    return [execution for _score, execution in ranked]
+
+
+def _matching_evidence_artifacts(
+    snapshot: RunSnapshot,
+    task_results: list[dict[str, Any]],
+    tool_executions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_task_ids = {
+        str(result.get("task_id") or "").strip()
+        for result in task_results
+        if str(result.get("task_id") or "").strip()
+    }
+    source_execution_ids = {
+        str(execution.get("execution_id") or "").strip()
+        for execution in tool_executions
+        if str(execution.get("execution_id") or "").strip()
+    }
+    artifact_paths: set[str] = set()
+    for result in task_results:
+        artifact_paths.update(_artifact_paths_from_task_result(result))
+    for execution in tool_executions:
+        artifact_paths.update(_artifact_paths_from_tool_execution(execution))
+
+    matched: list[dict[str, Any]] = []
+    for artifact in snapshot.evidence_artifacts:
+        source_task_id = str(artifact.get("source_task_id") or "").strip()
+        source_execution_id = str(artifact.get("source_execution_id") or "").strip()
+        artifact_path = _artifact_paths_from_evidence_artifact(artifact)
+        if (
+            (source_task_id and source_task_id in source_task_ids)
+            or (source_execution_id and source_execution_id in source_execution_ids)
+            or (artifact_path and artifact_paths.intersection(artifact_path))
+        ):
+            matched.append(artifact)
+    matched.sort(key=lambda item: (_path_text(str(item.get("path") or "")), str(item.get("kind") or "")))
+    return matched
+
+
+def _select_task_row(
+    snapshot: RunSnapshot,
+    *,
+    task_row: dict[str, Any] | None = None,
+    tool_row: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if task_row is not None:
+        return task_row
+    if tool_row is not None:
+        matched = _matching_tool_executions(snapshot, preferred_tool_row=tool_row)
+        if matched:
+            selected = matched[0]
+            execution_started = _parse_debug_datetime(selected.get("started_at"))
+            best_task: dict[str, Any] | None = None
+            best_delta: float | None = None
+            for candidate in snapshot.tasks:
+                detail = candidate.get("detail", {})
+                if not isinstance(detail, dict):
+                    detail = {}
+                capability = str(detail.get("capability") or "").strip()
+                if capability and capability != str(selected.get("capability") or "").strip():
+                    continue
+                candidate_started = _parse_debug_datetime(candidate.get("started_at"))
+                if execution_started is None or candidate_started is None:
+                    if best_task is None:
+                        best_task = candidate
+                    continue
+                delta = abs((candidate_started - execution_started).total_seconds())
+                if best_delta is None or delta < best_delta:
+                    best_task = candidate
+                    best_delta = delta
+            if best_task is not None:
+                return best_task
+    active = [row for row in snapshot.tasks if str(row.get("status") or "") in ACTIVE_TASK_STATUSES]
+    if active:
+        return sorted(active, key=_task_sort_key, reverse=True)[0]
+    if snapshot.tasks:
+        return sorted(snapshot.tasks, key=_task_sort_key, reverse=True)[0]
+    return None
+
+
+def resolve_current_task_debug_bundle(
+    snapshot: RunSnapshot,
+    *,
+    task_row: dict[str, Any] | None = None,
+    tool_row: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    selected_task = _select_task_row(snapshot, task_row=task_row, tool_row=tool_row)
+    if selected_task is None and tool_row is None:
+        return {
+            "title": "Current Task Debug Log",
+            "task": None,
+            "task_results": [],
+            "tool_executions": [],
+            "evidence_artifacts": [],
+            "text": "No task activity has been recorded yet.",
+        }
+
+    task_results = _matching_task_results(snapshot, selected_task) if selected_task is not None else []
+    tool_executions = _matching_tool_executions(
+        snapshot,
+        selected_task,
+        preferred_tool_row=tool_row,
+        matched_results=task_results,
+    )
+    evidence_artifacts = _matching_evidence_artifacts(snapshot, task_results, tool_executions)
+    lines: list[str] = []
+
+    if selected_task is not None:
+        title = f"Current Task Debug Log: {selected_task.get('label') or selected_task.get('key') or 'Task'}"
+        lines.extend(_format_mapping_block("Task", selected_task))
+    else:
+        title = f"Current Task Debug Log: {tool_row.get('tool_name') or 'Command'}"
+        lines.append("No task row matched the selected command. Showing execution details only.")
+
+    if task_results:
+        lines.extend(["", "Task Results"])
+        for index, result in enumerate(sorted(task_results, key=_result_sort_key), start=1):
+            lines.extend(_format_mapping_block(f"Result {index}", result, skip_keys={"raw_artifacts"}))
+            raw_artifacts = result.get("raw_artifacts", [])
+            if isinstance(raw_artifacts, list) and raw_artifacts:
+                lines.append("- raw_artifacts:")
+                for artifact in raw_artifacts:
+                    if not isinstance(artifact, dict):
+                        continue
+                    lines.append(f"  - {artifact.get('artifact_type')}: {artifact.get('path')}")
+            lines.append("")
+
+    if tool_executions:
+        lines.extend(["", "Tool Executions"])
+        for index, execution in enumerate(sorted(tool_executions, key=_execution_sort_key), start=1):
+            lines.extend(
+                _format_mapping_block(
+                    f"Command {index}",
+                    execution,
+                    skip_keys={"stdout_path", "stderr_path", "raw_artifact_paths"},
+                )
+            )
+            lines.extend(_build_path_dump(str(execution.get("stdout_path") or ""), "stdout"))
+            lines.append("")
+            lines.extend(_build_path_dump(str(execution.get("stderr_path") or ""), "stderr"))
+            raw_artifacts = execution.get("raw_artifact_paths", [])
+            if isinstance(raw_artifacts, list):
+                for artifact_index, artifact_path in enumerate(raw_artifacts, start=1):
+                    lines.append("")
+                    lines.extend(_build_path_dump(str(artifact_path or ""), f"raw artifact {artifact_index}"))
+            lines.append("")
+
+    if evidence_artifacts:
+        lines.extend(["", "Evidence Artifacts"])
+        for index, artifact in enumerate(evidence_artifacts, start=1):
+            lines.extend(_format_mapping_block(f"Evidence {index}", artifact, skip_keys={"path"}))
+            lines.extend(_build_path_dump(str(artifact.get("path") or ""), "artifact"))
+            lines.append("")
+
+    if not task_results and not tool_executions and not evidence_artifacts:
+        lines.append("No persisted command or artifact records were matched for this task yet.")
+
+    return {
+        "title": title,
+        "task": selected_task,
+        "task_results": task_results,
+        "tool_executions": tool_executions,
+        "evidence_artifacts": evidence_artifacts,
+        "text": "\n".join(lines).strip(),
+    }
+
+
+def build_run_debug_bundle(
+    snapshot: RunSnapshot,
+    *,
+    task_row: dict[str, Any] | None = None,
+    tool_row: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    current_task_bundle = resolve_current_task_debug_bundle(snapshot, task_row=task_row, tool_row=tool_row)
+    overview_lines = [
+        f"Run ID: {snapshot.run_id}",
+        f"Scan Name: {snapshot.scan_name}",
+        f"State: {snapshot.state}",
+        f"Workspace: {snapshot.workspace_name or 'Ad-Hoc Session'}",
+        f"Target Input: {snapshot.target_input or '[none]'}",
+        f"Run Directory: {snapshot.run_dir or '[none]'}",
+        f"Current Task: {snapshot.current_task or 'Idle'}",
+        f"Progress: {snapshot.completed_tasks}/{snapshot.total_tasks}",
+        f"Elapsed Seconds: {snapshot.elapsed_seconds}",
+        f"ETA Seconds: {snapshot.eta_seconds}",
+        f"Warnings: {len(snapshot.warnings)}",
+        f"Errors: {len(snapshot.errors)}",
+        f"Execution Issues: {snapshot.execution_issues_summary.get('total_count', 0)}",
+        f"Completeness: {snapshot.completeness_status}",
+        "",
+        "Warnings",
+    ]
+    overview_lines.extend([f"- {warning}" for warning in snapshot.warnings] or ["- none"])
+    overview_lines.extend(["", "Errors"])
+    overview_lines.extend([f"- {error}" for error in snapshot.errors] or ["- none"])
+    overview_lines.extend(["", "Execution Issues"])
+    if snapshot.execution_issues:
+        for issue in snapshot.execution_issues:
+            overview_lines.append(
+                f"- {issue.get('kind')} | {issue.get('status')} | {issue.get('label')} | {issue.get('message')}"
+            )
+    else:
+        overview_lines.append("- none")
+
+    combined_lines = ["Task Timeline"]
+    if snapshot.tasks:
+        for task in sorted(snapshot.tasks, key=_task_sort_key):
+            detail = task.get("detail", {})
+            detail_text = json.dumps(detail, sort_keys=True) if isinstance(detail, dict) and detail else "{}"
+            combined_lines.append(
+                f"- {task.get('label') or task.get('key')} | status={task.get('status')} | started={task.get('started_at') or '-'} | "
+                f"ended={task.get('ended_at') or '-'} | detail={detail_text}"
+            )
+    else:
+        combined_lines.append("- No task rows recorded.")
+
+    combined_lines.extend(["", "Task Results"])
+    if snapshot.task_results:
+        for result in sorted(snapshot.task_results, key=_result_sort_key):
+            combined_lines.append(
+                f"- {result.get('task_type') or result.get('task_id')} | status={result.get('status')} | exit={result.get('exit_code')} | "
+                f"started={result.get('started_at') or '-'} | finished={result.get('finished_at') or '-'}"
+            )
+            combined_lines.append(f"  command: {result.get('command') or '[none]'}")
+    else:
+        combined_lines.append("- No task results recorded.")
+
+    combined_lines.extend(["", "Tool Executions"])
+    if snapshot.tool_executions:
+        for execution in sorted(snapshot.tool_executions, key=_execution_sort_key):
+            combined_lines.append(
+                f"- {execution.get('tool_name')} | status={execution.get('status')} | exit={execution.get('exit_code')} | "
+                f"capability={execution.get('capability') or '-'} | started={execution.get('started_at') or '-'} | ended={execution.get('ended_at') or '-'}"
+            )
+            combined_lines.append(f"  command: {execution.get('command') or '[none]'}")
+            combined_lines.extend([f"  {line}" for line in _build_path_dump(str(execution.get('stdout_path') or ''), "stdout")])
+            combined_lines.extend([f"  {line}" for line in _build_path_dump(str(execution.get('stderr_path') or ''), "stderr")])
+            raw_artifacts = execution.get("raw_artifact_paths", [])
+            if isinstance(raw_artifacts, list):
+                for artifact_index, artifact_path in enumerate(raw_artifacts, start=1):
+                    combined_lines.extend(
+                        [f"  {line}" for line in _build_path_dump(str(artifact_path or ""), f"raw artifact {artifact_index}")]
+                    )
+    else:
+        combined_lines.append("- No tool executions recorded.")
+
+    combined_lines.extend(["", "Run Log"])
+    run_log_path = str(Path(snapshot.run_dir) / "logs" / "run.log") if snapshot.run_dir else ""
+    combined_lines.extend(_build_path_dump(run_log_path, "logs/run.log"))
+
+    return {
+        "title": f"Debug Log: {snapshot.scan_name}",
+        "overview": "\n".join(overview_lines).strip(),
+        "combined_log": "\n".join(combined_lines).strip(),
+        "current_task": current_task_bundle["text"],
+        "current_task_title": str(current_task_bundle.get("title") or "Current Task Debug Log"),
+    }
 
 
 def load_run_snapshot(run_dir: Path) -> RunSnapshot:
@@ -306,7 +778,9 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     screenshots: list[dict[str, Any]] = []
     services: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
+    task_results: list[dict[str, Any]] = []
     tool_executions: list[dict[str, Any]] = []
+    evidence_artifacts: list[dict[str, Any]] = []
     extensions: list[dict[str, Any]] = []
     warnings: list[str] = []
     errors: list[str] = []
@@ -357,7 +831,9 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         ]
         services = to_serializable(run_data.services)
         findings = to_serializable(run_data.findings)
+        task_results = to_serializable(run_data.task_results)
         tool_executions = to_serializable(run_data.tool_executions)
+        evidence_artifacts = to_serializable(run_data.evidence_artifacts)
         raw_extensions = run_data.facts.get("gui.extensions", [])
         extensions = [dict(item) for item in raw_extensions if isinstance(item, dict)] if isinstance(raw_extensions, list) else []
         warnings = [str(item) for item in getattr(run_data, "warnings", [])]
@@ -395,7 +871,9 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     technologies.sort(key=lambda item: (str(item.get("name", "")), str(item.get("version", ""))))
     evidence.sort(key=lambda item: (str(item.get("source_tool", "")), str(item.get("kind", ""))))
     screenshots.sort(key=lambda item: str(item.get("path", "")))
+    task_results.sort(key=_result_sort_key)
     tool_executions.sort(key=lambda item: (str(item.get("tool_name", "")), str(item.get("started_at", ""))))
+    evidence_artifacts.sort(key=lambda item: (str(item.get("source_tool", "")), str(item.get("path", ""))))
 
     return RunSnapshot(
         run_id=run_id,
@@ -435,7 +913,9 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         screenshots=screenshots,
         services=services,
         findings=findings,
+        task_results=task_results,
         tool_executions=tool_executions,
+        evidence_artifacts=evidence_artifacts,
         extensions=extensions,
         warnings=warnings,
         errors=errors,

@@ -1,13 +1,28 @@
 # AttackCastle
 
-AttackCastle is an adaptive external security assessment CLI for authorized testing.
-It converts raw scope input (IP, CIDR, domain, wildcard domain, URL, host:port, ASN) into a staged, reactive workflow that:
+AttackCastle is an adaptive external security assessment tool for authorized testing.
+It accepts mixed scope input such as IPs, CIDRs, domains, wildcard domains, URLs, `host:port`, and ASNs, then turns that input into a staged workflow that discovers assets, checks services, correlates evidence, and builds reports.
+
+You can use it from the CLI or from the GUI. If you are new to the project, the GUI is the easiest place to start because it helps you launch scans, track results, and open reports without memorizing commands.
+
+At a high level, AttackCastle:
 
 1. Discovers reachable assets and services.
 2. Escalates only when evidence supports the next step.
 3. Normalizes all evidence into a single model.
 4. Generates findings from templates with quality and corroboration gates.
 5. Produces report artifacts for executive, client, and technical audiences.
+
+## Contents
+
+- [Legal And Ethical Use](#legal-and-ethical-use)
+- [What AttackCastle Does](#what-attackcastle-does)
+- [HTTP Proxy Support](#http-proxy-support)
+- [Installation](#installation)
+- [How To Run](#how-to-run)
+- [CLI Guide](#cli-guide)
+- [Reporting Model](#reporting-model)
+- [Troubleshooting](#troubleshooting)
 
 ## Legal And Ethical Use
 
@@ -18,11 +33,15 @@ AttackCastle is for authorized security testing only.
 - Using AttackCastle implies you accept and will follow these authorization requirements.
 - Operators remain responsible for legal and contractual compliance.
 
-## What The Program Does
+## What AttackCastle Does
 
 AttackCastle is a modular orchestrator, not a single scanner.
 
-It combines:
+It combines scope intake, planning, scanning, evidence normalization, findings generation, and reporting in one workflow.
+
+In practical terms, you give AttackCastle a target list and it decides which checks make sense based on what it discovers along the way.
+
+It includes:
 
 - Scope classification and validation.
 - Rule-driven planning.
@@ -32,7 +51,7 @@ It combines:
 - Findings generation with confidence/evidence quality thresholds.
 - Report rendering and run analytics.
 
-In practical terms, this means you can provide mixed scope like:
+For example, you can provide mixed scope like:
 
 ```text
 *.example.com
@@ -498,6 +517,36 @@ Requirements:
 - Python 3.12+
 - Optional external tools for full scan depth (`masscan`, `nmap`, `whatweb`, `nikto`, `wpscan`)
 
+### Fastest Start For The GUI
+
+If you are running AttackCastle from a source checkout, the easiest way to start is:
+
+```bash
+python attackcastlegui.py
+```
+
+That launcher:
+
+- creates a local runtime in `.attackcastle-runtime`
+- installs the GUI dependencies automatically
+- checks for missing external scanner tools
+- launches the GUI
+
+If you only want to verify the GUI bootstrap without opening the app:
+
+```bash
+python attackcastlegui.py --check-only
+```
+
+If you prefer a manual install, use:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[gui]"
+attackcastle-gui
+```
+
 ### Debian/APT Install (Repo-backed)
 
 AttackCastle now includes Debian packaging and apt repo helper scripts.
@@ -510,13 +559,13 @@ for:
 - `.deb` build (`./scripts/build-deb.sh`)
 - apt repo index generation (`./scripts/build-apt-repo.sh`)
 - Kali-side `apt install attackcastle` setup
-- desktop launcher packaging and `attackcastle gui` support after install.
+- desktop launcher packaging and `attackcastle-gui` support after install.
 
 If you just want to test the package locally on Kali before publishing a repo:
 
 ```bash
 sudo apt install ./../attackcastle_0.1.0-1_all.deb
-attackcastle gui
+attackcastle-gui
 ```
 
 Install in editable mode:
@@ -539,9 +588,34 @@ Install missing scanner dependencies via apt:
 attackcastle doctor --install-missing --yes
 ```
 
-## Quick Start
+## How To Run
 
-### 1) Optional Preflight
+### GUI Workflow (Recommended)
+
+For most people, the GUI is the easiest way to use AttackCastle.
+
+1. Start the GUI:
+
+```bash
+python attackcastlegui.py
+```
+
+2. Choose or create a workspace when the launcher opens the app.
+3. Fill in your target scope, output location, and scan profile in the form.
+4. Start the scan from the GUI and monitor progress there.
+5. Open the generated report and findings from the GUI once the run completes.
+
+If you already installed the package with GUI support, you can launch it with:
+
+```bash
+attackcastle-gui
+```
+
+### CLI Workflow
+
+If you prefer the terminal, this is the shortest path:
+
+#### 1) Optional Preflight
 
 ```bash
 attackcastle doctor \
@@ -549,7 +623,7 @@ attackcastle doctor \
   --output-dir ./output
 ```
 
-### 2) Run Scan
+#### 2) Run Scan
 
 ```bash
 attackcastle scan \
@@ -559,7 +633,7 @@ attackcastle scan \
   --install-missing
 ```
 
-### 3) Inspect Status/Artifacts
+#### 3) Inspect Status/Artifacts
 
 ```bash
 attackcastle run status --output-dir ./output
@@ -567,7 +641,7 @@ attackcastle artifacts tree --output-dir ./output
 attackcastle findings list --output-dir ./output
 ```
 
-### 4) Open Or Rebuild Report
+#### 4) Open Or Rebuild Report
 
 ```bash
 attackcastle report open --output-dir ./output

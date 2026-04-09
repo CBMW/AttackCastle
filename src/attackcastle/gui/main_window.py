@@ -7,7 +7,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any
 
-from PySide6.QtCore import QModelIndex, QProcess, QRect, Qt, QTimer, QUrl
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -39,6 +40,7 @@ from PySide6.QtWidgets import (
 from attackcastle.gui.common import (
     FlowButtonRow,
     MappingTableModel,
+    PersistentSplitterController,
     RUN_STATE_ORDER,
     SummaryCard,
     apply_responsive_splitter,
@@ -58,6 +60,7 @@ from attackcastle.gui.common import (
 from attackcastle.gui.assets_tab import AssetsTab
 from attackcastle.gui.configuration_tab import ConfigurationTab
 from attackcastle.gui.dialogs import (
+    DebugLogDialog,
     StartScanDialog,
     WorkspaceChooserDialog,
     WorkspaceDialog,
@@ -79,7 +82,7 @@ from attackcastle.gui.models import (
 )
 from attackcastle.gui.output_tab import OutputTab
 from attackcastle.gui.profile_store import GuiProfileStore
-from attackcastle.gui.runtime import load_run_snapshot
+from attackcastle.gui.runtime import build_run_debug_bundle, load_run_snapshot
 from attackcastle.gui.scanner_panel import ScannerPanel
 from attackcastle.core.execution_issues import build_execution_issues, summarize_execution_issues
 from attackcastle.gui.worker_protocol import WorkerEvent
@@ -118,10 +121,12 @@ class MainWindow(QMainWindow):
         self._process_run_ids: dict[QProcess, str] = {}
         self._run_processes: dict[str, QProcess] = {}
         self._run_snapshots: dict[str, RunSnapshot] = {}
+        self._debug_dialogs: list[DebugLogDialog] = []
         self._selected_run_id: str | None = None
         self._geometry_synced_to_screen = False
         self._nav_order = ["workspaces", "runs", "assets", "findings", "profiles", "extensions", "settings"]
         self._page_indices: dict[str, int] = {}
+        self._splitter_controllers: dict[str, PersistentSplitterController] = {}
         self._switch_in_progress = False
         self._init_ui()
         self._apply_initial_geometry()
@@ -163,28 +168,50 @@ class MainWindow(QMainWindow):
         if mode == "stacked":
             self.workspace_content_split.setOrientation(Qt.Vertical)
             self.workspace_primary_split.setOrientation(Qt.Vertical if width < 980 else Qt.Horizontal)
-            self.workspace_content_split.setSizes([max(int(self.height() * 0.62), 320), max(int(self.height() * 0.38), 220)])
+            self._apply_splitter_layout(
+                "workspace_primary_split",
+                [max(int(width * 0.34), 280), max(int(self.height() * 0.48), 320)],
+            )
         else:
             self.workspace_content_split.setOrientation(Qt.Horizontal)
             self.workspace_primary_split.setOrientation(Qt.Horizontal)
-            self.workspace_content_split.setSizes([max(int(width * 0.7), 700), max(int(width * 0.3), 320)])
-            self.workspace_primary_split.setSizes([max(int(width * 0.28), 260), max(int(width * 0.42), 420)])
+            self._apply_splitter_layout(
+                "workspace_primary_split",
+                [max(int(width * 0.28), 260), max(int(width * 0.42), 420)],
+            )
+        self.workspace_sidebar_split.setOrientation(Qt.Vertical)
+        self._apply_splitter_layout(
+            "workspace_sidebar_split",
+            [max(int(self.height() * 0.28), 180), max(int(self.height() * 0.34), 220)],
+        )
 
         if mode == "stacked":
-            self.body_split.setSizes([200, max(width - 200, 680)])
+            self._apply_splitter_layout("body_split", [200, max(width - 200, 680)])
         elif mode == "compact":
-            self.body_split.setSizes([220, max(width - 220, 760)])
+            self._apply_splitter_layout("body_split", [220, max(width - 220, 760)])
         else:
-            self.body_split.setSizes([240, max(width - 240, 900)])
+            self._apply_splitter_layout("body_split", [240, max(width - 240, 900)])
 
         self._arrange_run_filters(width)
         if hasattr(self, "runs_top_split"):
             if width >= 1360:
                 self.runs_top_split.setOrientation(Qt.Horizontal)
-                self.runs_top_split.setSizes([max(int(width * 0.24), 300), max(int(width * 0.76), 720)])
+                self._apply_splitter_layout("runs_top_split", [max(int(width * 0.24), 300), max(int(width * 0.76), 720)])
             else:
                 self.runs_top_split.setOrientation(Qt.Vertical)
-                self.runs_top_split.setSizes([max(int(self.height() * 0.18), 150), max(int(self.height() * 0.22), 180)])
+                self._apply_splitter_layout("runs_top_split", [max(int(self.height() * 0.18), 150), max(int(self.height() * 0.22), 180)])
+        if hasattr(self, "runs_body_split"):
+            self.runs_body_split.setOrientation(Qt.Vertical)
+            self._apply_splitter_layout(
+                "runs_body_split",
+                [max(int(self.height() * 0.36), 220), max(int(self.height() * 0.44), 280)],
+            )
+        if hasattr(self, "settings_split"):
+            self.settings_split.setOrientation(Qt.Vertical)
+            self._apply_splitter_layout(
+                "settings_split",
+                [max(int(self.height() * 0.28), 220), max(int(self.height() * 0.42), 320)],
+            )
         self.output_tab.sync_responsive_mode(width)
         self.scanner_panel.sync_responsive_mode(width)
         self.configuration_tab.sync_profile_form_width(width)
@@ -209,34 +236,35 @@ class MainWindow(QMainWindow):
                 self.run_filter_grid.addWidget(label, row, 0)
                 self.run_filter_grid.addWidget(widget, row, 1)
 
+    def _load_ui_layout(self, layout_key: str, orientation: str) -> list[int] | None:
+        sizes = self.workspace_store.load_ui_layout(layout_key, orientation)
+        return list(sizes) if isinstance(sizes, list) else None
+
+    def _save_ui_layout(self, layout_key: str, orientation: str, sizes: list[int]) -> None:
+        self.workspace_store.save_ui_layout(layout_key, orientation, sizes)
+
+    def _register_splitter(self, splitter: QSplitter, layout_key: str) -> PersistentSplitterController:
+        controller = PersistentSplitterController(
+            splitter,
+            layout_key,
+            self._load_ui_layout,
+            self._save_ui_layout,
+            self,
+        )
+        self._splitter_controllers[layout_key] = controller
+        return controller
+
+    def _apply_splitter_layout(self, layout_key: str, fallback_sizes: list[int]) -> None:
+        controller = self._splitter_controllers.get(layout_key)
+        if controller is not None:
+            controller.apply(fallback_sizes)
+
     def _init_ui(self) -> None:
         central = QWidget()
         central.setObjectName("appRoot")
         root = QVBoxLayout(central)
         root.setContentsMargins(22, 22, 22, 22)
         root.setSpacing(16)
-
-        header_panel = QFrame()
-        header_panel.setObjectName("headerPanel")
-        header = QHBoxLayout(header_panel)
-        header.setContentsMargins(18, 18, 18, 18)
-        header.setSpacing(16)
-        self.header_context_label = QLabel("Run context: none selected")
-        self.header_context_label.setObjectName("headerMeta")
-        self.header_context_label.setVisible(False)
-        self.header_workspace_label = QLabel("Workspace: select a project to review scope and activity.")
-        self.header_workspace_label.setObjectName("headerMeta")
-        self.header_workspace_label.setWordWrap(True)
-        header.addWidget(self.header_workspace_label, 1)
-        header.addStretch(1)
-
-        status_column = QVBoxLayout()
-        status_column.setSpacing(8)
-        self.header_status_badge = QLabel("Idle")
-        self.header_status_badge.setObjectName("statusBadge")
-        status_column.addWidget(self.header_status_badge, 0, Qt.AlignRight)
-        header.addLayout(status_column)
-        root.addWidget(header_panel)
 
         self.general_status = QLabel("Ready")
         self.general_status.setObjectName("statusBanner")
@@ -247,6 +275,7 @@ class MainWindow(QMainWindow):
 
         body_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (0, 1))
         self.body_split = body_split
+        self._register_splitter(self.body_split, "body_split")
         self.nav_rail = QFrame()
         self.nav_rail.setObjectName("navRail")
         nav_layout = QVBoxLayout(self.nav_rail)
@@ -273,13 +302,36 @@ class MainWindow(QMainWindow):
         self.section_stack.setMinimumHeight(0)
         self.workspace_page = self._build_workspace_page()
         self.runs_page = self._build_runs_page()
-        self.assets_tab = AssetsTab(self._start_scan_for_target, self._load_entity_notes, self._save_entity_note)
+        self.assets_tab = AssetsTab(
+            self._start_scan_for_target,
+            self._load_entity_notes,
+            self._save_entity_note,
+            layout_loader=self._load_ui_layout,
+            layout_saver=self._save_ui_layout,
+        )
         self.assets_tab.setMinimumHeight(0)
-        self.output_tab = OutputTab(self._resolve_snapshot, self._save_finding_state, self._open_local_path)
+        self.output_tab = OutputTab(
+            self._resolve_snapshot,
+            self._save_finding_state,
+            self._open_local_path,
+            layout_loader=self._load_ui_layout,
+            layout_saver=self._save_ui_layout,
+        )
         self.output_tab.setMinimumHeight(0)
-        self.configuration_tab = ConfigurationTab(self.store, self._profiles_changed)
+        self.configuration_tab = ConfigurationTab(
+            self.store,
+            self._profiles_changed,
+            layout_loader=self._load_ui_layout,
+            layout_saver=self._save_ui_layout,
+        )
         self.configuration_tab.setMinimumHeight(0)
-        self.extensions_tab = ExtensionsTab(self.extension_store, self._apply_theme_manifest, self._open_local_path)
+        self.extensions_tab = ExtensionsTab(
+            self.extension_store,
+            self._apply_theme_manifest,
+            self._open_local_path,
+            layout_loader=self._load_ui_layout,
+            layout_saver=self._save_ui_layout,
+        )
         self.extensions_tab.setMinimumHeight(0)
         self.settings_page = self._build_settings_page()
         for key, page in (
@@ -323,23 +375,30 @@ class MainWindow(QMainWindow):
         content_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
         self.workspace_content_split = content_split
         self.workspace_primary_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 3))
+        self._register_splitter(self.workspace_primary_split, "workspace_primary_split")
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(12)
+        left_top_panel = QWidget()
+        left_top_layout = QVBoxLayout(left_top_panel)
+        left_top_layout.setContentsMargins(0, 0, 0, 0)
+        left_top_layout.setSpacing(12)
         left_title = QLabel("Workspaces")
         left_title.setObjectName("sectionTitle")
-        left_layout.addWidget(left_title)
+        left_top_layout.addWidget(left_title)
         self.workspace_tab_context_label = QLabel("Active session workspace")
         self.workspace_tab_context_label.setObjectName("infoBanner")
         self.workspace_tab_context_label.setWordWrap(True)
         set_tooltip(self.workspace_tab_context_label, "Shows which workspace is currently active for this GUI session.")
-        left_layout.addWidget(self.workspace_tab_context_label)
+        left_top_layout.addWidget(self.workspace_tab_context_label)
         self.workspace_list = configure_scroll_surface(QListWidget())
         self.workspace_list.setObjectName("sidebarList")
         self.workspace_list.currentRowChanged.connect(self._workspace_selected)
         self.engagement_list = self.workspace_list
         self.workspace_list.setEnabled(False)
         set_tooltip(self.workspace_list, "Shows the active workspace for this session. Switch active workspace from Settings.")
+        left_top_layout.addWidget(self.workspace_list, 1)
         engagement_buttons = FlowButtonRow()
         self.new_workspace_button = QPushButton("New")
         self.new_workspace_button.clicked.connect(self._new_workspace)
@@ -368,13 +427,17 @@ class MainWindow(QMainWindow):
             self.delete_workspace_button,
         ):
             button.setEnabled(False)
-        left_layout.addWidget(engagement_buttons)
+        left_top_layout.addWidget(engagement_buttons)
         self.workspace_summary = configure_scroll_surface(QTextEdit())
         self.workspace_summary.setObjectName("richBrief")
         self.workspace_summary.setReadOnly(True)
         self.engagement_summary = self.workspace_summary
         set_tooltip(self.workspace_summary, "Read-only workspace details for the selected saved project.")
-        left_layout.addWidget(self._wrap_group("Workspace Details", self.workspace_summary), 1)
+        self.workspace_sidebar_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
+        self._register_splitter(self.workspace_sidebar_split, "workspace_sidebar_split")
+        self.workspace_sidebar_split.addWidget(left_top_panel)
+        self.workspace_sidebar_split.addWidget(self._wrap_group("Workspace Details", self.workspace_summary))
+        left_layout.addWidget(self.workspace_sidebar_split, 1)
         self.workspace_primary_split.addWidget(left_panel)
 
         center_panel = QWidget()
@@ -404,6 +467,10 @@ class MainWindow(QMainWindow):
         ensure_table_defaults(self.workspace_run_table)
         self.workspace_run_table.clicked.connect(self._workspace_run_selected)
         self.workspace_run_table.doubleClicked.connect(self._focus_output_tab)
+        self.workspace_run_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.workspace_run_table.customContextMenuRequested.connect(
+            lambda point, view=self.workspace_run_table: self._open_run_context_menu(view, point)
+        )
         set_tooltip(self.workspace_run_table, "Select a run to inspect it, or double-click to jump into Findings.")
         workspace_runs_layout.addWidget(self.workspace_run_table, 1)
         center_layout.addWidget(self._wrap_group("Runs In Workspace", workspace_runs), 1)
@@ -509,6 +576,7 @@ class MainWindow(QMainWindow):
         self.run_actions_hint_label.setWordWrap(True)
         controls_layout.addWidget(self.run_actions_hint_label)
         self.runs_top_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
+        self._register_splitter(self.runs_top_split, "runs_top_split")
         self.runs_top_split.addWidget(self._wrap_group("Launch", launch_panel))
         self.runs_top_split.addWidget(self._wrap_group("Run Actions", controls_panel))
         layout.addWidget(self.runs_top_split)
@@ -557,12 +625,19 @@ class MainWindow(QMainWindow):
         ensure_table_defaults(self.run_table)
         self.run_table.clicked.connect(self._run_selected)
         self.run_table.doubleClicked.connect(self._focus_output_tab)
+        self.run_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.run_table.customContextMenuRequested.connect(
+            lambda point, view=self.run_table: self._open_run_context_menu(view, point)
+        )
         set_tooltip(self.run_table, "Select a run to enable controls, or double-click to open it in Findings.")
         run_layout.addWidget(self.run_table, 1)
-        layout.addWidget(self._wrap_group("Run Queue", run_panel), 2)
-
-        self.scanner_panel = ScannerPanel()
-        layout.addWidget(self._wrap_group("Scanner Detail", self.scanner_panel), 1)
+        self.scanner_panel = ScannerPanel(layout_loader=self._load_ui_layout, layout_saver=self._save_ui_layout)
+        self.scanner_panel.set_context_menu_handler(self._handle_scanner_context_menu)
+        self.runs_body_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (3, 4))
+        self._register_splitter(self.runs_body_split, "runs_body_split")
+        self.runs_body_split.addWidget(self._wrap_group("Run Queue", run_panel))
+        self.runs_body_split.addWidget(self._wrap_group("Scanner Detail", self.scanner_panel))
+        layout.addWidget(self.runs_body_split, 1)
         return page
 
     def _build_settings_page(self) -> QWidget:
@@ -610,7 +685,9 @@ class MainWindow(QMainWindow):
         session_layout.addWidget(QLabel("Active workspace"))
         session_layout.addWidget(self.settings_workspace_combo)
         session_layout.addWidget(session_actions)
-        layout.addWidget(self._wrap_group("Session Workspace", session_panel))
+        self.settings_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
+        self._register_splitter(self.settings_split, "settings_split")
+        self.settings_split.addWidget(self._wrap_group("Session Workspace", session_panel))
 
         store_panel = QWidget()
         store_layout = QVBoxLayout(store_panel)
@@ -649,8 +726,8 @@ class MainWindow(QMainWindow):
         store_layout.addWidget(open_workspace, 0, Qt.AlignLeft)
         store_layout.addWidget(about_button, 0, Qt.AlignLeft)
         store_layout.addWidget(shortcuts_label)
-        layout.addWidget(self._wrap_group("Settings & Paths", store_panel))
-        layout.addStretch(1)
+        self.settings_split.addWidget(self._wrap_group("Settings & Paths", store_panel))
+        layout.addWidget(self.settings_split, 1)
         return page
 
     def _setup_shortcuts(self) -> None:
@@ -1208,15 +1285,17 @@ class MainWindow(QMainWindow):
         refreshed: dict[str, RunSnapshot] = {}
         registry_by_run = {entry.run_id: entry for entry in self._run_registry}
         for run_id, snapshot in list(self._run_snapshots.items()):
-            if snapshot.state in {"completed", "failed", "cancelled"} and snapshot.run_dir:
+            refreshed_snapshot = snapshot
+            if snapshot.run_dir:
                 try:
                     refreshed_snapshot = load_run_snapshot(Path(snapshot.run_dir))
                 except Exception:
                     refreshed_snapshot = snapshot
-            else:
+            if refreshed_snapshot is snapshot and snapshot.state not in {"completed", "failed", "cancelled"}:
                 snapshot.elapsed_seconds = round(snapshot.elapsed_seconds + (self._refresh_timer.interval() / 1000.0), 1)
                 self._refresh_snapshot_issue_state(snapshot)
-                refreshed_snapshot = snapshot
+            else:
+                self._refresh_snapshot_issue_state(refreshed_snapshot)
             entry = registry_by_run.get(run_id)
             if entry is not None:
                 self._apply_registry_overrides(refreshed_snapshot, entry)
@@ -1224,6 +1303,7 @@ class MainWindow(QMainWindow):
         self._run_snapshots = refreshed
         self._sync_run_table()
         self._update_output_snapshot(self._selected_run_id)
+        self._refresh_context_panels()
         self._refresh_dashboard()
         self._refresh_health_panel()
 
@@ -1267,12 +1347,7 @@ class MainWindow(QMainWindow):
         row = index.data(Qt.UserRole) or {}
         run_id = row.get("run_id")
         if isinstance(run_id, str) and run_id in self._run_snapshots:
-            self._selected_run_id = run_id
-            self._update_output_snapshot(run_id)
-            self.general_status.setText(f"Selected: {self._run_snapshots[run_id].scan_name}")
-            self._refresh_health_panel()
-            self._refresh_context_panels()
-            self._update_run_action_state()
+            self._select_run_by_id(run_id)
 
     def _focus_output_tab(self, index: QModelIndex) -> None:
         self._run_selected(index)
@@ -1293,6 +1368,191 @@ class MainWindow(QMainWindow):
 
     def _resolve_snapshot(self, run_id: str) -> RunSnapshot | None:
         return self._run_snapshots.get(run_id)
+
+    def _select_run_by_id(self, run_id: str, *, status_prefix: str = "Selected") -> None:
+        snapshot = self._resolve_snapshot(run_id)
+        if snapshot is None:
+            return
+        self._selected_run_id = run_id
+        self._update_output_snapshot(run_id)
+        self.general_status.setText(f"{status_prefix}: {snapshot.scan_name}")
+        self._refresh_health_panel()
+        self._refresh_context_panels()
+        self._update_run_action_state()
+
+    def _run_snapshot_for_row(self, row: dict[str, Any]) -> RunSnapshot | None:
+        run_id = str(row.get("run_id") or "").strip()
+        return self._resolve_snapshot(run_id) if run_id else None
+
+    def _set_run_table_current_row(
+        self,
+        table: QTableView,
+        run_id: str,
+        fallback_index: QModelIndex | None = None,
+    ) -> None:
+        if not run_id:
+            return
+        current_index = QModelIndex(fallback_index) if fallback_index is not None else QModelIndex()
+        model = table.model()
+        if model is None:
+            return
+        if current_index.isValid():
+            current_row = current_index.data(Qt.UserRole) or {}
+            current_run_id = str(current_row.get("run_id") or "") if isinstance(current_row, dict) else ""
+            if current_run_id != run_id:
+                current_index = QModelIndex()
+        if not current_index.isValid():
+            for row_number in range(model.rowCount()):
+                candidate = model.index(row_number, 0)
+                candidate_row = candidate.data(Qt.UserRole) or {}
+                if isinstance(candidate_row, dict) and str(candidate_row.get("run_id") or "") == run_id:
+                    current_index = candidate
+                    break
+        if not current_index.isValid():
+            return
+        selection = table.selectionModel()
+        if selection is not None:
+            selection.setCurrentIndex(current_index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+        table.setCurrentIndex(current_index)
+        table.selectRow(current_index.row())
+
+    def _can_pause_snapshot(self, snapshot: RunSnapshot) -> bool:
+        if snapshot.pause_requested or snapshot.resume_required:
+            return False
+        return snapshot.state not in {"paused", "completed", "failed", "cancelled", "blocked"}
+
+    def _can_resume_snapshot(self, snapshot: RunSnapshot) -> bool:
+        return snapshot.state == "paused" or snapshot.resume_required
+
+    def _has_debug_data(self, snapshot: RunSnapshot) -> bool:
+        if any(
+            (
+                snapshot.tasks,
+                snapshot.tool_executions,
+                snapshot.task_results,
+                snapshot.evidence_artifacts,
+                snapshot.warnings,
+                snapshot.errors,
+                snapshot.execution_issues,
+            )
+        ):
+            return True
+        run_dir_text = str(snapshot.run_dir or "").strip()
+        if not run_dir_text:
+            return False
+        run_dir = Path(run_dir_text)
+        if not run_dir.exists() or not run_dir.is_dir():
+            return False
+        persisted_paths = (
+            run_dir / "data" / "scan_data.json",
+            run_dir / "data" / "plan.json",
+            run_dir / "logs" / "run.log",
+            run_dir / "checkpoints" / "manifest.json",
+        )
+        return any(path.exists() for path in persisted_paths)
+
+    def _show_debug_log_dialog(
+        self,
+        snapshot: RunSnapshot,
+        *,
+        task_row: dict[str, Any] | None = None,
+        tool_row: dict[str, Any] | None = None,
+        initial_tab: int = 0,
+    ) -> None:
+        bundle = build_run_debug_bundle(snapshot, task_row=task_row, tool_row=tool_row)
+        dialog = DebugLogDialog(
+            bundle["title"],
+            bundle["overview"],
+            bundle["combined_log"],
+            bundle["current_task"],
+            current_task_title=bundle["current_task_title"],
+            initial_tab=initial_tab,
+            parent=self,
+        )
+        dialog.finished.connect(lambda _result, window=dialog: self._discard_debug_dialog(window))
+        self._debug_dialogs.append(dialog)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _discard_debug_dialog(self, dialog: DebugLogDialog) -> None:
+        if dialog in self._debug_dialogs:
+            self._debug_dialogs.remove(dialog)
+
+    def _build_run_context_menu(
+        self,
+        parent: QWidget,
+        snapshot: RunSnapshot,
+    ) -> tuple[QMenu, Any, Any, Any, Any]:
+        menu = QMenu(parent)
+        pause_action = menu.addAction("Pause Scan")
+        pause_action.setEnabled(self._can_pause_snapshot(snapshot))
+        resume_action = menu.addAction("Resume")
+        resume_action.setEnabled(self._can_resume_snapshot(snapshot))
+        menu.addSeparator()
+        debug_action = menu.addAction("View Debug Log")
+        current_task_action = menu.addAction("View Current Task Debug Log")
+        has_debug_data = self._has_debug_data(snapshot)
+        debug_action.setEnabled(has_debug_data)
+        current_task_action.setEnabled(has_debug_data)
+        return menu, pause_action, resume_action, debug_action, current_task_action
+
+    def _open_run_context_menu(self, table: QTableView, point: QPoint) -> None:
+        index = table.indexAt(point)
+        if not index.isValid():
+            selection = table.selectionModel()
+            if selection is not None and selection.currentIndex().isValid():
+                index = selection.currentIndex()
+            elif table.model() is not None and table.model().rowCount() > 0:
+                index = table.model().index(0, 0)
+        if not index.isValid():
+            return
+        selection = table.selectionModel()
+        if selection is not None:
+            selection.setCurrentIndex(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+        table.selectRow(index.row())
+        row = index.data(Qt.UserRole) or {}
+        if not isinstance(row, dict):
+            return
+        snapshot = self._run_snapshot_for_row(row)
+        if snapshot is None:
+            return
+        self._select_run_by_id(snapshot.run_id)
+        self._set_run_table_current_row(table, snapshot.run_id, index)
+        menu, pause_action, resume_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
+        action = menu.exec(table.viewport().mapToGlobal(point))
+        self._set_run_table_current_row(table, snapshot.run_id, index)
+        if action is pause_action:
+            self._send_control_action("pause")
+        elif action is resume_action:
+            self._send_control_action("resume")
+        elif action is debug_action:
+            self._show_debug_log_dialog(snapshot, initial_tab=1)
+        elif action is current_task_action:
+            self._show_debug_log_dialog(snapshot, initial_tab=2)
+
+    def _handle_scanner_context_menu(
+        self,
+        context_kind: str,
+        table: QTableView,
+        point: QPoint,
+        row: dict[str, Any],
+    ) -> None:
+        snapshot = self._selected_snapshot()
+        if snapshot is None:
+            return
+        menu, pause_action, resume_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
+        action = menu.exec(table.viewport().mapToGlobal(point))
+        if action is pause_action:
+            self._send_control_action("pause")
+        elif action is resume_action:
+            self._send_control_action("resume")
+        elif action is debug_action:
+            self._show_debug_log_dialog(snapshot, initial_tab=1)
+        elif action is current_task_action:
+            task_row = row if context_kind == "task" else None
+            tool_row = row if context_kind == "tool" else None
+            self._show_debug_log_dialog(snapshot, task_row=task_row, tool_row=tool_row, initial_tab=2)
 
     def _selected_snapshot(self) -> RunSnapshot | None:
         if self._selected_run_id and self._selected_run_id in self._run_snapshots:
@@ -1352,6 +1612,7 @@ class MainWindow(QMainWindow):
         self._sync_run_registry_for_snapshot(snapshot)
         self.general_status.setText(f"Requested {action} for {snapshot.scan_name}")
         self._append_audit("control.requested", f"{action.title()} requested for {snapshot.scan_name}", run_id=snapshot.run_id, workspace_id=snapshot.workspace_id)
+        self._update_run_action_state()
 
     def _resume_selected_run(self) -> None:
         selected = self._selected_run_directory("resume")
@@ -1390,6 +1651,7 @@ class MainWindow(QMainWindow):
         self._sync_run_registry_for_snapshot(snapshot)
         self.general_status.setText(f"Resuming: {snapshot.scan_name}")
         self._append_audit("scan.resumed", f"Resume requested for {snapshot.scan_name}", run_id=snapshot.run_id, workspace_id=snapshot.workspace_id)
+        self._update_run_action_state()
 
     def _retry_selected_run(self) -> None:
         selected = self._selected_run_directory("retry")
@@ -1875,25 +2137,7 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_header_context(self) -> None:
-        workspace = self._active_workspace()
-        snapshot = self._selected_snapshot()
-        if snapshot is None:
-            self.header_context_label.setText("Run context: none selected")
-            self.header_status_badge.setText("Idle")
-            self.header_status_badge.setProperty("state", "idle")
-        else:
-            self.header_context_label.setText(
-                f"Run context: {snapshot.scan_name} | {title_case_label(snapshot.state)} | {format_progress(snapshot.completed_tasks, snapshot.total_tasks)}"
-            )
-            self.header_status_badge.setText(title_case_label(snapshot.state))
-            self.header_status_badge.setProperty("state", snapshot.state)
-        if workspace is None:
-            self.header_workspace_label.setText("Workspace: No Workspace (Ad-Hoc Session)")
-        else:
-            self.header_workspace_label.setText(
-                f"Workspace: {workspace.name} | Client: {workspace.client_name or 'Unassigned'}"
-            )
-        refresh_widget_style(self.header_status_badge)
+        return
 
     def _update_run_action_state(self) -> None:
         snapshot = self._selected_snapshot()
@@ -1921,6 +2165,8 @@ class MainWindow(QMainWindow):
         self.selected_run_status_label.setText(
             f"{snapshot.scan_name} is {title_case_label(snapshot.state)} and {progress_percent(snapshot.completed_tasks, snapshot.total_tasks)}% complete."
         )
+        self.pause_button.setEnabled(self._can_pause_snapshot(snapshot))
+        self.resume_button.setEnabled(self._can_resume_snapshot(snapshot))
         self.run_actions_hint_label.setText(self._selected_run_action_hint(snapshot))
         issue_count = int(snapshot.execution_issues_summary.get("total_count", 0) or 0)
         self.general_status_detail.setText(

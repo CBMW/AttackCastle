@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -148,6 +149,64 @@ class WorkspaceDialog(QDialog):
             self.name_edit.setFocus()
             return
         super().accept()
+
+
+class DebugLogDialog(QDialog):
+    def __init__(
+        self,
+        title: str,
+        overview_text: str,
+        combined_log_text: str,
+        current_task_text: str,
+        *,
+        current_task_title: str = "Current Task",
+        initial_tab: int = 0,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(False)
+        self.setMinimumSize(760, 600)
+        size_dialog_to_screen(self, default_width=1220, default_height=860, min_width=760, min_height=600)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        helper = QLabel("Read-only debug details for the selected run. Text includes persisted command lines and captured file output when available.")
+        helper.setObjectName("helperText")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
+
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("subTabs")
+        self.tabs.setDocumentMode(True)
+        layout.addWidget(self.tabs, 1)
+
+        self.overview_text = self._build_text_tab(overview_text)
+        self.combined_log_text = self._build_text_tab(combined_log_text)
+        self.current_task_text = self._build_text_tab(current_task_text)
+        self.tabs.addTab(self.overview_text, "Overview")
+        self.tabs.addTab(self.combined_log_text, "Combined Log")
+        self.tabs.addTab(self.current_task_text, current_task_title)
+        self.tabs.setCurrentIndex(max(0, min(initial_tab, self.tabs.count() - 1)))
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        buttons.button(QDialogButtonBox.Close).clicked.connect(self.close)
+        layout.addWidget(buttons)
+
+    def _build_text_tab(self, text: str) -> QWidget:
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        editor = configure_scroll_surface(QPlainTextEdit())
+        editor.setObjectName("consoleText")
+        editor.setReadOnly(True)
+        editor.setPlainText(text)
+        container_layout.addWidget(editor)
+        return container
 
 
 class StartScanDialog(QDialog, ProfileFieldsMixin):

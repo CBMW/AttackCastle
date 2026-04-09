@@ -6,9 +6,9 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QProcess, QRect, Qt
+from PySide6.QtCore import QProcess, QPoint, QRect, Qt
 from PySide6.QtGui import QShortcut
-from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton, QMenu
 
 from attackcastle.gui.main_window import MainWindow
 from attackcastle.gui.extensions_store import GuiExtensionStore
@@ -16,6 +16,9 @@ from attackcastle.gui.models import Engagement, RunSnapshot
 from attackcastle.gui.profile_store import GuiProfileStore
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import WorkspaceStore, ad_hoc_output_home
+from attackcastle.core.enums import RunState
+from attackcastle.core.models import RunData, RunMetadata, TaskArtifactRef, TaskResult, ToolExecution, now_utc
+from attackcastle.storage.run_store import RunStore
 
 
 def _make_window(tmp_path: Path) -> MainWindow:
@@ -49,7 +52,7 @@ def test_no_workspace_mode_keeps_session_controls_available(tmp_path: Path) -> N
     try:
         assert window._active_workspace() is None
         assert window.start_scan_button.isEnabled()
-        assert "No Workspace" in window.header_workspace_label.text()
+        assert not window.findChildren(QFrame, "headerPanel")
         assert not window.no_workspace_button.isVisible()
         assert window.no_workspace_button.isEnabled() is False
     finally:
@@ -162,6 +165,197 @@ def test_runs_page_actions_update_for_selected_run(tmp_path: Path) -> None:
         window.close()
 
 
+@pytest.mark.parametrize(
+    ("state", "pause_requested", "resume_required", "pause_enabled", "resume_enabled"),
+    [
+        ("running", False, False, True, False),
+        ("paused", False, False, False, True),
+        ("running", True, True, False, True),
+    ],
+)
+def test_run_context_menu_actions_reflect_pause_resume_state(
+    tmp_path: Path,
+    state: str,
+    pause_requested: bool,
+    resume_required: bool,
+    pause_enabled: bool,
+    resume_enabled: bool,
+) -> None:
+    window = _make_window(tmp_path)
+    run_dir = tmp_path / f"run-{state}"
+    run_dir.mkdir()
+
+    try:
+        snapshot = RunSnapshot(
+            run_id=f"run-{state}",
+            scan_name="Context Menu Run",
+            run_dir=str(run_dir),
+            state=state,
+            elapsed_seconds=30.0,
+            eta_seconds=60.0,
+            current_task="Probe",
+            total_tasks=5,
+            completed_tasks=2,
+            pause_requested=pause_requested,
+            resume_required=resume_required,
+            tasks=[{"key": "probe", "label": "Probe", "status": state}],
+        )
+
+        menu, pause_action, resume_action, debug_action, current_task_action = window._build_run_context_menu(
+            window.run_table,
+            snapshot,
+        )
+
+        assert [action.text() for action in menu.actions() if action.text()] == [
+            "Pause Scan",
+            "Resume",
+            "View Debug Log",
+            "View Current Task Debug Log",
+        ]
+        assert pause_action.isEnabled() is pause_enabled
+        assert resume_action.isEnabled() is resume_enabled
+        assert debug_action.isEnabled() is True
+        assert current_task_action.isEnabled() is True
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+@pytest.mark.parametrize(("table_name", "search_name"), [("run_table", "run_search_edit"), ("workspace_run_table", "workspace_run_search_edit")])
+def test_run_context_menu_selects_row_before_showing_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    table_name: str,
+    search_name: str,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    window = _make_window(tmp_path)
+    run_dir = tmp_path / "run-select"
+    run_dir.mkdir()
+
+    try:
+        window._run_snapshots["run-select"] = RunSnapshot(
+            run_id="run-select",
+            scan_name="Selectable Run",
+            run_dir=str(run_dir),
+            state="running",
+            elapsed_seconds=12.0,
+            eta_seconds=44.0,
+            current_task="Resolve Hosts",
+            total_tasks=3,
+            completed_tasks=1,
+            tasks=[{"key": "resolve-hosts", "label": "Resolve Hosts", "status": "running"}],
+        )
+        getattr(window, search_name).clear()
+        window._sync_run_table()
+        window.show()
+        app.processEvents()
+        table = getattr(window, table_name)
+        index = table.model().index(0, 0)
+        point = table.visualRect(index).center()
+        monkeypatch.setattr(QMenu, "exec", lambda self, *_args, **_kwargs: None)
+
+        window._open_run_context_menu(table, point)
+
+        assert table.selectionModel().currentIndex().row() == 0
+        assert window._selected_run_id == "run-select"
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_refresh_runs_reloads_active_run_snapshot_from_disk(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+    run_store = RunStore(output_root=tmp_path, run_id="live-refresh")
+    started_at = now_utc()
+    stdout_path = run_store.logs_dir / "probe.stdout.txt"
+    stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    stdout_path.write_text("hydrated stdout", encoding="utf-8")
+    run_store.write_json(
+        "data/gui_session.json",
+        {
+            "scan_name": "Live Refresh",
+            "run_id": "live-refresh",
+            "started_at": started_at.isoformat(),
+            "target_input": "example.com",
+        },
+    )
+    run_store.write_json("data/plan.json", {"items": [{"key": "web-probe", "selected": True}]})
+    run_store.save_checkpoint(
+        "web-probe",
+        "running",
+        RunData(
+            metadata=RunMetadata(
+                run_id="live-refresh",
+                target_input="example.com",
+                profile="prototype",
+                output_dir=str(run_store.run_dir),
+                started_at=started_at,
+                state=RunState.RUNNING,
+            ),
+            task_states=[
+                {
+                    "key": "web-probe",
+                    "label": "Web Probe",
+                    "status": "running",
+                    "started_at": started_at.isoformat(),
+                    "ended_at": "",
+                    "detail": {"capability": "httpx"},
+                }
+            ],
+            task_results=[
+                TaskResult(
+                    task_id="task-web-probe",
+                    task_type="web-probe",
+                    status="running",
+                    command="httpx -json example.com",
+                    exit_code=None,
+                    started_at=started_at,
+                    finished_at=started_at,
+                    raw_artifacts=[TaskArtifactRef(artifact_type="stdout", path=str(stdout_path))],
+                )
+            ],
+            tool_executions=[
+                ToolExecution(
+                    execution_id="exec-httpx",
+                    tool_name="httpx",
+                    command="httpx -json example.com",
+                    started_at=started_at,
+                    ended_at=started_at,
+                    exit_code=0,
+                    status="completed",
+                    capability="httpx",
+                    stdout_path=str(stdout_path),
+                )
+            ],
+        ),
+    )
+
+    try:
+        window._run_snapshots["live-refresh"] = RunSnapshot(
+            run_id="live-refresh",
+            scan_name="Live Refresh",
+            run_dir=str(run_store.run_dir),
+            state="running",
+            elapsed_seconds=1.0,
+            eta_seconds=None,
+            current_task="Idle",
+            total_tasks=0,
+            completed_tasks=0,
+        )
+
+        window._refresh_runs()
+
+        refreshed = window._run_snapshots["live-refresh"]
+        assert refreshed.current_task == "Web Probe"
+        assert refreshed.tool_executions[0]["tool_name"] == "httpx"
+        assert refreshed.task_results[0]["task_type"] == "web-probe"
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
 def test_workspace_dashboard_prioritizes_critical_and_validation_metrics(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
@@ -227,15 +421,31 @@ def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path)
         window.close()
 
 
-def test_header_omits_removed_branding_and_run_context_sections(tmp_path: Path) -> None:
+def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        assert window.body_split.count() == 2
+        assert window.workspace_sidebar_split.count() == 2
+        assert window.runs_top_split.count() == 2
+        assert window.runs_body_split.count() == 2
+        assert window.output_tab.content_split.count() == 2
+        assert window.output_tab.main_split.count() == 2
+        assert window.assets_tab.main_split.count() == 2
+        assert window.settings_split.count() == 2
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_header_strip_is_removed_to_free_vertical_space(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
     try:
         assert not window.findChildren(QLabel, "logoBadge")
         assert not window.findChildren(QLabel, "appTitle")
         assert not window.findChildren(QLabel, "appSubtitle")
-        assert window.header_context_label.isHidden()
-        assert not window.header_workspace_label.isHidden()
+        assert not window.findChildren(QFrame, "headerPanel")
         assert "Quick Actions" not in {button.text() for button in window.findChildren(QPushButton)}
     finally:
         window._refresh_timer.stop()
@@ -343,6 +553,38 @@ def test_responsive_layout_uses_horizontal_splits_on_wide_width(tmp_path: Path) 
     finally:
         window._refresh_timer.stop()
         window.close()
+
+
+def test_saved_splitter_layout_restores_on_reopen(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profile_store = GuiProfileStore(tmp_path / "profiles.json")
+    workspace_store = WorkspaceStore(tmp_path / "workspace.json")
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+
+    first = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+    try:
+        first.resize(1560, 980)
+        first._sync_responsive_layouts()
+        first.body_split.setSizes([330, 1110])
+        saved_sizes = list(first.body_split.sizes())
+        controller = first._splitter_controllers["body_split"]
+        controller._schedule_save(0, 0)
+        controller._flush_save()
+    finally:
+        first._refresh_timer.stop()
+        first.close()
+
+    second = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+    try:
+        second.resize(1560, 980)
+        second._sync_responsive_layouts()
+        restored = workspace_store.load_ui_layout("body_split", "horizontal")
+        assert restored == saved_sizes
+        assert second.body_split.sizes() == saved_sizes
+    finally:
+        second._refresh_timer.stop()
+        second.close()
 
 
 def test_findings_workspace_surfaces_scanner_issue_summary(tmp_path: Path) -> None:

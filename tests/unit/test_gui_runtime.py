@@ -5,18 +5,23 @@ from pathlib import Path
 from attackcastle.core.enums import RunState, Severity, TaskStatus
 from attackcastle.core.models import (
     Evidence,
+    EvidenceArtifact,
     Finding,
     Observation,
     RunData,
     RunMetadata,
     Service,
+    TaskArtifactRef,
+    TaskResult,
     ToolExecution,
     WebApplication,
     now_utc,
 )
 from attackcastle.gui.models import GuiProfile
 from attackcastle.gui.runtime import profile_to_engine_overrides
+from attackcastle.gui.runtime import build_run_debug_bundle
 from attackcastle.gui.runtime import load_run_snapshot
+from attackcastle.gui.runtime import resolve_current_task_debug_bundle
 from attackcastle.storage.run_store import RunStore
 
 
@@ -108,6 +113,19 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
                 status="confirmed",
             )
         ],
+        task_results=[
+            TaskResult(
+                task_id="task_result_1",
+                task_type="run-masscan",
+                status="failed",
+                command="masscan --rate 1000 example.com",
+                exit_code=1,
+                started_at=started_at,
+                finished_at=started_at,
+                raw_artifacts=[TaskArtifactRef(artifact_type="xml", path=str(raw_artifact_path))],
+                warnings=["masscan failed"],
+            )
+        ],
         tool_executions=[
             ToolExecution(
                 execution_id="exec_1",
@@ -120,6 +138,17 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
                 stdout_path=str(stdout_path),
                 stderr_path=str(stderr_path),
                 raw_artifact_paths=[str(raw_artifact_path)],
+            )
+        ],
+        evidence_artifacts=[
+            EvidenceArtifact(
+                artifact_id="artifact_1",
+                kind="http_response",
+                path=str(response_path),
+                source_tool="web_probe",
+                caption="Response body",
+                source_task_id="task_result_1",
+                source_execution_id="exec_1",
             )
         ],
         task_states=[
@@ -186,10 +215,231 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     assert str(stderr_path) in artifact_paths
     assert str(raw_artifact_path) in artifact_paths
     assert len(snapshot.findings) == 1
+    assert snapshot.task_results[0]["task_type"] == "run-masscan"
+    assert snapshot.evidence_artifacts[0]["path"] == str(response_path)
     assert snapshot.extensions[0]["extension_id"] == "custom-tool"
     assert snapshot.execution_issues
     assert snapshot.execution_issues_summary["total_count"] >= 3
     assert snapshot.completeness_status in {"partial", "failed"}
+
+
+def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Path) -> None:
+    started_at = now_utc()
+    snapshot = load_run_snapshot(
+        _write_debug_run_fixture(
+            tmp_path,
+            "debug",
+            started_at,
+            stdout_text="stdout contents",
+            stderr_text="stderr contents",
+            raw_text='{"ok": true}',
+            run_log_text="run log contents",
+        )
+    )
+
+    bundle = build_run_debug_bundle(snapshot)
+
+    assert "command: httpx -json example.com" in bundle["combined_log"]
+    assert "stdout contents" in bundle["combined_log"]
+    assert "stderr contents" in bundle["combined_log"]
+    assert '{"ok": true}' in bundle["combined_log"]
+    assert "run log contents" in bundle["combined_log"]
+
+
+def test_build_run_debug_bundle_surfaces_missing_files_instead_of_silently_skipping(tmp_path: Path) -> None:
+    started_at = now_utc()
+    snapshot = load_run_snapshot(
+        _write_debug_run_fixture(
+            tmp_path,
+            "missing",
+            started_at,
+        )
+    )
+
+    bundle = build_run_debug_bundle(snapshot)
+
+    assert "[missing file]" in bundle["combined_log"]
+    assert "probe.stdout.txt" in bundle["combined_log"]
+
+
+def test_resolve_current_task_debug_bundle_prefers_active_task_then_latest(tmp_path: Path) -> None:
+    started_at = now_utc()
+    snapshot = load_run_snapshot(
+        _write_debug_run_fixture(
+            tmp_path,
+            "current-task",
+            started_at,
+            stdout_text="live stdout",
+            stderr_text="",
+            raw_text="artifact body",
+        )
+    )
+    stdout_path = Path(snapshot.tool_executions[0]["stdout_path"])
+    stderr_path = Path(snapshot.tool_executions[0]["stderr_path"])
+    raw_path = Path(snapshot.tool_executions[0]["raw_artifact_paths"][0])
+    snapshot.tasks = [
+        {
+            "key": "resolve-hosts",
+            "label": "Resolve Hosts",
+            "status": "completed",
+            "started_at": started_at.isoformat(),
+            "ended_at": started_at.isoformat(),
+            "detail": {"capability": "dns"},
+        },
+        {
+            "key": "web-probe",
+            "label": "Web Probe",
+            "status": "running",
+            "started_at": started_at.isoformat(),
+            "ended_at": "",
+            "detail": {"capability": "httpx"},
+        },
+    ]
+    snapshot.current_task = "Web Probe"
+    snapshot.task_results = [
+        {
+            "task_id": "task-web-probe",
+            "task_type": "web-probe",
+            "status": "running",
+            "command": "httpx -json example.com",
+            "exit_code": None,
+            "started_at": started_at.isoformat(),
+            "finished_at": "",
+            "raw_artifacts": [{"artifact_type": "json", "path": str(raw_path)}],
+        }
+    ]
+    snapshot.tool_executions = [
+        {
+            "execution_id": "exec-httpx",
+            "tool_name": "httpx",
+            "capability": "httpx",
+            "command": "httpx -json example.com",
+            "status": "running",
+            "exit_code": None,
+            "started_at": started_at.isoformat(),
+            "ended_at": "",
+            "stdout_path": str(stdout_path),
+            "stderr_path": str(stderr_path),
+            "raw_artifact_paths": [str(raw_path)],
+        }
+    ]
+    snapshot.evidence_artifacts = [
+        {
+            "artifact_id": "artifact-httpx",
+            "kind": "http_response",
+            "path": str(raw_path),
+            "source_tool": "httpx",
+            "caption": "HTTP output",
+            "source_task_id": "task-web-probe",
+            "source_execution_id": "exec-httpx",
+        }
+    ]
+
+    active_bundle = resolve_current_task_debug_bundle(snapshot)
+
+    assert active_bundle["task"]["key"] == "web-probe"
+    assert "Current Task Debug Log: Web Probe" == active_bundle["title"]
+    assert "live stdout" in active_bundle["text"]
+
+    snapshot.tasks[1]["status"] = "completed"
+    snapshot.tasks[1]["ended_at"] = started_at.isoformat()
+    latest_bundle = resolve_current_task_debug_bundle(snapshot)
+
+    assert latest_bundle["task"]["key"] == "web-probe"
+
+
+def _write_debug_run_fixture(
+    output_root: Path,
+    run_id: str,
+    started_at,
+    *,
+    stdout_text: str | None = None,
+    stderr_text: str | None = None,
+    raw_text: str | None = None,
+    run_log_text: str | None = None,
+) -> Path:
+    run_store = RunStore(output_root=output_root, run_id=run_id)
+    stdout_path = run_store.logs_dir / "probe.stdout.txt"
+    stderr_path = run_store.logs_dir / "probe.stderr.txt"
+    raw_path = run_store.artifacts_dir / "probe.json"
+    if stdout_text is not None:
+        stdout_path.write_text(stdout_text, encoding="utf-8")
+    if stderr_text is not None:
+        stderr_path.write_text(stderr_text, encoding="utf-8")
+    if raw_text is not None:
+        raw_path.write_text(raw_text, encoding="utf-8")
+    if run_log_text is not None:
+        (run_store.logs_dir / "run.log").write_text(run_log_text, encoding="utf-8")
+    run_store.write_json(
+        "data/gui_session.json",
+        {
+            "scan_name": "Debug Fixture",
+            "started_at": started_at.isoformat(),
+            "run_id": run_id,
+            "target_input": "example.com",
+        },
+    )
+    run_store.write_json("data/plan.json", {"items": [{"key": "web-probe", "selected": True}]})
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id=run_id,
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(run_store.run_dir),
+            started_at=started_at,
+            state=RunState.RUNNING,
+        ),
+        task_states=[
+            {
+                "key": "web-probe",
+                "label": "Web Probe",
+                "status": "running",
+                "started_at": started_at.isoformat(),
+                "ended_at": "",
+                "detail": {"capability": "httpx"},
+            }
+        ],
+        task_results=[
+            TaskResult(
+                task_id="task-web-probe",
+                task_type="web-probe",
+                status="running",
+                command="httpx -json example.com",
+                exit_code=None,
+                started_at=started_at,
+                finished_at=started_at,
+                raw_artifacts=[TaskArtifactRef(artifact_type="json", path=str(raw_path))],
+            )
+        ],
+        tool_executions=[
+            ToolExecution(
+                execution_id="exec-httpx",
+                tool_name="httpx",
+                command="httpx -json example.com",
+                started_at=started_at,
+                ended_at=started_at,
+                exit_code=0,
+                status="completed",
+                capability="httpx",
+                stdout_path=str(stdout_path),
+                stderr_path=str(stderr_path),
+                raw_artifact_paths=[str(raw_path)],
+            )
+        ],
+        evidence_artifacts=[
+            EvidenceArtifact(
+                artifact_id="artifact-httpx",
+                kind="http_response",
+                path=str(raw_path),
+                source_tool="httpx",
+                caption="Probe output",
+                source_task_id="task-web-probe",
+                source_execution_id="exec-httpx",
+            )
+        ],
+    )
+    run_store.save_checkpoint("web-probe", "running", run_data)
+    return run_store.run_dir
 
 
 def test_profile_to_engine_overrides_includes_wordlists() -> None:

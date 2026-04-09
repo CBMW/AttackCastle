@@ -178,7 +178,18 @@ def _install_table_autosizing(table: QTableView) -> None:
         return
 
     def queue_resize(*_args: object) -> None:
-        QTimer.singleShot(0, lambda: _autosize_table_columns(table))
+        if table.property("_autosize_pending"):
+            return
+        table.setProperty("_autosize_pending", True)
+
+        def run_resize() -> None:
+            table.setProperty("_autosize_pending", False)
+            try:
+                _autosize_table_columns(table)
+            except RuntimeError:
+                return
+
+        QTimer.singleShot(0, run_resize)
 
     model.modelReset.connect(queue_resize)
     model.layoutChanged.connect(queue_resize)
@@ -190,17 +201,23 @@ def _install_table_autosizing(table: QTableView) -> None:
 
 
 def _autosize_table_columns(table: QTableView) -> None:
-    model = table.model()
+    try:
+        model = table.model()
+    except RuntimeError:
+        return
     if model is None:
         return
     column_count = model.columnCount()
     if column_count <= 0:
         return
-    header = table.horizontalHeader()
-    for column in range(column_count - 1):
-        header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-    header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
-    table.resizeColumnsToContents()
+    try:
+        header = table.horizontalHeader()
+        for column in range(column_count - 1):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
+        table.resizeColumnsToContents()
+    except RuntimeError:
+        return
 
 
 class FlowLayout(QLayout):
@@ -329,9 +346,118 @@ def configure_scroll_surface(widget: QWidget) -> QWidget:
     return widget
 
 
-def apply_responsive_splitter(splitter: QSplitter, stretches: tuple[int, ...], *, handle_width: int = 8) -> QSplitter:
+def splitter_orientation_key(splitter: QSplitter) -> str:
+    return "horizontal" if splitter.orientation() == Qt.Horizontal else "vertical"
+
+
+def normalize_splitter_sizes(raw: Any, count: int) -> list[int] | None:
+    if not isinstance(raw, (list, tuple)) or len(raw) != count:
+        return None
+    normalized: list[int] = []
+    for value in raw:
+        if not isinstance(value, (int, float)):
+            return None
+        normalized.append(max(int(value), 0))
+    if not any(size > 0 for size in normalized):
+        return None
+    return normalized
+
+
+class PersistentSplitterController(QObject):
+    def __init__(
+        self,
+        splitter: QSplitter,
+        layout_key: str,
+        load_sizes: Callable[[str, str], list[int] | None] | None = None,
+        save_sizes: Callable[[str, str, list[int]], None] | None = None,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.splitter = splitter
+        self.layout_key = layout_key
+        self._load_sizes = load_sizes
+        self._save_sizes = save_sizes
+        self._last_orientation = ""
+        self._seeded_orientations: set[str] = set()
+        self._applying = False
+        self._pending_sizes: list[int] | None = None
+        self._last_nonzero_sizes: dict[str, list[int]] = {}
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(160)
+        self._save_timer.timeout.connect(self._flush_save)
+        self.splitter.splitterMoved.connect(self._schedule_save)
+
+    def apply(self, fallback_sizes: list[int] | None = None, *, force: bool = False) -> None:
+        orientation = splitter_orientation_key(self.splitter)
+        count = self.splitter.count()
+        saved = normalize_splitter_sizes(self._load_sizes(self.layout_key, orientation), count) if self._load_sizes else None
+        fallback = normalize_splitter_sizes(fallback_sizes, count)
+        needs_seed = force or orientation != self._last_orientation or orientation not in self._seeded_orientations
+        chosen = saved if saved is not None else fallback
+        if chosen is None:
+            self._last_orientation = orientation
+            return
+        if needs_seed or saved is not None:
+            self._set_sizes(chosen)
+            self._seeded_orientations.add(orientation)
+        self._last_orientation = orientation
+
+    def saved_or_current_sizes(self, fallback_sizes: list[int] | None = None) -> list[int] | None:
+        orientation = splitter_orientation_key(self.splitter)
+        count = self.splitter.count()
+        if self._load_sizes is not None:
+            saved = normalize_splitter_sizes(self._load_sizes(self.layout_key, orientation), count)
+            if saved is not None:
+                return saved
+        remembered = normalize_splitter_sizes(self._last_nonzero_sizes.get(orientation), count)
+        if remembered is not None:
+            return remembered
+        current = normalize_splitter_sizes(self.splitter.sizes(), count)
+        if current is not None and any(current):
+            return current
+        return normalize_splitter_sizes(fallback_sizes, count)
+
+    def _set_sizes(self, sizes: list[int]) -> None:
+        self._applying = True
+        try:
+            self.splitter.setSizes(sizes)
+        finally:
+            self._applying = False
+        orientation = splitter_orientation_key(self.splitter)
+        if any(size > 0 for size in sizes):
+            self._last_nonzero_sizes[orientation] = list(sizes)
+
+    def _schedule_save(self, _pos: int, _index: int) -> None:
+        if self._applying:
+            return
+        sizes = normalize_splitter_sizes(self.splitter.sizes(), self.splitter.count())
+        if sizes is None:
+            return
+        orientation = splitter_orientation_key(self.splitter)
+        if any(size > 0 for size in sizes):
+            self._last_nonzero_sizes[orientation] = list(sizes)
+        self._pending_sizes = list(sizes)
+        self._seeded_orientations.add(orientation)
+        self._last_orientation = orientation
+        if self._save_sizes is not None:
+            self._save_timer.start()
+
+    def _flush_save(self) -> None:
+        if self._save_sizes is None or self._pending_sizes is None:
+            return
+        self._save_sizes(self.layout_key, splitter_orientation_key(self.splitter), list(self._pending_sizes))
+
+
+def apply_responsive_splitter(
+    splitter: QSplitter,
+    stretches: tuple[int, ...],
+    *,
+    handle_width: int = 8,
+    children_collapsible: bool = True,
+) -> QSplitter:
     splitter.setOpaqueResize(False)
-    splitter.setChildrenCollapsible(False)
+    splitter.setChildrenCollapsible(children_collapsible)
     splitter.setHandleWidth(handle_width)
     for index, stretch in enumerate(stretches):
         splitter.setStretchFactor(index, stretch)

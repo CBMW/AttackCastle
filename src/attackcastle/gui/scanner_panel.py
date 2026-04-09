@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import (
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from attackcastle.core.execution_issues import build_execution_issues, summarize_execution_issues
 from attackcastle.gui.common import (
     MappingTableModel,
+    PersistentSplitterController,
     apply_responsive_splitter,
     configure_scroll_surface,
     ensure_table_defaults,
@@ -28,9 +29,15 @@ from attackcastle.gui.models import RunSnapshot
 
 
 class ScannerPanel(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        layout_loader=None,
+        layout_saver=None,
+    ) -> None:
         super().__init__(parent)
         self._snapshot: RunSnapshot | None = None
+        self._context_menu_handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -38,6 +45,13 @@ class ScannerPanel(QWidget):
 
         self.main_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (3, 2))
         self.main_split.setObjectName("scannerSplit")
+        self._main_split_controller = PersistentSplitterController(
+            self.main_split,
+            "scanner_detail_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
         layout.addWidget(self.main_split)
 
         self.tabs = QTabWidget()
@@ -74,8 +88,8 @@ class ScannerPanel(QWidget):
             [("Time", "timestamp"), ("Action", "action"), ("Summary", "summary"), ("Run", "run_id"), ("Workspace", "workspace_id")]
         )
 
-        self.tasks_view = self._make_table(self.tasks_model, self._task_selected)
-        self.tools_view = self._make_table(self.tools_model, self._tool_selected)
+        self.tasks_view = self._make_table(self.tasks_model, self._task_selected, context_kind="task")
+        self.tools_view = self._make_table(self.tools_model, self._tool_selected, context_kind="tool")
         self.issues_view = self._make_table(self.issues_model, self._issue_selected)
         self.audit_view = self._make_table(self.audit_model, self._audit_selected)
 
@@ -123,21 +137,28 @@ class ScannerPanel(QWidget):
         layout.addWidget(widget)
         return section
 
-    def _make_table(self, model: MappingTableModel, callback) -> QTableView:
+    def set_context_menu_handler(self, handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None) -> None:
+        self._context_menu_handler = handler
+
+    def _make_table(self, model: MappingTableModel, callback, *, context_kind: str = "") -> QTableView:
         table = configure_scroll_surface(QTableView())
         table.setObjectName("dataGrid")
         table.setModel(model)
         ensure_table_defaults(table)
         table.clicked.connect(callback)
+        if context_kind:
+            table.setProperty("context_kind", context_kind)
+            table.setContextMenuPolicy(Qt.CustomContextMenu)
+            table.customContextMenuRequested.connect(lambda point, view=table: self._open_context_menu(view, point))
         table.setToolTip("Select a row to inspect more detail in the panel on the right.")
         return table
 
     def sync_responsive_mode(self, width: int) -> None:
         self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
         if width >= 1180:
-            self.main_split.setSizes([max(int(width * 0.62), 520), max(int(width * 0.38), 320)])
+            self._main_split_controller.apply([max(int(width * 0.62), 520), max(int(width * 0.38), 320)])
         else:
-            self.main_split.setSizes([max(int(self.height() * 0.56), 280), max(int(self.height() * 0.44), 220)])
+            self._main_split_controller.apply([max(int(self.height() * 0.56), 280), max(int(self.height() * 0.44), 220)])
 
     def set_snapshot(self, snapshot: RunSnapshot | None) -> None:
         self._snapshot = snapshot
@@ -187,6 +208,24 @@ class ScannerPanel(QWidget):
     def focus_health(self) -> None:
         self.tabs.setCurrentIndex(self.health_tab_index)
         self.health_text.setFocus()
+
+    def _open_context_menu(self, table: QTableView, point) -> None:
+        if self._context_menu_handler is None:
+            return
+        index = table.indexAt(point)
+        if not index.isValid():
+            selection = table.selectionModel()
+            if selection is not None and selection.currentIndex().isValid():
+                index = selection.currentIndex()
+            elif table.model() is not None and table.model().rowCount() > 0:
+                index = table.model().index(0, 0)
+        if not index.isValid():
+            return
+        table.selectRow(index.row())
+        row = index.data(Qt.UserRole) or {}
+        if not isinstance(row, dict):
+            return
+        self._context_menu_handler(str(table.property("context_kind") or ""), table, point, row)
 
     def _build_health_text(
         self,

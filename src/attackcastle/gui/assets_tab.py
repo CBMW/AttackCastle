@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from PySide6.QtCore import QEvent, QModelIndex, QPoint, Qt
+from PySide6.QtCore import QModelIndex, QPoint, Qt
 from PySide6.QtWidgets import (
-    QApplication,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -17,6 +16,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QSplitter,
     QTabWidget,
     QTableView,
     QTextEdit,
@@ -33,10 +33,13 @@ from attackcastle.gui.asset_inventory import (
 )
 from attackcastle.gui.common import (
     MappingTableModel,
+    PersistentSplitterController,
     SummaryCard,
+    apply_responsive_splitter,
     configure_scroll_surface,
     ensure_table_defaults,
     set_tooltip,
+    splitter_orientation_key,
     title_case_label,
 )
 from attackcastle.gui.models import EntityNote, RunSnapshot
@@ -78,6 +81,8 @@ class AssetsTab(QWidget):
         load_notes: Callable[[str], dict[str, EntityNote]],
         save_note: Callable[[str, EntityNote], None],
         parent: QWidget | None = None,
+        layout_loader: Callable[[str, str], list[int] | None] | None = None,
+        layout_saver: Callable[[str, str, list[int]], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._launch_scan = launch_scan
@@ -94,6 +99,11 @@ class AssetsTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
 
+        content_panel = QWidget()
+        content_layout = QVBoxLayout(content_panel)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(16)
+
         hero = QFrame()
         hero.setObjectName("heroPanel")
         hero_layout = QVBoxLayout(hero)
@@ -108,7 +118,7 @@ class AssetsTab(QWidget):
         hero_layout.addWidget(self.title_label)
         hero_layout.addWidget(self.summary_label)
         hero_layout.addWidget(self.status_label)
-        layout.addWidget(hero)
+        content_layout.addWidget(hero)
 
         cards = QGridLayout()
         cards.setHorizontalSpacing(12)
@@ -129,7 +139,7 @@ class AssetsTab(QWidget):
         )
         for index, card in enumerate(self.summary_cards):
             cards.addWidget(card, index // 3, index % 3)
-        layout.addLayout(cards)
+        content_layout.addLayout(cards)
 
         toolbar = QFrame()
         toolbar.setObjectName("toolbarPanel")
@@ -148,7 +158,7 @@ class AssetsTab(QWidget):
         self.results_label.setObjectName("helperText")
         self.results_label.setWordWrap(True)
         toolbar_layout.addWidget(self.results_label)
-        layout.addWidget(toolbar)
+        content_layout.addWidget(toolbar)
 
         self.assets_model = MappingTableModel(
             [
@@ -267,13 +277,11 @@ class AssetsTab(QWidget):
         self.inventory_tabs.addTab(web_page, "Web")
 
         self.inventory_tabs.addTab(self._section("Technology Inventory", self.technologies_view), "Technology")
-        layout.addWidget(self.inventory_tabs, 1)
+        content_layout.addWidget(self.inventory_tabs, 1)
 
-        self.detail_card = QFrame(self)
+        self.detail_card = QFrame()
         self.detail_card.setObjectName("subtlePanel")
-        self.detail_card.hide()
-        self.detail_card.setFixedWidth(440)
-        self.detail_card.raise_()
+        self.detail_card.setMinimumWidth(0)
         detail_layout = QVBoxLayout(self.detail_card)
         detail_layout.setContentsMargins(16, 16, 16, 16)
         detail_layout.setSpacing(10)
@@ -296,34 +304,22 @@ class AssetsTab(QWidget):
         self.detail_text.setObjectName("consoleText")
         self.detail_text.setMinimumHeight(280)
         detail_layout.addWidget(self.detail_text, 1)
+        self.detail_title.setText("Asset Details")
+        self.detail_summary.setText("Select an asset, service, route, or technology to inspect details.")
+        self.detail_text.setPlainText("Choose an item from the inventory to open the docked inspector.")
 
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
-
-    def closeEvent(self, event) -> None:  # noqa: N802
-        app = QApplication.instance()
-        if app is not None:
-            app.removeEventFilter(self)
-        super().closeEvent(event)
-
-    def eventFilter(self, obj: object, event: object) -> bool:
-        if not hasattr(self, "detail_card") or self.detail_card is None or not self.detail_card.isVisible():
-            return False
-        if isinstance(event, QEvent) and event.type() == QEvent.KeyPress and getattr(event, "key", lambda: None)() == Qt.Key_Escape:
-            self._hide_detail_card()
-            return False
-        if isinstance(event, QEvent) and event.type() == QEvent.MouseButtonPress:
-            global_pos = None
-            if hasattr(event, "globalPosition"):
-                global_pos = event.globalPosition().toPoint()
-            elif hasattr(event, "globalPos"):
-                global_pos = event.globalPos()
-            if global_pos is not None:
-                local_pos = self.detail_card.mapFromGlobal(global_pos)
-                if not self.detail_card.rect().contains(local_pos):
-                    self._hide_detail_card()
-        return False
+        self.main_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
+        self.main_split_controller = PersistentSplitterController(
+            self.main_split,
+            "assets_main_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
+        self.main_split.addWidget(content_panel)
+        self.main_split.addWidget(self.detail_card)
+        layout.addWidget(self.main_split, 1)
+        self.sync_responsive_mode(self.width())
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
         section = QWidget()
@@ -351,6 +347,13 @@ class AssetsTab(QWidget):
         self.search_edit.setFocus()
         self.search_edit.selectAll()
 
+    def sync_responsive_mode(self, width: int) -> None:
+        self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
+        if width >= 1280:
+            self.main_split_controller.apply([max(int(width * 0.7), 720), max(int(width * 0.3), 320)])
+        else:
+            self.main_split_controller.apply([max(int(self.height() * 0.68), 420), max(int(self.height() * 0.32), 220)])
+
     def set_snapshot(self, snapshot: RunSnapshot | None) -> None:
         self._snapshot = snapshot
         self._notes = self._load_notes(snapshot.workspace_id if snapshot is not None else "") if snapshot is not None else {}
@@ -364,6 +367,9 @@ class AssetsTab(QWidget):
             self.summary_label.setText("Select a run to organize discovered hosts, services, URLs, routes, and technologies.")
             self.status_label.setText("No run selected")
             self.results_label.setText("Inventory will appear here once a run is selected.")
+            self.detail_title.setText("Asset Details")
+            self.detail_summary.setText("Select an asset, service, route, or technology to inspect details.")
+            self.detail_text.setPlainText("Choose an item from the inventory to open the docked inspector.")
             for card, hint in (
                 (self.assets_card, "Observed host and domain inventory"),
                 (self.services_card, "Open ports and named services"),
@@ -563,9 +569,7 @@ class AssetsTab(QWidget):
             summary_parts.append("Has workspace notes")
         self.detail_summary.setText(" | ".join(part for part in summary_parts if part))
         self.detail_text.setPlainText(self._build_detail_text(payload))
-        self._position_detail_card(table)
-        self.detail_card.show()
-        self.detail_card.raise_()
+        self._expand_detail_card()
 
     def _build_detail_text(self, payload: dict[str, Any]) -> str:
         lines: list[str] = []
@@ -584,21 +588,28 @@ class AssetsTab(QWidget):
                 lines.append(f"{title_case_label(str(key))}: {value}")
         return "\n".join(lines)
 
-    def _position_detail_card(self, table: QTableView | None) -> None:
-        margin = 18
-        card_width = min(440, max(self.width() - margin * 2, 320))
-        self.detail_card.setFixedWidth(card_width)
-        x = max(self.width() - card_width - margin, margin)
-        y = 150
-        if table is not None:
-            anchor = table.mapTo(self, QPoint(0, 0))
-            y = max(anchor.y() + 12, 150)
-        max_y = max(self.height() - self.detail_card.sizeHint().height() - margin, margin)
-        self.detail_card.move(x, min(y, max_y))
-        self.detail_card.resize(card_width, min(max(320, self.height() - y - margin), 520))
+    def _expand_detail_card(self) -> None:
+        sizes = self.main_split.sizes()
+        if len(sizes) < 2 or sizes[1] > 0:
+            return
+        if self.main_split.orientation() == Qt.Horizontal:
+            fallback = [max(int(self.width() * 0.7), 720), max(int(self.width() * 0.3), 320)]
+        else:
+            fallback = [max(int(self.height() * 0.68), 420), max(int(self.height() * 0.32), 220)]
+        target_sizes = self.main_split_controller.saved_or_current_sizes(fallback) or fallback
+        if len(target_sizes) >= 2 and target_sizes[1] == 0:
+            remembered = self.main_split_controller._last_nonzero_sizes.get(splitter_orientation_key(self.main_split))
+            if remembered is not None:
+                target_sizes = remembered
+            else:
+                target_sizes = fallback
+        self.main_split.setSizes(target_sizes)
 
     def _hide_detail_card(self) -> None:
-        self.detail_card.hide()
+        sizes = self.main_split.sizes()
+        if len(sizes) >= 2:
+            total = max(sum(sizes), 1)
+            self.main_split.setSizes([total, 0])
         self._active_detail_signature = ""
         self._active_detail_kind = ""
         self._active_detail_row = {}
@@ -606,5 +617,4 @@ class AssetsTab(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        if self.detail_card.isVisible():
-            self._position_detail_card(self._active_detail_table)
+        self.sync_responsive_mode(self.width())

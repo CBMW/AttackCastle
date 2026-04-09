@@ -55,10 +55,11 @@ def test_workspace_store_recovers_from_non_object_payload(tmp_path: Path) -> Non
 
     payload = json.loads(store_path.read_text(encoding="utf-8"))
 
-    assert payload["version"] == 3
+    assert payload["version"] == 4
     assert isinstance(payload["workspaces"], list)
     assert payload["active_workspace_id"] == ""
     assert payload["finding_states"][NO_WORKSPACE_SCOPE_ID]["run_1"]["finding_1"]["status"] == "confirmed"
+    assert payload["ui_layout"] == {}
 
 
 def test_workspace_store_ignores_invalid_engagement_rows(tmp_path: Path) -> None:
@@ -131,6 +132,20 @@ def test_workspace_store_upgrades_v2_payload_without_losing_data(tmp_path: Path)
     store.save_entity_note(EntityNote(signature="sig", entity_kind="asset", note="Tracked"), "eng_1")
 
     payload = json.loads(store_path.read_text(encoding="utf-8"))
-    assert payload["version"] == 3
+    assert payload["version"] == 4
     assert payload["workspaces"][0]["workspace_id"] == "eng_1"
     assert payload["entity_notes"]["eng_1"]["sig"]["note"] == "Tracked"
+
+
+def test_workspace_store_round_trips_ui_layout_by_key_and_orientation(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.json")
+
+    store.save_ui_layout("body_split", "horizontal", [240, 1180])
+    store.save_ui_layout("body_split", "vertical", [220, 840])
+
+    assert store.load_ui_layout("body_split", "horizontal") == [240, 1180]
+    assert store.load_ui_layout("body_split", "vertical") == [220, 840]
+
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert payload["ui_layout"]["body_split"]["horizontal"] == [240, 1180]
+    assert payload["ui_layout"]["body_split"]["vertical"] == [220, 840]

@@ -6,7 +6,7 @@ from typing import Any
 
 from attackcastle.gui.models import AuditEntry, EntityNote, FindingState, MigrationState, RunRegistryEntry, Workspace, now_iso
 
-WORKSPACE_STORE_VERSION = 3
+WORKSPACE_STORE_VERSION = 4
 LEGACY_WORKSPACE_STORE_VERSION = 2
 NO_WORKSPACE_SCOPE_ID = "__no_workspace__"
 
@@ -65,6 +65,7 @@ def _default_payload() -> dict[str, Any]:
         "finding_states": {NO_WORKSPACE_SCOPE_ID: {}},
         "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}},
         "audit": {NO_WORKSPACE_SCOPE_ID: []},
+        "ui_layout": {},
         "migration_state": MigrationState(completed=True).to_dict(),
     }
 
@@ -147,12 +148,36 @@ class WorkspaceStore:
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), workspaces)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
+        payload["ui_layout"] = self._normalized_ui_layout(payload.get("ui_layout"))
         migration_state = MigrationState.from_dict(payload.get("migration_state", {}))
         if version < WORKSPACE_STORE_VERSION:
             migration_state.completed = True
             migration_state.last_detected_legacy_version = max(migration_state.last_detected_legacy_version, version)
         payload["migration_state"] = migration_state.to_dict()
         return payload
+
+    def _normalized_ui_layout(self, raw: Any) -> dict[str, dict[str, list[int]]]:
+        if not isinstance(raw, dict):
+            return {}
+        result: dict[str, dict[str, list[int]]] = {}
+        for layout_key, orientations in raw.items():
+            if not isinstance(layout_key, str) or not isinstance(orientations, dict):
+                continue
+            normalized_orientations: dict[str, list[int]] = {}
+            for orientation, sizes in orientations.items():
+                if orientation not in {"horizontal", "vertical"} or not isinstance(sizes, list):
+                    continue
+                normalized_sizes: list[int] = []
+                for size in sizes:
+                    if not isinstance(size, (int, float)):
+                        normalized_sizes = []
+                        break
+                    normalized_sizes.append(max(int(size), 0))
+                if any(value > 0 for value in normalized_sizes):
+                    normalized_orientations[orientation] = normalized_sizes
+            if normalized_orientations:
+                result[layout_key] = normalized_orientations
+        return result
 
     def _normalized_run_registry(self, raw: Any, workspaces: list[Workspace]) -> dict[str, list[dict[str, Any]]]:
         valid_ids = {workspace.workspace_id for workspace in workspaces}
@@ -522,6 +547,41 @@ class WorkspaceStore:
         audit[scope_id] = rows[-500:]
         return self._write_payload(payload)
 
+    def load_ui_layout(self, layout_key: str, orientation: str | None = None) -> dict[str, list[int]] | list[int] | None:
+        payload = self._normalized_payload()
+        raw = payload.get("ui_layout", {})
+        if not isinstance(raw, dict):
+            return None
+        layout = raw.get(str(layout_key or ""))
+        if not isinstance(layout, dict):
+            return None
+        if orientation is None:
+            return dict(layout)
+        sizes = layout.get(str(orientation or ""))
+        return list(sizes) if isinstance(sizes, list) else None
+
+    def save_ui_layout(self, layout_key: str, orientation: str, sizes: list[int]) -> Path:
+        payload = self._normalized_payload()
+        ui_layout = payload.setdefault("ui_layout", {})
+        if not isinstance(ui_layout, dict):
+            ui_layout = {}
+            payload["ui_layout"] = ui_layout
+        key = str(layout_key or "").strip()
+        if not key:
+            return self._write_payload(payload)
+        orientation_key = str(orientation or "").strip().lower()
+        if orientation_key not in {"horizontal", "vertical"}:
+            return self._write_payload(payload)
+        normalized_sizes = [max(int(size), 0) for size in sizes if isinstance(size, (int, float))]
+        if not normalized_sizes or not any(size > 0 for size in normalized_sizes):
+            return self._write_payload(payload)
+        layout = ui_layout.setdefault(key, {})
+        if not isinstance(layout, dict):
+            layout = {}
+            ui_layout[key] = layout
+        layout[orientation_key] = normalized_sizes
+        return self._write_payload(payload)
+
     def apply_migration(
         self,
         *,
@@ -552,6 +612,7 @@ class WorkspaceStore:
                 workspace_id: [entry.to_dict() for entry in rows[-500:]]
                 for workspace_id, rows in audit.items()
             },
+            "ui_layout": {},
             "migration_state": MigrationState(
                 completed=True,
                 import_roots=import_roots,

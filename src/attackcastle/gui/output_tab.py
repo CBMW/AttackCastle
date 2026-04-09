@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QProgressBar,
-    QScrollArea,
     QSplitter,
     QTabWidget,
     QTableView,
@@ -32,8 +31,9 @@ from attackcastle.core.execution_issues import build_execution_issues, summarize
 from attackcastle.gui.common import (
     FINDING_STATUSES,
     FlowButtonRow,
-    SEVERITY_ORDER,
     MappingTableModel,
+    PersistentSplitterController,
+    SEVERITY_ORDER,
     SummaryCard,
     apply_responsive_splitter,
     configure_scroll_surface,
@@ -58,6 +58,8 @@ class OutputTab(QWidget):
         save_finding_state: Callable[[str, FindingState], None],
         open_path: Callable[[str], None],
         parent: QWidget | None = None,
+        layout_loader: Callable[[str, str], list[int] | None] | None = None,
+        layout_saver: Callable[[str, str, list[int]], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._resolve_snapshot = resolve_snapshot
@@ -73,17 +75,7 @@ class OutputTab(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        scroll = configure_scroll_surface(QScrollArea())
-        scroll.setObjectName("outputScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        layout.addWidget(scroll)
-        content = QWidget()
-        scroll.setWidget(content)
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(16)
+        layout.setSpacing(16)
 
         hero = QFrame()
         hero.setObjectName("heroPanel")
@@ -104,7 +96,11 @@ class OutputTab(QWidget):
         hero_layout.addWidget(self.summary_label)
         hero_layout.addWidget(self.progress_label)
         hero_layout.addWidget(self.progress_bar)
-        content_layout.addWidget(hero)
+        top_panel = QWidget()
+        top_layout = QVBoxLayout(top_panel)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(16)
+        top_layout.addWidget(hero)
 
         cards = QGridLayout()
         cards.setHorizontalSpacing(12)
@@ -126,7 +122,7 @@ class OutputTab(QWidget):
         )
         for idx, card in enumerate(self.summary_cards):
             cards.addWidget(card, idx // 3, idx % 3)
-        content_layout.addLayout(cards)
+        top_layout.addLayout(cards)
 
         filter_panel = QFrame()
         filter_panel.setObjectName("toolbarPanel")
@@ -196,7 +192,7 @@ class OutputTab(QWidget):
             self.quick_filter_buttons[key] = button
             quick_filter_row.addWidget(button)
         filter_layout.addWidget(quick_filter_row)
-        content_layout.addWidget(filter_panel)
+        top_layout.addWidget(filter_panel)
         self.quick_filter_buttons["all"].setChecked(True)
 
         self.assets_model = MappingTableModel(
@@ -422,7 +418,24 @@ class OutputTab(QWidget):
         self.inspector_tabs.setTabToolTip(2, "Edit workflow overrides for the selected finding.")
         self.inspector_tabs.setTabToolTip(self.preview_tab_index, "Preview screenshots and inspect artifact paths.")
         main_split.addWidget(self.inspector_tabs)
-        content_layout.addWidget(main_split, 1)
+        self.main_split_controller = PersistentSplitterController(
+            self.main_split,
+            "findings_main_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
+        self.content_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
+        self.content_split_controller = PersistentSplitterController(
+            self.content_split,
+            "findings_content_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
+        self.content_split.addWidget(top_panel)
+        self.content_split.addWidget(main_split)
+        layout.addWidget(self.content_split, 1)
         self.sync_responsive_mode(self.width())
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
@@ -448,11 +461,14 @@ class OutputTab(QWidget):
         columns = 3 if width >= 1480 else 2 if width >= 1180 else 1
         self._arrange_cards(self.summary_cards_grid, self.summary_cards, columns)
         self._arrange_filter_controls(width)
+        top_height = 360 if width >= 1480 else 400 if width >= 1180 else 460
+        self.content_split.setOrientation(Qt.Vertical)
+        self.content_split_controller.apply([max(top_height, 260), max(self.height() - top_height, 360)])
         self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
         if width >= 1180:
-            self.main_split.setSizes([max(int(width * 0.6), 520), max(int(width * 0.4), 360)])
+            self.main_split_controller.apply([max(int(width * 0.6), 520), max(int(width * 0.4), 360)])
         else:
-            self.main_split.setSizes([max(int(self.height() * 0.6), 320), max(int(self.height() * 0.4), 260)])
+            self.main_split_controller.apply([max(int(self.height() * 0.6), 320), max(int(self.height() * 0.4), 260)])
 
     def _arrange_cards(self, grid: QGridLayout, cards: tuple[SummaryCard, ...], columns: int) -> None:
         while grid.count():

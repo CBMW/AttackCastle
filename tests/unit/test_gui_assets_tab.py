@@ -6,8 +6,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from attackcastle.gui.asset_inventory import build_entity_note
@@ -121,7 +120,7 @@ def test_assets_tab_context_menu_exposes_scan_and_notes_actions(tmp_path: Path) 
         tab.close()
 
 
-def test_assets_tab_double_click_opens_detail_card_and_outside_click_closes_it(tmp_path: Path) -> None:
+def test_assets_tab_double_click_opens_docked_detail_panel_and_close_collapses_it(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app
     tab, _launched, _notes = _make_tab()
@@ -132,20 +131,12 @@ def test_assets_tab_double_click_opens_detail_card_and_outside_click_closes_it(t
         index = tab.services_model.index(0, 0)
 
         tab._open_detail_for_index(tab.services_view, index)
-        assert tab.detail_card.isVisible()
+        assert tab.main_split.sizes()[1] > 0
+        assert "203.0.113.10:443" in tab.detail_summary.text()
 
-        global_outside = tab.mapToGlobal(QPoint(4, 4))
-        event = QMouseEvent(
-            QMouseEvent.Type.MouseButtonPress,
-            QPoint(4, 4),
-            global_outside,
-            Qt.LeftButton,
-            Qt.LeftButton,
-            Qt.NoModifier,
-        )
-        tab.eventFilter(tab, event)
+        tab.detail_close_button.click()
 
-        assert not tab.detail_card.isVisible()
+        assert tab.main_split.sizes()[1] == 0
     finally:
         tab.close()
 

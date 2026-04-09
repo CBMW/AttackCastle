@@ -18,14 +18,28 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from attackcastle.gui.common import FlowButtonRow, apply_responsive_splitter, configure_scroll_surface, set_tooltips, title_case_label
+from attackcastle.gui.common import (
+    FlowButtonRow,
+    PersistentSplitterController,
+    apply_responsive_splitter,
+    configure_scroll_surface,
+    set_tooltips,
+    title_case_label,
+)
 from attackcastle.gui.forms import ProfileFieldsMixin
 from attackcastle.gui.models import GuiProfile
 from attackcastle.gui.profile_store import GuiProfileStore
 
 
 class ConfigurationTab(QWidget, ProfileFieldsMixin):
-    def __init__(self, store: GuiProfileStore, on_profiles_changed: Callable[[list[GuiProfile]], None], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        store: GuiProfileStore,
+        on_profiles_changed: Callable[[list[GuiProfile]], None],
+        parent: QWidget | None = None,
+        layout_loader: Callable[[str, str], list[int] | None] | None = None,
+        layout_saver: Callable[[str, str, list[int]], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.store = store
         self.on_profiles_changed = on_profiles_changed
@@ -35,6 +49,13 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
         self.splitter = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
+        self._splitter_controller = PersistentSplitterController(
+            self.splitter,
+            "profiles_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
         root.addWidget(self.splitter, 1)
 
         rail = QFrame()
@@ -153,14 +174,16 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
     def _sync_responsive_mode(self, width: int) -> None:
         if width >= 1280:
             self.splitter.setOrientation(Qt.Horizontal)
-            self.splitter.setSizes([320, max(width - 320, 760)])
+            fallback = [320, max(width - 320, 760)]
+            self._splitter_controller.apply(fallback)
             return
         if width >= 1040:
             self.splitter.setOrientation(Qt.Horizontal)
-            self.splitter.setSizes([280, max(width - 280, 660)])
+            fallback = [280, max(width - 280, 660)]
+            self._splitter_controller.apply(fallback)
             return
         self.splitter.setOrientation(Qt.Vertical)
-        self.splitter.setSizes([240, max(self.height() - 240, 480)])
+        self._splitter_controller.apply([240, max(self.height() - 240, 480)])
 
     def reload_profiles(self, preferred_profile_name: str | None = None) -> None:
         current_name = preferred_profile_name or self._selected_profile_name()

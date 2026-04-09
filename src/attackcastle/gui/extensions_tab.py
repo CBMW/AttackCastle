@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from attackcastle.gui.common import (
     FlowButtonRow,
+    PersistentSplitterController,
     apply_responsive_splitter,
     configure_scroll_surface,
     refresh_widget_style,
@@ -40,6 +41,8 @@ class ExtensionsTab(QWidget):
         on_theme_applied: Callable[[ExtensionManifest], None],
         open_path: Callable[[str], None],
         parent: QWidget | None = None,
+        layout_loader: Callable[[str, str], list[int] | None] | None = None,
+        layout_saver: Callable[[str, str, list[int]], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.store = store
@@ -61,6 +64,13 @@ class ExtensionsTab(QWidget):
 
         splitter = apply_responsive_splitter(QSplitter(), (2, 3, 5))
         self.splitter = splitter
+        self._splitter_controller = PersistentSplitterController(
+            self.splitter,
+            "extensions_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
 
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
@@ -184,14 +194,14 @@ class ExtensionsTab(QWidget):
     def sync_responsive_mode(self, width: int) -> None:
         if width >= 1400:
             self.splitter.setOrientation(Qt.Horizontal)
-            self.splitter.setSizes([300, 380, max(width - 680, 760)])
+            self._splitter_controller.apply([300, 380, max(width - 680, 760)])
             return
         if width >= 1120:
             self.splitter.setOrientation(Qt.Horizontal)
-            self.splitter.setSizes([260, 320, max(width - 580, 620)])
+            self._splitter_controller.apply([260, 320, max(width - 580, 620)])
             return
         self.splitter.setOrientation(Qt.Vertical)
-        self.splitter.setSizes([220, 240, max(self.height() - 460, 360)])
+        self._splitter_controller.apply([220, 240, max(self.height() - 460, 360)])
 
     def reload_extensions(self) -> None:
         self._records = self.store.discover()
