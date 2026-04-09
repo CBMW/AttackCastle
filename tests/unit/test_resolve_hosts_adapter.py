@@ -47,6 +47,23 @@ def _context(tmp_path: Path) -> tuple[AdapterContext, _Logger, _Audit]:
     )
 
 
+def _context_with_events(tmp_path: Path) -> tuple[AdapterContext, list[tuple[str, dict]]]:
+    run_store = RunStore(output_root=tmp_path, run_id="resolve-hosts-events")
+    events: list[tuple[str, dict]] = []
+    return (
+        AdapterContext(
+            profile_name="prototype",
+            config={},
+            profile_config={},
+            run_store=run_store,
+            logger=_Logger(),
+            audit=_Audit(),
+            event_emitter=lambda event, payload: events.append((str(event), dict(payload))),
+        ),
+        events,
+    )
+
+
 def _run_data(tmp_path: Path) -> RunData:
     return RunData(
         metadata=RunMetadata(
@@ -168,3 +185,30 @@ def test_merge_adapter_result_updates_existing_asset_in_place(tmp_path: Path) ->
     assert len(run_data.assets) == 1
     assert run_data.assets[0].ip == "203.0.113.10"
     assert run_data.assets[0].resolved_ips == ["203.0.113.10", "203.0.113.11"]
+
+
+def test_resolve_hosts_adapter_emits_live_runtime_events(monkeypatch, tmp_path: Path) -> None:
+    context, events = _context_with_events(tmp_path)
+    run_data = _run_data(tmp_path)
+    run_data.assets.append(Asset(asset_id="asset_domain", kind="domain", name="api.example.com"))
+
+    monkeypatch.setattr("attackcastle.adapters.resolve_hosts.adapter.shutil.which", lambda _cmd: "dig")
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=["dig", "api.example.com", "+short"],
+            returncode=0,
+            stdout="203.0.113.10\n",
+            stderr="",
+        ),
+    )
+
+    ResolveHostsAdapter().run(context, run_data)
+
+    event_names = [event for event, _payload in events]
+    assert "task.progress" in event_names
+    assert "task_result.recorded" in event_names
+    assert "tool_execution.recorded" in event_names
+    assert "artifact.available" in event_names
+    assert "entity.upserted" in event_names

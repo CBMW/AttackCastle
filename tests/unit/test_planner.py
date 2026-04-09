@@ -1,8 +1,10 @@
 from pathlib import Path
 
+from attackcastle.app import _seed_scope_assets
 from attackcastle.adapters import DNSAdapter, NmapAdapter, TLSAdapter, WebProbeAdapter
+from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
-from attackcastle.core.models import RunData, RunMetadata, now_utc
+from attackcastle.core.models import RunData, RunMetadata, ScanTarget, now_utc
 from attackcastle.orchestration.planner import build_task_plan
 from attackcastle.storage.run_store import RunStore
 
@@ -72,3 +74,36 @@ def test_build_task_plan_enforces_noise_limit(tmp_path):
     assert "run-nmap" not in keys
     assert result.conflicts
 
+
+def test_seed_scope_assets_only_sets_ip_for_ip_literals(tmp_path):
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="test",
+            target_input="example.com,1.2.3.4",
+            profile="cautious",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        scope=[
+            ScanTarget(
+                target_id="target_domain",
+                raw="example.com",
+                target_type=TargetType.DOMAIN,
+                value="example.com",
+                host="example.com",
+            ),
+            ScanTarget(
+                target_id="target_ip",
+                raw="1.2.3.4",
+                target_type=TargetType.SINGLE_IP,
+                value="1.2.3.4",
+                host="1.2.3.4",
+            ),
+        ],
+    )
+
+    _seed_scope_assets(run_data)
+
+    assets_by_id = {asset.asset_id: asset for asset in run_data.assets}
+    assert assets_by_id["target_domain"].ip is None
+    assert assets_by_id["target_ip"].ip == "1.2.3.4"

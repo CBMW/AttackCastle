@@ -69,6 +69,7 @@ from attackcastle.reporting.builder import ReportBuilder
 from attackcastle.quality.evidence import summarize_evidence_quality
 from attackcastle.security import apply_secret_resolution
 from attackcastle.scope.compiler import compile_scope
+from attackcastle.scope.expansion import is_ip_literal
 from attackcastle.scope.filters import apply_allow_deny
 from attackcastle.scope.parser import parse_target_input
 from attackcastle.scope.validators import ensure_output_directory, validate_scope_limits, validate_targets
@@ -139,12 +140,13 @@ def _seed_scope_assets(run_data: RunData) -> None:
     if run_data.assets:
         return
     for target in run_data.scope:
+        seeded_ip = target.host if target.host and is_ip_literal(target.host) else None
         run_data.assets.append(
             Asset(
                 asset_id=target.target_id,
                 kind="scope_target",
                 name=target.value,
-                ip=target.host if target.host and "." in target.host else None,
+                ip=seeded_ip,
                 source_tool="scope_parser",
                 canonical_key=target.value,
             )
