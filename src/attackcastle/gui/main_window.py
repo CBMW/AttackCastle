@@ -457,7 +457,6 @@ class MainWindow(QMainWindow):
         workspace_summary_panel, _workspace_summary_title, _workspace_summary_summary = build_inspector_panel(
             "Workspace Details",
             self.workspace_summary,
-            summary_text="Saved project summary, client context, and scope notes for the selected workspace.",
         )
         left_layout.addWidget(left_top_panel)
         left_layout.addWidget(workspace_summary_panel, 1)
@@ -518,7 +517,6 @@ class MainWindow(QMainWindow):
         runs_panel, _runs_title, _runs_summary = build_table_section(
             "Runs In Workspace",
             workspace_runs,
-            summary_text="Live session queue for the current workspace. Double-click a row to jump into Findings.",
             surface=SURFACE_PRIMARY,
             toolbar=workspace_toolbar,
             status_label=self.workspace_run_results_label,

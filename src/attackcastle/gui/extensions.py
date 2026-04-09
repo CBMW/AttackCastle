@@ -560,13 +560,23 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QScrollArea {{ background: transparent; border: 0; }}
     QScrollArea#overviewChecklistScroll {{ background: transparent; border: 0; }}
     QSplitter::handle {{
-        background: rgba(54, 67, 84, 0.28);
+        background: transparent;
         border: 0;
-        border-radius: 4px;
-        margin: 2px;
     }}
-    QSplitter::handle:hover {{ background: rgba(98, 125, 159, 0.42); }}
-    QSplitter::handle:pressed {{ background: rgba(116, 150, 194, 0.58); }}
+    QSplitter::handle:horizontal {{
+        margin: 14px 4px;
+        border-radius: 3px;
+        background: rgba(54, 67, 84, 0.14);
+    }}
+    QSplitter::handle:horizontal:hover {{ background: rgba(98, 125, 159, 0.22); }}
+    QSplitter::handle:horizontal:pressed {{ background: rgba(116, 150, 194, 0.3); }}
+    QSplitter::handle:vertical {{
+        margin: 4px 14px;
+        border-radius: 3px;
+        background: rgba(54, 67, 84, 0.14);
+    }}
+    QSplitter::handle:vertical:hover {{ background: rgba(98, 125, 159, 0.22); }}
+    QSplitter::handle:vertical:pressed {{ background: rgba(116, 150, 194, 0.3); }}
     """
     appended = str(qss_append or "").strip()
     return css + ("\n" + appended if appended else "")

@@ -168,7 +168,7 @@ class OverviewChecklistEmptyState(QFrame):
         title.setObjectName("overviewChecklistEmptyTitle")
         title.setAlignment(Qt.AlignCenter)
 
-        summary = QLabel("Add a task to track validation, retests, evidence capture, or report prep.")
+        summary = QLabel("Add an item to create a checklist")
         summary.setObjectName("overviewChecklistEmptySummary")
         summary.setAlignment(Qt.AlignCenter)
         summary.setWordWrap(True)
