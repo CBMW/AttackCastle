@@ -192,12 +192,6 @@ class MainWindow(QMainWindow):
                 "workspace_primary_split",
                 [max(int(width * 0.28), 260), max(int(width * 0.42), 420)],
             )
-        self.workspace_sidebar_split.setOrientation(Qt.Vertical)
-        self._apply_splitter_layout(
-            "workspace_sidebar_split",
-            [max(int(self.height() * 0.28), 180), max(int(self.height() * 0.34), 220)],
-        )
-
         if mode == "stacked":
             self._apply_splitter_layout("body_split", [200, max(width - 200, 680)])
         elif mode == "compact":
@@ -280,15 +274,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(PAGE_SECTION_SPACING)
 
         self.general_status = QLabel("Ready")
-        self.general_status.setObjectName("statusBanner")
-        self.general_status.setWordWrap(True)
         self.general_status_detail = QLabel("Workspace, run actions, and findings stay in sync across every section.")
-        self.general_status_detail.setObjectName("helperText")
-        self.general_status_detail.setWordWrap(True)
-        status_panel, status_layout = build_surface_frame(object_name="toolbarPanel", spacing=6)
-        status_layout.addWidget(self.general_status)
-        status_layout.addWidget(self.general_status_detail)
-        root.addWidget(status_panel)
 
         body_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (0, 1))
         self.body_split = body_split
@@ -392,13 +378,13 @@ class MainWindow(QMainWindow):
         self.workspace_tab_context_label.setWordWrap(True)
         set_tooltip(self.workspace_tab_context_label, "Shows which workspace is currently active for this GUI session.")
         left_top_layout.addWidget(self.workspace_tab_context_label)
-        self.workspace_list = configure_scroll_surface(QListWidget())
+        self.workspace_list = configure_scroll_surface(QListWidget(left_panel))
         self.workspace_list.setObjectName("sidebarList")
         self.workspace_list.currentRowChanged.connect(self._workspace_selected)
         self.engagement_list = self.workspace_list
         self.workspace_list.setEnabled(False)
+        self.workspace_list.hide()
         set_tooltip(self.workspace_list, "Shows the active workspace for this session. Switch active workspace from Settings.")
-        left_top_layout.addWidget(self.workspace_list, 1)
         engagement_buttons = FlowButtonRow()
         self.new_workspace_button = QPushButton("New Workspace")
         self.new_workspace_button.clicked.connect(self._new_workspace)
@@ -436,18 +422,16 @@ class MainWindow(QMainWindow):
         self.workspace_summary = configure_scroll_surface(QTextEdit())
         self.workspace_summary.setObjectName("richBrief")
         self.workspace_summary.setReadOnly(True)
+        self.workspace_summary.setMinimumHeight(280)
         self.engagement_summary = self.workspace_summary
         set_tooltip(self.workspace_summary, "Read-only workspace details for the selected saved project.")
-        self.workspace_sidebar_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
-        self._register_splitter(self.workspace_sidebar_split, "workspace_sidebar_split")
         workspace_summary_panel, _workspace_summary_title, _workspace_summary_summary = build_inspector_panel(
             "Workspace Details",
             self.workspace_summary,
             summary_text="Saved project summary, client context, and scope notes for the selected workspace.",
         )
-        self.workspace_sidebar_split.addWidget(left_top_panel)
-        self.workspace_sidebar_split.addWidget(workspace_summary_panel)
-        left_layout.addWidget(self.workspace_sidebar_split, 1)
+        left_layout.addWidget(left_top_panel)
+        left_layout.addWidget(workspace_summary_panel, 1)
         self.workspace_primary_split.addWidget(left_panel)
 
         center_panel = QWidget()

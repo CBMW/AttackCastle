@@ -555,9 +555,6 @@ class AssetsTab(QWidget):
         if snapshot is None:
             return
         signature = str(row.get("__signature") or entity_signature(entity_kind, row, snapshot))
-        if self.detail_card.isVisible() and self._active_detail_signature == signature:
-            self._hide_detail_card()
-            return
         note = self._notes.get(signature)
         payload = build_detail_payload(entity_kind, row, snapshot, note=note)
         self._active_detail_signature = signature
