@@ -27,6 +27,19 @@
         </div>
         <button type="button" class="copy-command" data-command="{{ execution.command|e }}">Copy command</button>
       </div>
+      <div class="proof-panel">
+        <div class="proof-label">Termination</div>
+        <pre class="terminal-block">{% if execution.termination_reason %}reason={{ execution.termination_reason }}{% else %}reason=unknown{% endif %}
+{% if execution.timed_out %}timed_out=true
+{% endif %}{% if execution.termination_detail %}detail={{ execution.termination_detail }}{% else %}detail=[none recorded]{% endif %}</pre>
+      </div>
+      {% if execution.transcript_text or execution.transcript_path %}
+      <div class="proof-panel">
+        <div class="proof-label">Terminal Transcript</div>
+        {% if execution.transcript_path %}<p class="proof-note"><code>{{ execution.transcript_path }}</code></p>{% endif %}
+        <pre class="terminal-block">{{ execution.transcript_text or "[empty file]" }}</pre>
+      </div>
+      {% endif %}
       {% if execution.stdout_text %}
       <div class="proof-panel">
         <div class="proof-label">Stdout</div>

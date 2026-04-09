@@ -28,13 +28,7 @@ EXTERNAL_DEPENDENCY_SPECS = (
         "check": "nmap_binary",
         "command": "nmap",
         "apt_package": "nmap",
-        "suggestion": "Install nmap for service detection coverage.",
-    },
-    {
-        "check": "masscan_binary",
-        "command": "masscan",
-        "apt_package": "masscan",
-        "suggestion": "Install masscan for high-speed discovery stage.",
+        "suggestion": "Install nmap for network discovery and service detection coverage.",
     },
     {
         "check": "httpx_binary",
@@ -106,7 +100,6 @@ EXTERNAL_DEPENDENCY_SPECS = (
 
 CAPABILITY_TOOL_MAPPING: dict[str, tuple[str, str, str]] = {
     "subdomain_enumeration": ("subfinder", "subfinder", "Enumerating subdomains"),
-    "network_fast_scan": ("masscan", "masscan", "Running Masscan discovery"),
     "network_port_scan": ("nmap", "nmap", "Running Nmap"),
     "dns_resolution": ("dnsx", "dnsx", "Resolving hosts"),
     "web_probe": ("httpx", "httpx", "Probing web services"),

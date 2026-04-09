@@ -7,10 +7,6 @@ profile:
   nmap_args:
     - "-sV"
     - "-T3"
-  masscan_args:
-    - "--open-only"
-    - "--rate"
-    - "1500"
   whatweb_args:
     - "-a"
     - "3"

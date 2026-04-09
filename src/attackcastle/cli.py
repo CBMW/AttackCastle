@@ -24,7 +24,6 @@ from attackcastle.adapters import (
     CVEEnricherAdapter,
     DNSAdapter,
     FrameworkChecksAdapter,
-    MasscanAdapter,
     NucleiAdapter,
     NiktoAdapter,
     NmapAdapter,
@@ -506,7 +505,6 @@ def _capability_tool(capability: str) -> tuple[str, str]:
 def _adapter_command(adapter_name: str) -> str:
     mapping = {
         "nmap": "nmap",
-        "masscan": "masscan",
         "whatweb": "whatweb",
         "nikto": "nikto",
         "nuclei": "nuclei",
@@ -1012,7 +1010,6 @@ def _profile_module_map(config: dict[str, Any]) -> dict[str, bool]:
     modules = {
         "subdomain_enum": bool(config.get("subdomain_enum", {}).get("enabled", True)),
         "dns_resolution": True,
-        "masscan": bool(config.get("masscan", {}).get("enabled", True)),
         "nmap": bool(config.get("nmap", {}).get("enabled", True)),
         "web_probe": True,
         "web_discovery": True,
@@ -1032,7 +1029,6 @@ def _profile_module_map(config: dict[str, Any]) -> dict[str, bool]:
     }
     capability_to_module = {
         "subdomain_enumeration": "subdomain_enum",
-        "network_fast_scan": "masscan",
         "network_port_scan": "nmap",
         "web_vuln_scan": "nikto",
         "web_template_scan": "nuclei",
@@ -3371,7 +3367,6 @@ def plugins_list(
         CVEEnricherAdapter(),
         SubdomainEnumAdapter(),
         DNSAdapter(),
-        MasscanAdapter(),
         NmapAdapter(),
         WebProbeAdapter(),
         WebDiscoveryAdapter(),
@@ -3437,7 +3432,6 @@ def plugins_doctor(
         CVEEnricherAdapter(),
         SubdomainEnumAdapter(),
         DNSAdapter(),
-        MasscanAdapter(),
         NmapAdapter(),
         WebProbeAdapter(),
         WebDiscoveryAdapter(),
@@ -3454,7 +3448,6 @@ def plugins_doctor(
     template_names = [path.name.lower() for path in template_dir.glob("*.json")]
     dependent_hints = {
         "subdomain_enumeration": [name for name in template_names if "dns" in name or "exposure" in name],
-        "network_fast_scan": [name for name in template_names if "tls" in name or "http" in name],
         "dns_resolution": [name for name in template_names if "dns" in name],
         "network_port_scan": [name for name in template_names if "tls" in name or "http" in name],
         "web_probe": [name for name in template_names if "wordpress" in name or "http" in name],

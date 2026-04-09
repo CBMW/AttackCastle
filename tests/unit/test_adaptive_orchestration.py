@@ -61,7 +61,7 @@ def test_has_network_scan_targets_uses_resolved_assets():
     assert matched is True
 
 
-def test_has_service_scan_targets_uses_masscan_fact_map():
+def test_has_service_scan_targets_uses_scannable_targets():
     run_data = _build_run_data()
     run_data.scope.append(
         ScanTarget(
@@ -72,11 +72,6 @@ def test_has_service_scan_targets_uses_masscan_fact_map():
             host="203.0.113.10",
         )
     )
-    run_data.facts["masscan.open_ports_by_host"] = {"203.0.113.10": []}
-    matched, _ = has_service_scan_targets(run_data)
-    assert matched is False
-
-    run_data.facts["masscan.open_ports_by_host"] = {"203.0.113.10": [80, 443]}
     matched, _ = has_service_scan_targets(run_data)
     assert matched is True
 
@@ -111,9 +106,17 @@ def test_wordpress_target_collection_and_condition():
     assert matched is True
 
 
-def test_nmap_preview_uses_masscan_discovered_ports(tmp_path):
+def test_nmap_preview_scans_scope_targets(tmp_path):
     run_data = _build_run_data()
-    run_data.facts["masscan.open_ports_by_host"] = {"203.0.113.10": [443, 80]}
+    run_data.scope.append(
+        ScanTarget(
+            target_id="target_ip",
+            raw="203.0.113.10",
+            target_type=TargetType.SINGLE_IP,
+            value="203.0.113.10",
+            host="203.0.113.10",
+        )
+    )
 
     run_store = RunStore(output_root=Path(tmp_path), run_id="adaptive_preview")
     context = AdapterContext(
@@ -128,4 +131,5 @@ def test_nmap_preview_uses_masscan_discovered_ports(tmp_path):
     preview = NmapAdapter().preview_commands(context, run_data)
     assert preview
     assert "203.0.113.10" in preview[0]
-    assert "-p 80,443" in preview[0]
+    assert "--top-ports 1000" in preview[0]
+    assert "-Pn" in preview[0]

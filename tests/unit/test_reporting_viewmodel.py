@@ -170,11 +170,11 @@ def test_view_model_normalizes_execution_issues_from_failures():
         ),
         task_states=[
             {
-                "key": "run-masscan",
-                "label": "Masscan",
+                "key": "run-nmap",
+                "label": "Nmap",
                 "status": "failed",
-                "error": "masscan exited unexpectedly",
-                "detail": {"stage": "recon", "capability": "masscan"},
+                "error": "nmap exited unexpectedly",
+                "detail": {"stage": "recon", "capability": "network_port_scan"},
             },
             {
                 "key": "run-web-discovery",
@@ -196,7 +196,7 @@ def test_view_model_normalizes_execution_issues_from_failures():
             )
         ],
         warnings=["nuclei binary not found on PATH"],
-        errors=["run-masscan: masscan exited unexpectedly"],
+        errors=["run-nmap: nmap exited unexpectedly"],
         facts={
             "web_probe.coverage_gaps": [
                 {

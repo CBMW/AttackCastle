@@ -86,7 +86,4 @@ def build_scan_policy(profile_name: str, config: dict[str, Any]) -> ScanPolicy:
     if isinstance(scan_config, dict):
         if isinstance(scan_config.get("max_ports"), int) and int(scan_config["max_ports"]) <= 1000:
             selected["top_ports"] = "1-1000"
-    masscan_config = config.get("masscan", {})
-    if isinstance(masscan_config, dict) and masscan_config.get("rate"):
-        selected["port_scan_rate"] = int(masscan_config["rate"])
     return ScanPolicy(profile=profile, **selected)

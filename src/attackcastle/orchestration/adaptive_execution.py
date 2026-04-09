@@ -271,7 +271,6 @@ class AdaptiveExecutionController:
             for item in self.config.get(
                 "heavy_process_capabilities",
                 [
-                    "network_fast_scan",
                     "network_port_scan",
                     "web_fingerprint",
                     "web_vuln_scan",
@@ -415,7 +414,7 @@ class AdaptiveExecutionController:
         }
 
     def _stage_for_capability(self, capability: str) -> str:
-        if capability in {"network_fast_scan", "network_port_scan", "subdomain_enumeration", "dns_resolution"}:
+        if capability in {"network_port_scan", "subdomain_enumeration", "dns_resolution"}:
             return "recon"
         if capability in {"findings_engine", "vuln_enrichment"}:
             return "analysis"

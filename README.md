@@ -67,7 +67,7 @@ and AttackCastle will automatically choose task paths based on discovered facts 
 
 The default task chain is:
 
-`subdomain-enum -> resolve-hosts -> run-masscan -> run-nmap -> probe-web -> discover-web -> detect-tls/analyze-services -> fingerprint-web -> assess-web/run-nuclei/run-framework-checks/run-sqlmap/run-wpscan -> enrich-cve -> generate-findings -> build-report`
+`subdomain-enum -> resolve-hosts -> run-nmap -> probe-web -> discover-web -> detect-tls/analyze-services -> fingerprint-web -> assess-web/run-nuclei/run-framework-checks/run-sqlmap/run-wpscan -> enrich-cve -> generate-findings -> build-report`
 
 Important detail:
 
@@ -80,12 +80,11 @@ Important detail:
 
 For input like `203.0.113.10` or `203.0.113.0/24`, the workflow reacts like this:
 
-1. `run-masscan` performs high-speed port discovery.
-2. `run-nmap` uses masscan-discovered open ports for targeted service detection (instead of broad probing).
-3. If HTTP/S services are detected, `probe-web` runs.
-4. Web targets feed `fingerprint-web` (`whatweb`), `assess-web` (`nikto`), and `run-nuclei` (`nuclei`).
-5. If form/parameter signals are detected, `run-sqlmap` is scheduled.
-6. If WordPress is detected from observations/technologies, `run-wpscan` is scheduled.
+1. `run-nmap` performs scoped port discovery plus service detection in one stage.
+2. If HTTP/S services are detected, `probe-web` runs.
+3. Web targets feed `fingerprint-web` (`whatweb`), `assess-web` (`nikto`), and `run-nuclei` (`nuclei`).
+4. If form/parameter signals are detected, `run-sqlmap` is scheduled.
+5. If WordPress is detected from observations/technologies, `run-wpscan` is scheduled.
 6. Service and technology fingerprints feed `enrich-cve`.
 7. Findings are generated from normalized evidence.
 8. Reports and run analytics are written.
@@ -124,7 +123,7 @@ AttackCastle can route its HTTP-capable traffic through an HTTP(S) proxy such as
 Important limitation:
 
 - Proxy routing applies to AttackCastle HTTP requests, browser screenshot capture, and supported HTTP scanner tools.
-- Raw TCP/TLS and socket-based stages such as `masscan`, `nmap`, DNS socket resolution, TLS handshakes, `service_exposure`, and `vhost_discovery` stay direct.
+- Raw TCP/TLS and socket-based stages such as `nmap`, DNS socket resolution, TLS handshakes, `service_exposure`, and `vhost_discovery` stay direct.
 
 ## High-Level Architecture
 
@@ -148,7 +147,7 @@ flowchart TD
   A["Raw Target Input"] --> B["Scope Parser + Classifier"]
   B --> C["Plan Builder (rules + profile + policy)"]
   C --> D["Workflow Scheduler"]
-  D --> E["Adapters Execute (DNS, masscan, nmap, web, tls, etc.)"]
+D --> E["Adapters Execute (DNS, nmap, web, tls, etc.)"]
   E --> F["Normalized RunData (assets/services/web/tech/tls/evidence)"]
   F --> G["Findings Engine (templates + corroboration + quality gates)"]
   G --> H["Reporting (HTML/CSV/JSON/PDF optional)"]
@@ -187,8 +186,7 @@ Default tasks are declared in `src/attackcastle/orchestration/rules/default_rule
 | Task key | Stage | Capability | Condition | Dependencies |
 | --- | --- | --- | --- | --- |
 | `resolve-hosts` | recon | `dns_resolution` | `has_domain_like_targets` | none |
-| `run-masscan` | recon | `network_fast_scan` | `has_network_scan_targets` | none |
-| `run-nmap` | recon | `network_port_scan` | `has_service_scan_targets` | `run-masscan` |
+| `run-nmap` | recon | `network_port_scan` | `has_service_scan_targets` | `resolve-hosts` |
 | `probe-web` | enumeration | `web_probe` | `has_web_targets` | `run-nmap` |
 | `detect-tls` | enumeration | `tls_probe` | `has_tls_targets` | `run-nmap` |
 | `fingerprint-web` | enumeration | `web_fingerprint` | `has_web_targets` | `probe-web` |
@@ -307,7 +305,7 @@ Profiles tune:
 
 - concurrency
 - noise budget
-- default adapter args (`nmap`, `masscan`, `whatweb`, `nikto`, `wpscan`)
+- default adapter args (`nmap`, `whatweb`, `nikto`, `wpscan`)
 
 ## Adapter Ecosystem
 
@@ -315,7 +313,6 @@ Current adapters:
 
 - `subdomain_enum` (`subdomain_enumeration`)
 - `dns` (`dns_resolution`)
-- `masscan` (`network_fast_scan`)
 - `nmap` (`network_port_scan`)
 - `web_probe` (`web_probe`)
 - `tls` (`tls_probe`)
@@ -336,7 +333,6 @@ for availability checks.
 
 External binaries are optional but recommended for full coverage:
 
-- `masscan`
 - `nmap`
 - `whatweb`
 - `nikto`
@@ -515,7 +511,7 @@ output/
 Requirements:
 
 - Python 3.12+
-- Optional external tools for full scan depth (`masscan`, `nmap`, `whatweb`, `nikto`, `wpscan`)
+- Optional external tools for full scan depth (`nmap`, `whatweb`, `nikto`, `wpscan`)
 
 ### Fastest Start For The GUI
 
@@ -760,7 +756,7 @@ attackcastle plan \
 Top-level `doctor` is the environment preflight command. It checks:
 
 - Python version,
-- external scanner binaries (`nmap`, `masscan`, `whatweb`, `nikto`, `nuclei`, `wpscan`, `sqlmap`),
+- external scanner binaries (`nmap`, `whatweb`, `nikto`, `nuclei`, `wpscan`, `sqlmap`),
 - config loading,
 - finding template validity,
 - DNS reachability,
@@ -1038,7 +1034,7 @@ python -m compileall -q src tests
 
 Symptom:
 
-- warnings about missing `masscan`, `nmap`, `whatweb`, `nikto`, or `wpscan`.
+- warnings about missing `nmap`, `whatweb`, `nikto`, or `wpscan`.
 
 Action:
 

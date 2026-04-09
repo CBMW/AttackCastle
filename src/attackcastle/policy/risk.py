@@ -6,7 +6,6 @@ from typing import Any
 DEFAULT_RISK_MODES: dict[str, dict[str, Any]] = {
     "passive": {
         "blocked_capabilities": [
-            "network_fast_scan",
             "network_port_scan",
             "web_vuln_scan",
             "web_template_scan",
@@ -92,4 +91,3 @@ def risk_controls_from_context(context: Any) -> dict[str, Any]:
     if not isinstance(controls, dict):
         return {}
     return controls
-

@@ -18,7 +18,6 @@ from attackcastle.adapters import (
     CVEEnricherAdapter,
     DNSAdapter,
     FrameworkChecksAdapter,
-    MasscanAdapter,
     NucleiAdapter,
     NiktoAdapter,
     NmapAdapter,
@@ -575,7 +574,6 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
     adapters: dict[str, Any] = {
         "subdomain_enum": SubdomainEnumAdapter(),
         "dns": DNSAdapter(),
-        "masscan": MasscanAdapter(),
         "nmap": NmapAdapter(),
         "web_probe": WebProbeAdapter(),
         "vhost_discovery": VHostDiscoveryAdapter(),

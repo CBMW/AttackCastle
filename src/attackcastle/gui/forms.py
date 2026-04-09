@@ -34,11 +34,9 @@ PROFILE_RECIPES: dict[str, dict[str, object]] = {
         "cpu_cores": 0,
         "max_ports": 800,
         "delay_ms_between_requests": 200,
-        "masscan_rate": 1200,
         "rate_limit_mode": "careful",
         "risk_mode": "safe-active",
         "adaptive_execution_enabled": True,
-        "enable_masscan": True,
         "enable_nmap": True,
         "enable_web_probe": True,
         "enable_whatweb": True,
@@ -56,11 +54,9 @@ PROFILE_RECIPES: dict[str, dict[str, object]] = {
         "cpu_cores": 0,
         "max_ports": 1000,
         "delay_ms_between_requests": 100,
-        "masscan_rate": 1800,
         "rate_limit_mode": "balanced",
         "risk_mode": "safe-active",
         "adaptive_execution_enabled": True,
-        "enable_masscan": True,
         "enable_nmap": True,
         "enable_web_probe": True,
         "enable_whatweb": True,
@@ -78,11 +74,9 @@ PROFILE_RECIPES: dict[str, dict[str, object]] = {
         "cpu_cores": 0,
         "max_ports": 1200,
         "delay_ms_between_requests": 75,
-        "masscan_rate": 2200,
         "rate_limit_mode": "balanced",
         "risk_mode": "safe-active",
         "adaptive_execution_enabled": True,
-        "enable_masscan": True,
         "enable_nmap": True,
         "enable_web_probe": True,
         "enable_whatweb": True,
@@ -100,11 +94,9 @@ PROFILE_RECIPES: dict[str, dict[str, object]] = {
         "cpu_cores": 0,
         "max_ports": 1500,
         "delay_ms_between_requests": 50,
-        "masscan_rate": 2800,
         "rate_limit_mode": "balanced",
         "risk_mode": "safe-active",
         "adaptive_execution_enabled": True,
-        "enable_masscan": True,
         "enable_nmap": True,
         "enable_web_probe": True,
         "enable_whatweb": True,
@@ -118,7 +110,6 @@ PROFILE_RECIPES: dict[str, dict[str, object]] = {
 }
 
 TOOL_FIELDS = (
-    "enable_masscan",
     "enable_nmap",
     "enable_web_probe",
     "enable_whatweb",
@@ -131,8 +122,8 @@ TOOL_FIELDS = (
 TOOL_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
     (
         "Surface Discovery",
-        "Infrastructure and host enumeration for rapid external mapping.",
-        (("masscan", "High-speed port discovery"), ("nmap", "Service verification and host profiling")),
+        "Infrastructure and host enumeration for rapid external mapping with Nmap handling both discovery and service profiling.",
+        (("nmap", "Host discovery, port coverage, and service verification"),),
     ),
     (
         "Web Fingerprinting",
@@ -415,7 +406,6 @@ class ProfileFieldsMixin:
                 (self.adaptive_execution_checkbox, "Let the adaptive controller rebalance execution based on runtime conditions."),
                 (self.max_ports_spin, "Limit the maximum number of ports considered during service discovery."),
                 (self.delay_spin, "Add a delay between HTTP requests to reduce pressure on targets."),
-                (self.masscan_rate_spin, "Set the packet rate for masscan when that tool is enabled."),
                 (self.risk_mode_combo, "Choose the overall activity posture for the scan."),
                 (self.rate_mode_combo, "Choose how aggressively request pacing and runtime rate limits are applied."),
                 (self.proxy_enabled_checkbox, "Route supported HTTP-capable tooling through a proxy such as Burp."),
@@ -451,7 +441,6 @@ class ProfileFieldsMixin:
                 (self.endpoint_wordlist_edit, "Optional endpoint wordlist used to expand route discovery."),
                 (self.parameter_wordlist_edit, "Optional parameter wordlist used during parameter discovery and replay."),
                 (self.payload_wordlist_edit, "Optional payload wordlist shared by supported validation tools."),
-                (self.enable_masscan, "Enable high-speed port discovery with masscan."),
                 (self.enable_nmap, "Enable service verification and host profiling with nmap."),
                 (self.enable_web_probe, "Enable HTTP probing, reachability checks, and screenshots."),
                 (self.enable_whatweb, "Enable technology fingerprinting with whatweb."),
@@ -477,7 +466,6 @@ class ProfileFieldsMixin:
             self.adaptive_execution_checkbox.toggled,
             self.max_ports_spin.valueChanged,
             self.delay_spin.valueChanged,
-            self.masscan_rate_spin.valueChanged,
             self.risk_mode_combo.currentTextChanged,
             self.rate_mode_combo.currentTextChanged,
             self.proxy_enabled_checkbox.toggled,
@@ -586,7 +574,6 @@ class ProfileFieldsMixin:
         performance_layout.addRow("Adaptive Control", self.adaptive_execution_checkbox)
         performance_layout.addRow("Max Ports", self.max_ports_spin)
         performance_layout.addRow("Request Delay (ms)", self.delay_spin)
-        performance_layout.addRow("Masscan Rate", self.masscan_rate_spin)
         return performance_form
 
     def _build_proxy_form(self) -> QWidget:
@@ -787,7 +774,6 @@ class ProfileFieldsMixin:
 
     def _tool_checkboxes(self) -> tuple[QCheckBox, ...]:
         return (
-            self.enable_masscan,
             self.enable_nmap,
             self.enable_web_probe,
             self.enable_whatweb,
@@ -832,7 +818,6 @@ class ProfileFieldsMixin:
         self.adaptive_execution_checkbox.setChecked(bool(recipe.get("adaptive_execution_enabled", self.adaptive_execution_checkbox.isChecked())))
         self.max_ports_spin.setValue(int(recipe.get("max_ports", self.max_ports_spin.value())))
         self.delay_spin.setValue(int(recipe.get("delay_ms_between_requests", self.delay_spin.value())))
-        self.masscan_rate_spin.setValue(int(recipe.get("masscan_rate", self.masscan_rate_spin.value())))
         self.risk_mode_combo.setCurrentText(str(recipe.get("risk_mode", self.risk_mode_combo.currentText())))
         self.rate_mode_combo.setCurrentText(str(recipe.get("rate_limit_mode", self.rate_mode_combo.currentText())))
         for field in TOOL_FIELDS:
@@ -848,7 +833,6 @@ class ProfileFieldsMixin:
         base_profile = self.base_profile_combo.currentText().strip().lower()
         if base_profile == "cautious":
             return {
-                "enable_masscan": True,
                 "enable_nmap": True,
                 "enable_web_probe": True,
                 "enable_whatweb": True,
@@ -859,7 +843,6 @@ class ProfileFieldsMixin:
             }
         if base_profile == "aggressive":
             return {
-                "enable_masscan": True,
                 "enable_nmap": True,
                 "enable_web_probe": True,
                 "enable_whatweb": True,
@@ -869,7 +852,6 @@ class ProfileFieldsMixin:
                 "enable_sqlmap": True,
             }
         return {
-            "enable_masscan": True,
             "enable_nmap": True,
             "enable_web_probe": True,
             "enable_whatweb": True,
@@ -885,7 +867,6 @@ class ProfileFieldsMixin:
 
     def _update_tool_family_cards(self) -> None:
         active_names = {
-            "masscan": self.enable_masscan.isChecked(),
             "nmap": self.enable_nmap.isChecked(),
             "web_probe": self.enable_web_probe.isChecked(),
             "whatweb": self.enable_whatweb.isChecked(),
@@ -997,7 +978,7 @@ class ProfileFieldsMixin:
             risk_mode=self.risk_mode_combo.currentText(),
             proxy_enabled=self.proxy_enabled_checkbox.isChecked(),
             proxy_url=self.proxy_url_edit.text().strip(),
-            enable_masscan=self.enable_masscan.isChecked(),
+            enable_masscan=False,
             enable_nmap=self.enable_nmap.isChecked(),
             enable_web_probe=self.enable_web_probe.isChecked(),
             enable_whatweb=self.enable_whatweb.isChecked(),
@@ -1050,12 +1031,10 @@ class ProfileFieldsMixin:
         self.adaptive_execution_checkbox.setChecked(profile.adaptive_execution_enabled)
         self.max_ports_spin.setValue(profile.max_ports)
         self.delay_spin.setValue(profile.delay_ms_between_requests)
-        self.masscan_rate_spin.setValue(profile.masscan_rate)
         self.risk_mode_combo.setCurrentText(profile.risk_mode)
         self.rate_mode_combo.setCurrentText(profile.rate_limit_mode)
         self.proxy_enabled_checkbox.setChecked(profile.proxy_enabled)
         self.proxy_url_edit.setText(profile.proxy_url)
-        self.enable_masscan.setChecked(profile.enable_masscan)
         self.enable_nmap.setChecked(profile.enable_nmap)
         self.enable_web_probe.setChecked(profile.enable_web_probe)
         self.enable_whatweb.setChecked(profile.enable_whatweb)

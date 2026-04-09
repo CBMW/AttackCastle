@@ -113,18 +113,18 @@ def test_report_section_layout_varies_by_audience_and_aliases_technical(tmp_path
         ),
         task_states=[
             {
-                "key": "run-masscan",
-                "label": "Masscan",
+                "key": "run-nmap",
+                "label": "Nmap",
                 "status": "failed",
-                "error": "masscan exited unexpectedly",
-                "detail": {"stage": "recon", "capability": "masscan"},
+                "error": "nmap exited unexpectedly",
+                "detail": {"stage": "recon", "capability": "network_port_scan"},
             }
         ],
         tool_executions=[
             ToolExecution(
                 execution_id="exec_report_errors",
-                tool_name="masscan",
-                command="masscan example.com",
+                tool_name="nmap",
+                command="nmap example.com",
                 started_at=started_at,
                 ended_at=started_at,
                 exit_code=1,
@@ -132,8 +132,8 @@ def test_report_section_layout_varies_by_audience_and_aliases_technical(tmp_path
                 error_message="permission denied",
             )
         ],
-        errors=["run-masscan: masscan exited unexpectedly"],
-        warnings=["masscan binary not found on PATH"],
+        errors=["run-nmap: nmap exited unexpectedly"],
+        warnings=["nmap binary not found on PATH"],
     )
 
     client_html = Path(
@@ -176,14 +176,14 @@ def test_report_section_layout_varies_by_audience_and_aliases_technical(tmp_path
     assert 'id="section-attack-surface"' in client_html
     assert 'id="section-investigation-queue"' not in client_html
     assert 'id="section-appendices"' not in client_html
-    assert "Task: <code>run-masscan</code>" not in client_html
+    assert "Task: <code>run-nmap</code>" not in client_html
 
     assert 'id="section-overview"' in consultant_html
     assert 'id="section-findings"' in consultant_html
     assert 'id="section-investigation-queue"' in consultant_html
     assert 'id="section-attack-surface"' in consultant_html
     assert 'id="section-appendices"' in consultant_html
-    assert "Task: <code>run-masscan</code>" in consultant_html
+    assert "Task: <code>run-nmap</code>" in consultant_html
     assert "Exit Code: <code>1</code>" in consultant_html
     assert "Audience</span><strong>consultant</strong>" in consultant_html
     assert re.search(r'id="section-appendices".*?<details class="section-shell"\s*>', consultant_html, re.S)

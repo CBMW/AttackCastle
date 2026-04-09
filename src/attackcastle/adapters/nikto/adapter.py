@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
-from datetime import timedelta
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -12,6 +10,7 @@ from attackcastle.adapters.base import (
     current_worker_budget,
     ordered_parallel_map,
     record_execution_telemetry,
+    stream_command,
 )
 from attackcastle.adapters.nikto.parser import parse_nikto_json, parse_nikto_text
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -135,6 +134,7 @@ class NiktoAdapter:
             json_path = context.run_store.artifact_path(self.name, f"nikto_{slug}.json")
             stdout_path = context.run_store.artifact_path(self.name, f"nikto_{slug}.stdout.txt")
             stderr_path = context.run_store.artifact_path(self.name, f"nikto_{slug}.stderr.txt")
+            transcript_path = context.run_store.artifact_path(self.name, f"nikto_{slug}.transcript.txt")
             command = self._build_command(
                 nikto_path=nikto_path,
                 target_url=url,
@@ -147,34 +147,20 @@ class NiktoAdapter:
             exit_code: int | None = None
             error_message: str | None = None
             tool_started_at = now_utc()
-            stdout_text = ""
-            try:
-                proc = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
-                    env=build_subprocess_env(proxy_url or None),
-                )
-                stdout_text = proc.stdout or ""
-                stderr_text = proc.stderr or ""
-                stdout_path.write_text(stdout_text, encoding="utf-8")
-                stderr_path.write_text(stderr_text, encoding="utf-8")
-                exit_code = proc.returncode
-                if proc.returncode != 0:
-                    status = "failed"
-                    error_message = f"nikto exited with code {proc.returncode}"
-                    partial.warnings.append(f"{error_message} for {url}")
-            except subprocess.TimeoutExpired:
+            stream_result = stream_command(
+                command,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                transcript_path=transcript_path,
+                timeout=timeout,
+                env=build_subprocess_env(proxy_url or None),
+            )
+            stdout_text = stream_result.stdout_text
+            exit_code = stream_result.exit_code
+            if stream_result.termination_reason != "completed":
                 status = "failed"
-                error_message = f"nikto exceeded timeout of {timedelta(seconds=timeout)}"
+                error_message = stream_result.termination_detail or f"nikto failed for {url}"
                 partial.warnings.append(f"{error_message} for {url}")
-                stdout_path.write_text(stdout_text, encoding="utf-8")
-            except Exception as exc:  # noqa: BLE001
-                status = "failed"
-                error_message = str(exc)
-                partial.warnings.append(f"Nikto failed for {url}: {exc}")
             duration_seconds = max((now_utc() - tool_started_at).total_seconds(), 0.001)
             if limiter is not None:
                 limiter.record(target_key=url, service_key=service_key or None, success=status == "completed")
@@ -183,7 +169,7 @@ class NiktoAdapter:
                 capability=self.capability,
                 success=status == "completed",
                 duration_seconds=duration_seconds,
-                timeout=bool(error_message and "timeout" in error_message.lower()),
+                timeout=stream_result.timed_out,
             )
             parsed = parse_nikto_json(json_path)
             issues = list(parsed.get("issues", []))
@@ -250,8 +236,12 @@ class NiktoAdapter:
                     exit_code=exit_code,
                     stdout_path=str(stdout_path),
                     stderr_path=str(stderr_path),
+                    transcript_path=str(transcript_path),
                     raw_artifact_paths=[str(json_path)],
                     error_message=error_message,
+                    termination_reason=stream_result.termination_reason,
+                    termination_detail=stream_result.termination_detail,
+                    timed_out=stream_result.timed_out,
                 )
             )
             return {"url": url, "issues": issues, "partial": partial}

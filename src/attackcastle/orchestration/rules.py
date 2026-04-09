@@ -53,22 +53,10 @@ def has_network_scan_targets(run_data: RunData) -> tuple[bool, str]:
 
 
 def has_service_scan_targets(run_data: RunData) -> tuple[bool, str]:
-    mapping = run_data.facts.get("masscan.open_ports_by_host")
-    if isinstance(mapping, dict):
-        def _port_is_open(value: object) -> bool:
-            try:
-                return int(value) > 0
-            except (TypeError, ValueError):
-                return False
-
-        has_ports = any(
-            isinstance(ports, list) and any(_port_is_open(port) for port in ports)
-            for ports in mapping.values()
-        )
-        if has_ports:
-            return True, "masscan discovered open ports for service detection"
-        return False, "masscan found no open ports"
-    return has_scannable_targets(run_data)
+    matched = has_scannable_targets(run_data)[0]
+    if matched:
+        return True, "scannable targets available for nmap service discovery"
+    return False, "no scannable targets available for nmap"
 
 
 def has_web_targets(run_data: RunData) -> tuple[bool, str]:

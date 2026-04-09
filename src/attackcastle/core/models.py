@@ -211,8 +211,12 @@ class ToolExecution:
     capability: str | None = None
     stdout_path: str | None = None
     stderr_path: str | None = None
+    transcript_path: str | None = None
     raw_artifact_paths: list[str] = field(default_factory=list)
     error_message: str | None = None
+    termination_reason: str | None = None
+    termination_detail: str | None = None
+    timed_out: bool = False
 
 
 @dataclass
@@ -259,10 +263,14 @@ class TaskResult:
     exit_code: int | None
     started_at: datetime
     finished_at: datetime
+    transcript_path: str | None = None
     raw_artifacts: list[TaskArtifactRef] = field(default_factory=list)
     parsed_entities: list[dict[str, Any]] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    termination_reason: str | None = None
+    termination_detail: str | None = None
+    timed_out: bool = False
 
 
 @dataclass
@@ -964,8 +972,12 @@ def _execution_from_dict(data: dict[str, Any]) -> ToolExecution:
         capability=data.get("capability"),
         stdout_path=data.get("stdout_path"),
         stderr_path=data.get("stderr_path"),
+        transcript_path=data.get("transcript_path"),
         raw_artifact_paths=list(data.get("raw_artifact_paths", [])),
         error_message=data.get("error_message"),
+        termination_reason=data.get("termination_reason"),
+        termination_detail=data.get("termination_detail"),
+        timed_out=bool(data.get("timed_out", False)),
     )
 
 
@@ -1016,10 +1028,14 @@ def _task_result_from_dict(data: dict[str, Any]) -> TaskResult:
         exit_code=data.get("exit_code"),
         started_at=parse_datetime(data.get("started_at")) or now_utc(),
         finished_at=parse_datetime(data.get("finished_at")) or now_utc(),
+        transcript_path=data.get("transcript_path"),
         raw_artifacts=[_task_artifact_ref_from_dict(item) for item in data.get("raw_artifacts", [])],
         parsed_entities=list(data.get("parsed_entities", [])),
         metrics=dict(data.get("metrics", {})),
         warnings=list(data.get("warnings", [])),
+        termination_reason=data.get("termination_reason"),
+        termination_detail=data.get("termination_detail"),
+        timed_out=bool(data.get("timed_out", False)),
     )
 
 

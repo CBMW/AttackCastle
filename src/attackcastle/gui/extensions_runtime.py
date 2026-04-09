@@ -106,6 +106,7 @@ def run_command_hook_extensions(
         output_json_path = run_store.artifact_path("extensions", f"{manifest.extension_id}.output.json")
         stdout_path = run_store.log_path(f"extension_{manifest.extension_id}.stdout.txt")
         stderr_path = run_store.log_path(f"extension_{manifest.extension_id}.stderr.txt")
+        transcript_path = run_store.log_path(f"extension_{manifest.extension_id}.transcript.txt")
         merged_env = os.environ.copy()
         merged_env.update(
             _extension_env(
@@ -131,13 +132,16 @@ def run_command_hook_extensions(
                 },
             )
 
-        exit_code, _, _, error_message = stream_command(
+        stream_result = stream_command(
             command,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
+            transcript_path=transcript_path,
             timeout=hook.timeout_seconds,
             env=merged_env,
         )
+        exit_code = stream_result.exit_code
+        error_message = stream_result.termination_detail
         ended_at = _now_utc()
 
         output_payload: dict[str, Any] = {}
@@ -165,8 +169,12 @@ def run_command_hook_extensions(
             exit_code=exit_code,
             stdout_path=str(stdout_path),
             stderr_path=str(stderr_path),
+            transcript_path=str(transcript_path),
             raw_artifact_paths=raw_artifact_paths,
             error_message=error_message,
+            termination_reason=stream_result.termination_reason,
+            termination_detail=stream_result.termination_detail,
+            timed_out=stream_result.timed_out,
         )
         run_data.tool_executions.append(execution)
 

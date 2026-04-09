@@ -213,7 +213,6 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
             enabled_tools = sum(
                 int(flag)
                 for flag in (
-                    profile.enable_masscan,
                     profile.enable_nmap,
                     profile.enable_web_probe,
                     profile.enable_whatweb,

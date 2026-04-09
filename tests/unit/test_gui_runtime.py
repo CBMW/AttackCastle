@@ -116,14 +116,14 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
         task_results=[
             TaskResult(
                 task_id="task_result_1",
-                task_type="run-masscan",
+                task_type="run-nmap",
                 status="failed",
-                command="masscan --rate 1000 example.com",
+                command="nmap -Pn --top-ports 1000 example.com",
                 exit_code=1,
                 started_at=started_at,
                 finished_at=started_at,
                 raw_artifacts=[TaskArtifactRef(artifact_type="xml", path=str(raw_artifact_path))],
-                warnings=["masscan failed"],
+                warnings=["nmap failed"],
             )
         ],
         tool_executions=[
@@ -153,17 +153,17 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
         ],
         task_states=[
             {
-                "key": "run-masscan",
-                "label": "Masscan",
+                "key": "run-nmap",
+                "label": "Nmap",
                 "status": TaskStatus.FAILED.value,
                 "started_at": started_at.isoformat(),
                 "ended_at": started_at.isoformat(),
-                "detail": {"stage": "recon", "capability": "masscan"},
-                "error": "masscan exited unexpectedly",
+                "detail": {"stage": "recon", "capability": "network_port_scan"},
+                "error": "nmap exited unexpectedly",
             }
         ],
-        warnings=["masscan binary not found on PATH"],
-        errors=["run-masscan: masscan exited unexpectedly"],
+        warnings=["nmap binary not found on PATH"],
+        errors=["run-nmap: nmap exited unexpectedly"],
         facts={
             "gui.extensions": [
                 {
@@ -187,17 +187,17 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
         "data/plan.json",
         {
             "items": [
-                {"key": "run-masscan", "selected": True},
+                {"key": "run-nmap", "selected": True},
                 {"key": "run-nmap", "selected": True},
             ]
         },
     )
-    run_store.save_checkpoint("run-masscan", "running", run_data)
+    run_store.save_checkpoint("run-nmap", "running", run_data)
 
     snapshot = load_run_snapshot(run_store.run_dir)
     assert snapshot.scan_name == "GUI Scan"
     assert snapshot.total_tasks == 2
-    assert snapshot.current_task == "run-masscan"
+    assert snapshot.current_task == "run-nmap"
     assert len(snapshot.services) == 1
     assert len(snapshot.web_apps) == 1
     assert snapshot.web_apps[0]["url"] == "https://example.com"
@@ -215,7 +215,7 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     assert str(stderr_path) in artifact_paths
     assert str(raw_artifact_path) in artifact_paths
     assert len(snapshot.findings) == 1
-    assert snapshot.task_results[0]["task_type"] == "run-masscan"
+    assert snapshot.task_results[0]["task_type"] == "run-nmap"
     assert snapshot.evidence_artifacts[0]["path"] == str(response_path)
     assert snapshot.extensions[0]["extension_id"] == "custom-tool"
     assert snapshot.execution_issues
@@ -230,6 +230,7 @@ def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Pa
             tmp_path,
             "debug",
             started_at,
+            transcript_text="stdout contents\nstderr contents\n",
             stdout_text="stdout contents",
             stderr_text="stderr contents",
             raw_text='{"ok": true}',
@@ -240,6 +241,8 @@ def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Pa
     bundle = build_run_debug_bundle(snapshot)
 
     assert "command: httpx -json example.com" in bundle["combined_log"]
+    assert "termination_reason: completed" in bundle["combined_log"]
+    assert "terminal transcript:" in bundle["combined_log"]
     assert "stdout contents" in bundle["combined_log"]
     assert "stderr contents" in bundle["combined_log"]
     assert '{"ok": true}' in bundle["combined_log"]
@@ -260,6 +263,25 @@ def test_build_run_debug_bundle_surfaces_missing_files_instead_of_silently_skipp
 
     assert "[missing file]" in bundle["combined_log"]
     assert "probe.stdout.txt" in bundle["combined_log"]
+
+
+def test_build_run_debug_bundle_synthesizes_timeline_from_task_results_when_task_rows_missing(tmp_path: Path) -> None:
+    started_at = now_utc()
+    snapshot = load_run_snapshot(
+        _write_debug_run_fixture(
+            tmp_path,
+            "timeline-fallback",
+            started_at,
+            transcript_text="probe transcript",
+            stdout_text="probe stdout",
+        )
+    )
+    snapshot.tasks = []
+
+    bundle = build_run_debug_bundle(snapshot)
+
+    assert "No task rows recorded." not in bundle["combined_log"]
+    assert "- web-probe | status=running" in bundle["combined_log"]
 
 
 def test_resolve_current_task_debug_bundle_prefers_active_task_then_latest(tmp_path: Path) -> None:
@@ -353,15 +375,19 @@ def _write_debug_run_fixture(
     run_id: str,
     started_at,
     *,
+    transcript_text: str | None = None,
     stdout_text: str | None = None,
     stderr_text: str | None = None,
     raw_text: str | None = None,
     run_log_text: str | None = None,
 ) -> Path:
     run_store = RunStore(output_root=output_root, run_id=run_id)
+    transcript_path = run_store.logs_dir / "probe.transcript.txt"
     stdout_path = run_store.logs_dir / "probe.stdout.txt"
     stderr_path = run_store.logs_dir / "probe.stderr.txt"
     raw_path = run_store.artifacts_dir / "probe.json"
+    if transcript_text is not None:
+        transcript_path.write_text(transcript_text, encoding="utf-8")
     if stdout_text is not None:
         stdout_path.write_text(stdout_text, encoding="utf-8")
     if stderr_text is not None:
@@ -408,7 +434,9 @@ def _write_debug_run_fixture(
                 exit_code=None,
                 started_at=started_at,
                 finished_at=started_at,
+                transcript_path=str(transcript_path),
                 raw_artifacts=[TaskArtifactRef(artifact_type="json", path=str(raw_path))],
+                termination_reason="completed",
             )
         ],
         tool_executions=[
@@ -423,7 +451,9 @@ def _write_debug_run_fixture(
                 capability="httpx",
                 stdout_path=str(stdout_path),
                 stderr_path=str(stderr_path),
+                transcript_path=str(transcript_path),
                 raw_artifact_paths=[str(raw_path)],
+                termination_reason="completed",
             )
         ],
         evidence_artifacts=[

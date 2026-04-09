@@ -21,7 +21,7 @@ def test_external_dependency_rows_include_expected_tools(monkeypatch) -> None:
 
     rows = cli._external_dependency_rows()
     commands = {row["command"] for row in rows}
-    assert {"nmap", "masscan", "whatweb", "nikto", "nuclei", "wpscan", "sqlmap"} <= commands
+    assert {"nmap", "whatweb", "nikto", "nuclei", "wpscan", "sqlmap"} <= commands
     nmap_row = next(row for row in rows if row["command"] == "nmap")
     assert nmap_row["available"] is True
     assert nmap_row["apt_package"] == "nmap"

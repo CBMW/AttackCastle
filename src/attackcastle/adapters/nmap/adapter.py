@@ -11,7 +11,7 @@ from attackcastle.adapters.nmap.parser import parse_nmap_xml
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import RunData, new_id, now_utc
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
-from attackcastle.scope.expansion import collect_host_scan_targets, is_ip_literal
+from attackcastle.scope.expansion import collect_host_scan_targets
 
 
 def _safe_slug(value: str) -> str:
@@ -27,33 +27,6 @@ class NmapAdapter:
     def _collect_scope_targets(self, run_data: RunData) -> list[str]:
         return collect_host_scan_targets(run_data)
 
-    def _ports_from_masscan(self, run_data: RunData) -> dict[str, list[int]]:
-        mapping = run_data.facts.get("masscan.open_ports_by_host")
-        if not isinstance(mapping, dict):
-            return {}
-
-        normalized: dict[str, list[int]] = {}
-        for host, ports in mapping.items():
-            host_text = str(host).strip()
-            if not host_text:
-                continue
-            if not is_ip_literal(host_text):
-                continue
-            if not isinstance(ports, list):
-                continue
-            normalized_ports = sorted(
-                {
-                    int(port)
-                    for port in ports
-                    if isinstance(port, (int, str))
-                    and str(port).isdigit()
-                    and 0 < int(port) <= 65535
-                }
-            )
-            if normalized_ports:
-                normalized[host_text] = normalized_ports
-        return normalized
-
     def _strip_port_flags(self, command: list[str]) -> list[str]:
         cleaned = list(command)
         for flag in ("--top-ports", "-p"):
@@ -62,7 +35,7 @@ class NmapAdapter:
                 del cleaned[index]
                 if index < len(cleaned):
                     del cleaned[index]
-        cleaned = [item for item in cleaned if item != "-p-"]
+        cleaned = [item for item in cleaned if item not in {"-F", "-p-"}]
         return cleaned
 
     def _build_command(
@@ -79,6 +52,11 @@ class NmapAdapter:
         profile_args = profile_config.get("nmap_args", [])
         extra_args = global_config.get("nmap", {}).get("args", [])
         command = [nmap_path, *profile_args, *extra_args]
+
+        # Masscan previously skipped ICMP-based host discovery. Keep Nmap aligned
+        # with that behavior so we do not miss hosts that block probes.
+        if "-sn" not in command and "-Pn" not in command:
+            command.append("-Pn")
 
         if parallelism is not None and parallelism > 0 and "--min-parallelism" not in command:
             command.extend(["--min-parallelism", str(parallelism)])
@@ -125,37 +103,22 @@ class NmapAdapter:
 
         timeout = int(context.config.get("scan", {}).get("default_timeout_seconds", 120))
         udp_top_ports = int(context.config.get("nmap", {}).get("udp_top_ports", 0))
-        masscan_ports = self._ports_from_masscan(run_data)
         jobs: list[dict[str, Any]] = []
-        if masscan_ports:
-            for host, ports in masscan_ports.items():
-                slug = _safe_slug(host)
-                jobs.append(
-                    {
-                        "targets": [host],
-                        "ports": ports,
-                        "udp_top_ports": 0,
-                        "xml_path": context.run_store.artifact_path(self.name, f"nmap_output_{slug}.xml"),
-                        "stdout_path": context.run_store.artifact_path(self.name, f"nmap_stdout_{slug}.txt"),
-                        "stderr_path": context.run_store.artifact_path(self.name, f"nmap_stderr_{slug}.txt"),
-                    }
-                )
-            result.facts["nmap.scan_mode"] = "targeted_from_masscan"
-        else:
-            targets = self._collect_scope_targets(run_data)
-            if targets:
-                jobs.append(
-                    {
-                        "targets": targets,
-                        "ports": None,
-                        "udp_top_ports": 0,
-                        "xml_path": context.run_store.artifact_path(self.name, "nmap_output.xml"),
-                        "stdout_path": context.run_store.artifact_path(self.name, "nmap_stdout.txt"),
-                        "stderr_path": context.run_store.artifact_path(self.name, "nmap_stderr.txt"),
-                    }
-                )
-            result.facts["nmap.scan_mode"] = "full_scope"
-        udp_targets = self._collect_scope_targets(run_data)
+        targets = self._collect_scope_targets(run_data)
+        if targets:
+            jobs.append(
+                {
+                    "targets": targets,
+                    "ports": None,
+                    "udp_top_ports": 0,
+                    "xml_path": context.run_store.artifact_path(self.name, "nmap_output.xml"),
+                    "stdout_path": context.run_store.artifact_path(self.name, "nmap_stdout.txt"),
+                    "stderr_path": context.run_store.artifact_path(self.name, "nmap_stderr.txt"),
+                    "transcript_path": context.run_store.artifact_path(self.name, "nmap_transcript.txt"),
+                }
+            )
+        result.facts["nmap.scan_mode"] = "scope_discovery"
+        udp_targets = targets
         if udp_top_ports > 0 and udp_targets:
             jobs.append(
                 {
@@ -165,6 +128,7 @@ class NmapAdapter:
                     "xml_path": context.run_store.artifact_path(self.name, "nmap_output_udp.xml"),
                     "stdout_path": context.run_store.artifact_path(self.name, "nmap_stdout_udp.txt"),
                     "stderr_path": context.run_store.artifact_path(self.name, "nmap_stderr_udp.txt"),
+                    "transcript_path": context.run_store.artifact_path(self.name, "nmap_transcript_udp.txt"),
                 }
             )
 
@@ -222,10 +186,11 @@ class NmapAdapter:
                     "udp_top_ports": int(job.get("udp_top_ports", 0)),
                 },
             )
-            exit_code, _stdout_text, _stderr_text, stream_error = stream_command(
+            stream_result = stream_command(
                 command,
                 stdout_path=job["stdout_path"],
                 stderr_path=job["stderr_path"],
+                transcript_path=job["transcript_path"],
                 timeout=timeout,
                 on_stdout=lambda chunk: emit_runtime_event(
                     context,
@@ -238,17 +203,18 @@ class NmapAdapter:
                     {"tool_name": self.name, "stream": "stderr", "text": chunk[-400:]},
                 ),
             )
-            if stream_error:
+            exit_code = stream_result.exit_code
+            if stream_result.termination_reason == "timeout":
                 status = "failed"
-                error_message = f"nmap exceeded timeout of {timedelta(seconds=timeout)}"
+                error_message = stream_result.termination_detail or f"nmap exceeded timeout of {timedelta(seconds=timeout)}"
                 result.errors.append(error_message)
-            elif exit_code is None:
+            elif stream_result.termination_reason != "completed" and exit_code is None:
                 status = "failed"
-                error_message = "nmap execution failed"
+                error_message = stream_result.termination_detail or "nmap execution failed"
                 result.errors.append(error_message)
-            elif exit_code != 0:
+            elif stream_result.termination_reason != "completed" and exit_code != 0:
                 status = "failed"
-                error_message = f"nmap exited with code {exit_code}"
+                error_message = stream_result.termination_detail or f"nmap exited with code {exit_code}"
                 result.warnings.append(error_message)
 
             if job["xml_path"].exists():
@@ -301,8 +267,12 @@ class NmapAdapter:
                     exit_code=exit_code,
                     stdout_path=str(job["stdout_path"]),
                     stderr_path=str(job["stderr_path"]),
+                    transcript_path=str(job["transcript_path"]),
                     raw_artifact_paths=[str(job["xml_path"])],
                     error_message=error_message,
+                    termination_reason=stream_result.termination_reason,
+                    termination_detail=stream_result.termination_detail,
+                    timed_out=stream_result.timed_out,
                 )
             )
             completed_jobs += 1
@@ -340,42 +310,20 @@ class NmapAdapter:
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
         nmap_path = shutil.which("nmap") or "nmap"
-        commands: list[str] = []
-        masscan_ports = self._ports_from_masscan(run_data)
-        if masscan_ports:
-            for host, ports in list(masscan_ports.items())[:25]:
-                xml_output = context.run_store.artifact_path(
-                    self.name, f"nmap_output_{_safe_slug(host)}.xml"
-                )
-                command = self._build_command(
-                    nmap_path=nmap_path,
-                    targets=[host],
-                    xml_output=xml_output,
-                    profile_config=context.profile_config,
-                    global_config=context.config,
-                    ports=ports,
-                    parallelism=current_tool_budget(
-                        context,
-                        self.capability,
-                        target_count=1,
-                    ).get("threads"),
-                )
-                commands.append(" ".join(shlex.quote(item) for item in command))
-            return commands
-
+        targets = self._collect_scope_targets(run_data)
+        if not targets:
+            return []
         xml_output = context.run_store.artifact_path(self.name, "nmap_output.xml")
         command = self._build_command(
             nmap_path=nmap_path,
-            targets=self._collect_scope_targets(run_data),
+            targets=targets,
             xml_output=xml_output,
             profile_config=context.profile_config,
             global_config=context.config,
             parallelism=current_tool_budget(
                 context,
                 self.capability,
-                target_count=len(self._collect_scope_targets(run_data)),
+                target_count=len(targets),
             ).get("threads"),
         )
-        if command:
-            commands.append(" ".join(shlex.quote(item) for item in command))
-        return commands
+        return [" ".join(shlex.quote(item) for item in command)] if command else []

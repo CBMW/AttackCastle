@@ -8,10 +8,6 @@ profile:
     - "-sV"
     - "--version-light"
     - "-T2"
-  masscan_args:
-    - "--open-only"
-    - "--rate"
-    - "750"
   whatweb_args:
     - "-a"
     - "1"

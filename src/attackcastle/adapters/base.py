@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 import subprocess
 from pathlib import Path
+from threading import Lock
 from threading import Thread
 from typing import Any, Callable, Iterable, Iterator, TypeVar
 
@@ -10,6 +12,53 @@ from attackcastle.core.models import ToolExecution, new_id, now_utc
 
 _T = TypeVar("_T")
 _R = TypeVar("_R")
+
+
+@dataclass(slots=True)
+class StreamCommandResult:
+    exit_code: int | None
+    stdout_text: str
+    stderr_text: str
+    error_message: str | None
+    termination_reason: str
+    termination_detail: str | None
+    timed_out: bool
+
+
+def normalize_command_termination(
+    exit_code: int | None,
+    error_message: str | None = None,
+    *,
+    missing_dependency: bool = False,
+    timed_out: bool = False,
+) -> tuple[str, str | None, bool]:
+    detail = str(error_message or "").strip() or None
+    if missing_dependency:
+        return ("missing_dependency", detail or "missing required dependency", False)
+    normalized_timeout = timed_out or bool(detail and "timeout" in detail.lower())
+    if normalized_timeout:
+        return ("timeout", detail or "command exceeded timeout", True)
+    if exit_code == 0 and not detail:
+        return ("completed", None, False)
+    if exit_code is None:
+        reason = "spawn_failure"
+        if detail:
+            lowered = detail.lower()
+            if "signal" in lowered or "terminated" in lowered or "killed" in lowered:
+                reason = "interrupted"
+            elif "timeout" in lowered:
+                reason = "timeout"
+                normalized_timeout = True
+            elif "not found" in lowered or "no such file" in lowered or "cannot find" in lowered:
+                reason = "spawn_failure"
+        else:
+            reason = "unknown_runner_failure"
+        return (reason, detail or "command failed before returning an exit code", normalized_timeout)
+    if exit_code < 0:
+        return ("interrupted", detail or f"terminated by signal {-exit_code}", False)
+    if exit_code > 0:
+        return ("nonzero_exit", detail or f"process exited with code {exit_code}", False)
+    return ("completed", detail, False)
 
 
 def build_tool_execution(
@@ -23,9 +72,13 @@ def build_tool_execution(
     exit_code: int | None = None,
     stdout_path: str | None = None,
     stderr_path: str | None = None,
+    transcript_path: str | None = None,
     raw_artifact_paths: list[str] | None = None,
     error_message: str | None = None,
-    ) -> ToolExecution:
+    termination_reason: str | None = None,
+    termination_detail: str | None = None,
+    timed_out: bool = False,
+) -> ToolExecution:
     return ToolExecution(
         execution_id=execution_id or new_id("exec"),
         tool_name=tool_name,
@@ -37,8 +90,12 @@ def build_tool_execution(
         capability=capability,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
+        transcript_path=transcript_path,
         raw_artifact_paths=raw_artifact_paths or [],
         error_message=error_message,
+        termination_reason=termination_reason,
+        termination_detail=termination_detail,
+        timed_out=timed_out,
     )
 
 
@@ -47,70 +104,118 @@ def stream_command(
     *,
     stdout_path: Path,
     stderr_path: Path,
+    transcript_path: Path | None = None,
     timeout: int,
     on_stdout=None,
     on_stderr=None,
     env: dict[str, str] | None = None,
     stdin=None,
-) -> tuple[int | None, str, str, str | None]:
+) -> StreamCommandResult:
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
+    if transcript_path is not None:
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
 
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
+    transcript_lock = Lock()
 
     with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open(
         "w", encoding="utf-8"
     ) as stderr_handle:
-        process = subprocess.Popen(
-            command,
-            stdin=stdin,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            env=env,
-        )
-
-        def _reader(stream, sink_handle, chunk_store: list[str], callback) -> None:
-            if stream is None:
-                return
-            try:
-                for chunk in iter(stream.readline, ""):
-                    if not chunk:
-                        break
-                    sink_handle.write(chunk)
-                    sink_handle.flush()
-                    chunk_store.append(chunk)
-                    if callback is not None:
-                        callback(chunk)
-            finally:
-                stream.close()
-
-        stdout_thread = Thread(
-            target=_reader,
-            args=(process.stdout, stdout_handle, stdout_chunks, on_stdout),
-            daemon=True,
-        )
-        stderr_thread = Thread(
-            target=_reader,
-            args=(process.stderr, stderr_handle, stderr_chunks, on_stderr),
-            daemon=True,
-        )
-        stdout_thread.start()
-        stderr_thread.start()
-
-        error_message: str | None = None
+        transcript_handle = transcript_path.open("w", encoding="utf-8") if transcript_path is not None else None
         try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            error_message = f"command exceeded timeout of {timeout}s"
-        finally:
-            stdout_thread.join(timeout=2)
-            stderr_thread.join(timeout=2)
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdin=stdin,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    env=env,
+                )
+            except Exception as exc:  # noqa: BLE001
+                error_message = str(exc)
+                termination_reason, termination_detail, normalized_timeout = normalize_command_termination(
+                    None,
+                    error_message,
+                )
+                return StreamCommandResult(
+                    exit_code=None,
+                    stdout_text="",
+                    stderr_text="",
+                    error_message=error_message,
+                    termination_reason=termination_reason,
+                    termination_detail=termination_detail,
+                    timed_out=normalized_timeout,
+                )
 
-        return process.returncode, "".join(stdout_chunks), "".join(stderr_chunks), error_message
+            def _reader(stream, sink_handle, chunk_store: list[str], callback) -> None:
+                if stream is None:
+                    return
+                try:
+                    for chunk in iter(stream.readline, ""):
+                        if not chunk:
+                            break
+                        sink_handle.write(chunk)
+                        sink_handle.flush()
+                        if transcript_handle is not None:
+                            with transcript_lock:
+                                transcript_handle.write(chunk)
+                                transcript_handle.flush()
+                        chunk_store.append(chunk)
+                        if callback is not None:
+                            callback(chunk)
+                finally:
+                    stream.close()
+
+            stdout_thread = Thread(
+                target=_reader,
+                args=(process.stdout, stdout_handle, stdout_chunks, on_stdout),
+                daemon=True,
+            )
+            stderr_thread = Thread(
+                target=_reader,
+                args=(process.stderr, stderr_handle, stderr_chunks, on_stderr),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+
+            error_message: str | None = None
+            timed_out = False
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                timed_out = True
+                error_message = f"command exceeded timeout of {timeout}s"
+                try:
+                    process.wait(timeout=1)
+                except Exception:  # noqa: BLE001
+                    pass
+            finally:
+                stdout_thread.join(timeout=2)
+                stderr_thread.join(timeout=2)
+
+            termination_reason, termination_detail, normalized_timeout = normalize_command_termination(
+                process.returncode,
+                error_message,
+                timed_out=timed_out,
+            )
+            return StreamCommandResult(
+                exit_code=process.returncode,
+                stdout_text="".join(stdout_chunks),
+                stderr_text="".join(stderr_chunks),
+                error_message=error_message,
+                termination_reason=termination_reason,
+                termination_detail=termination_detail,
+                timed_out=normalized_timeout,
+            )
+        finally:
+            if transcript_handle is not None:
+                transcript_handle.close()
 
 
 def ordered_parallel_map(

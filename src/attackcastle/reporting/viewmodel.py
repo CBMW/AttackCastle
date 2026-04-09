@@ -257,8 +257,10 @@ def _build_execution_rows(run_data: RunData) -> list[dict[str, Any]]:
                 ),
                 "stdout_path": execution.stdout_path,
                 "stderr_path": execution.stderr_path,
+                "transcript_path": execution.transcript_path,
                 "stdout_snippet": _read_text_snippet(execution.stdout_path),
                 "stderr_snippet": _read_text_snippet(execution.stderr_path),
+                "transcript_text": _read_text_full(execution.transcript_path, max_chars=1_000_000_000),
                 "stdout_text": _read_text_full(execution.stdout_path, max_chars=16000),
                 "stderr_text": _read_text_full(execution.stderr_path, max_chars=16000),
                 "raw_artifact_paths": execution.raw_artifact_paths,
@@ -270,6 +272,9 @@ def _build_execution_rows(run_data: RunData) -> list[dict[str, Any]]:
                     for path_value in execution.raw_artifact_paths
                 ],
                 "error_message": execution.error_message,
+                "termination_reason": execution.termination_reason,
+                "termination_detail": execution.termination_detail,
+                "timed_out": execution.timed_out,
             }
         )
     return rows
@@ -612,6 +617,9 @@ def _build_tool_coverage(run_data: RunData) -> dict[str, Any]:
                 "duration_seconds": round(duration, 2),
                 "command": execution.command,
                 "error_message": execution.error_message,
+                "termination_reason": execution.termination_reason,
+                "termination_detail": execution.termination_detail,
+                "timed_out": execution.timed_out,
             }
         )
     blind_spots = []

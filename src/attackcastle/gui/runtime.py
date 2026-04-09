@@ -98,10 +98,6 @@ def profile_to_engine_overrides(profile: GuiProfile) -> dict[str, Any]:
         "rate_limit": {
             "execution_mode": profile.rate_limit_mode,
         },
-        "masscan": {
-            "enabled": profile.enable_masscan,
-            "rate": profile.masscan_rate,
-        },
         "nmap": {"enabled": profile.enable_nmap},
         "whatweb": {"enabled": profile.enable_whatweb},
         "nikto": {"enabled": profile.enable_nikto},
@@ -283,6 +279,9 @@ def _path_text(path: str) -> str:
 
 def _artifact_paths_from_task_result(result: dict[str, Any]) -> set[str]:
     paths: set[str] = set()
+    transcript_path = _path_text(str(result.get("transcript_path") or ""))
+    if transcript_path:
+        paths.add(transcript_path)
     for artifact in result.get("raw_artifacts", []):
         if not isinstance(artifact, dict):
             continue
@@ -294,7 +293,7 @@ def _artifact_paths_from_task_result(result: dict[str, Any]) -> set[str]:
 
 def _artifact_paths_from_tool_execution(execution: dict[str, Any]) -> set[str]:
     paths: set[str] = set()
-    for key in ("stdout_path", "stderr_path"):
+    for key in ("stdout_path", "stderr_path", "transcript_path"):
         normalized = _path_text(str(execution.get(key) or ""))
         if normalized:
             paths.add(normalized)
@@ -356,6 +355,120 @@ def _build_path_dump(path: str, label: str) -> list[str]:
         return lines
     lines.append(content if content else "[empty file]")
     return lines
+
+
+def _build_termination_dump(payload: dict[str, Any]) -> list[str]:
+    termination_reason = str(payload.get("termination_reason") or "").strip() or "unknown"
+    termination_detail = str(payload.get("termination_detail") or "").strip() or "[none recorded]"
+    lines = [f"termination_reason: {termination_reason}"]
+    lines.append(f"timed_out: {bool(payload.get('timed_out', False))}")
+    lines.append(f"termination_detail: {termination_detail}")
+    return lines
+
+
+def _match_execution_for_result(
+    result: dict[str, Any],
+    tool_executions: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    command = str(result.get("command") or "").strip()
+    started_at = _parse_debug_datetime(result.get("started_at"))
+    finished_at = _parse_debug_datetime(result.get("finished_at"))
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for execution in tool_executions:
+        score = 0
+        if command and command == str(execution.get("command") or "").strip():
+            score += 12
+        execution_started = _parse_debug_datetime(execution.get("started_at"))
+        execution_ended = _parse_debug_datetime(execution.get("ended_at"))
+        if started_at is not None and execution_started is not None:
+            delta = abs((execution_started - started_at).total_seconds())
+            if delta <= 2:
+                score += 5
+            elif delta <= 30:
+                score += 3
+        if finished_at is not None and execution_ended is not None:
+            delta = abs((execution_ended - finished_at).total_seconds())
+            if delta <= 2:
+                score += 5
+            elif delta <= 30:
+                score += 3
+        if score > 0:
+            ranked.append((score, execution))
+    ranked.sort(key=lambda item: (-item[0], _execution_sort_key(item[1])))
+    return ranked[0][1] if ranked else None
+
+
+def _synthesize_task_rows(
+    manifest: list[dict[str, Any]],
+    task_results: list[dict[str, Any]],
+    tool_executions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    visible_manifest = [item for item in manifest if str(item.get("task_key") or "") not in RUNTIME_CHECKPOINT_KEYS]
+    if task_results:
+        for index, result in enumerate(sorted(task_results, key=_result_sort_key), start=1):
+            task_type = str(result.get("task_type") or "").strip()
+            task_id = str(result.get("task_id") or "").strip()
+            matched_execution = _match_execution_for_result(result, tool_executions)
+            detail: dict[str, Any] = {"source": "task_result_fallback"}
+            if matched_execution is not None:
+                capability = str(matched_execution.get("capability") or "").strip()
+                if capability:
+                    detail["capability"] = capability
+            termination_reason = str(result.get("termination_reason") or "").strip()
+            termination_detail = str(result.get("termination_detail") or "").strip()
+            if termination_reason:
+                detail["termination_reason"] = termination_reason
+            if termination_detail:
+                detail["reason"] = termination_detail
+            rows.append(
+                {
+                    "key": task_id or f"{task_type or 'task'}:{index}",
+                    "label": task_type or task_id or f"Task {index}",
+                    "status": str(result.get("status") or "unknown"),
+                    "started_at": result.get("started_at") or "",
+                    "ended_at": result.get("finished_at") or "",
+                    "detail": detail,
+                }
+            )
+        return rows
+    if visible_manifest:
+        for item in visible_manifest:
+            task_key = str(item.get("task_key") or "").strip()
+            status = str(item.get("status") or "unknown")
+            rows.append(
+                {
+                    "key": task_key or status,
+                    "label": task_key or status,
+                    "status": status,
+                    "started_at": "",
+                    "ended_at": "",
+                    "detail": {"source": "checkpoint_manifest"},
+                }
+            )
+        return rows
+    for index, execution in enumerate(sorted(tool_executions, key=_execution_sort_key), start=1):
+        detail: dict[str, Any] = {"source": "tool_execution_fallback"}
+        capability = str(execution.get("capability") or "").strip()
+        if capability:
+            detail["capability"] = capability
+        termination_reason = str(execution.get("termination_reason") or "").strip()
+        termination_detail = str(execution.get("termination_detail") or "").strip()
+        if termination_reason:
+            detail["termination_reason"] = termination_reason
+        if termination_detail:
+            detail["reason"] = termination_detail
+        rows.append(
+            {
+                "key": str(execution.get("execution_id") or f"execution:{index}"),
+                "label": str(execution.get("tool_name") or f"Execution {index}"),
+                "status": str(execution.get("status") or "unknown"),
+                "started_at": execution.get("started_at") or "",
+                "ended_at": execution.get("ended_at") or "",
+                "detail": detail,
+            }
+        )
+    return rows
 
 
 def _format_mapping_block(title: str, payload: dict[str, Any], *, skip_keys: set[str] | None = None) -> list[str]:
@@ -602,9 +715,13 @@ def resolve_current_task_debug_bundle(
                 _format_mapping_block(
                     f"Command {index}",
                     execution,
-                    skip_keys={"stdout_path", "stderr_path", "raw_artifact_paths"},
+                    skip_keys={"stdout_path", "stderr_path", "transcript_path", "raw_artifact_paths"},
                 )
             )
+            lines.extend(_build_termination_dump(execution))
+            lines.append("")
+            lines.extend(_build_path_dump(str(execution.get("transcript_path") or ""), "terminal transcript"))
+            lines.append("")
             lines.extend(_build_path_dump(str(execution.get("stdout_path") or ""), "stdout"))
             lines.append("")
             lines.extend(_build_path_dump(str(execution.get("stderr_path") or ""), "stderr"))
@@ -673,8 +790,9 @@ def build_run_debug_bundle(
         overview_lines.append("- none")
 
     combined_lines = ["Task Timeline"]
-    if snapshot.tasks:
-        for task in sorted(snapshot.tasks, key=_task_sort_key):
+    task_rows = snapshot.tasks or _synthesize_task_rows([], snapshot.task_results, snapshot.tool_executions)
+    if task_rows:
+        for task in sorted(task_rows, key=_task_sort_key):
             detail = task.get("detail", {})
             detail_text = json.dumps(detail, sort_keys=True) if isinstance(detail, dict) and detail else "{}"
             combined_lines.append(
@@ -692,6 +810,7 @@ def build_run_debug_bundle(
                 f"started={result.get('started_at') or '-'} | finished={result.get('finished_at') or '-'}"
             )
             combined_lines.append(f"  command: {result.get('command') or '[none]'}")
+            combined_lines.extend([f"  {line}" for line in _build_termination_dump(result)])
     else:
         combined_lines.append("- No task results recorded.")
 
@@ -703,6 +822,10 @@ def build_run_debug_bundle(
                 f"capability={execution.get('capability') or '-'} | started={execution.get('started_at') or '-'} | ended={execution.get('ended_at') or '-'}"
             )
             combined_lines.append(f"  command: {execution.get('command') or '[none]'}")
+            combined_lines.extend([f"  {line}" for line in _build_termination_dump(execution)])
+            combined_lines.extend(
+                [f"  {line}" for line in _build_path_dump(str(execution.get('transcript_path') or ''), "terminal transcript")]
+            )
             combined_lines.extend([f"  {line}" for line in _build_path_dump(str(execution.get('stdout_path') or ''), "stdout")])
             combined_lines.extend([f"  {line}" for line in _build_path_dump(str(execution.get('stderr_path') or ''), "stderr")])
             raw_artifacts = execution.get("raw_artifact_paths", [])
@@ -874,6 +997,12 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     task_results.sort(key=_result_sort_key)
     tool_executions.sort(key=lambda item: (str(item.get("tool_name", "")), str(item.get("started_at", ""))))
     evidence_artifacts.sort(key=lambda item: (str(item.get("source_tool", "")), str(item.get("path", ""))))
+    if not tasks:
+        tasks = _synthesize_task_rows(manifest, task_results, tool_executions)
+    if current_task == "Idle" and tasks:
+        running_task_rows = [item for item in tasks if str(item.get("status") or "") in ACTIVE_TASK_STATUSES]
+        selected_task = running_task_rows[0] if running_task_rows else sorted(tasks, key=_task_sort_key)[-1]
+        current_task = str(selected_task.get("label") or selected_task.get("key") or current_task)
 
     return RunSnapshot(
         run_id=run_id,

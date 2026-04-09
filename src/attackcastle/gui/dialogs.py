@@ -385,7 +385,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self.proxy_url_edit.textChanged.connect(self._refresh_launch_summary)
         self.enable_sqlmap.toggled.connect(self._refresh_launch_summary)
         self.enable_nuclei.toggled.connect(self._refresh_launch_summary)
-        self.enable_masscan.toggled.connect(self._refresh_launch_summary)
         self.enable_nmap.toggled.connect(self._refresh_launch_summary)
         self.enable_wpscan.toggled.connect(self._refresh_launch_summary)
         self.endpoint_wordlist_edit.textChanged.connect(self._refresh_launch_summary)
@@ -511,7 +510,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         return [
             name
             for name, checkbox in (
-                ("masscan", self.enable_masscan),
                 ("nmap", self.enable_nmap),
                 ("web probe", self.enable_web_probe),
                 ("whatweb", self.enable_whatweb),

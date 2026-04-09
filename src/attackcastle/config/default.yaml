@@ -44,7 +44,6 @@ risk_modes:
       allow_heavy_templates: false
       max_sqlmap_targets: 0
       blocked_capabilities:
-        - network_fast_scan
         - network_port_scan
         - web_vuln_scan
         - web_template_scan
@@ -179,7 +178,6 @@ adaptive_execution:
     - cms_wordpress_scan
     - web_injection_scan
   heavy_process_capabilities:
-    - network_fast_scan
     - network_port_scan
     - web_fingerprint
     - web_vuln_scan
@@ -188,10 +186,6 @@ adaptive_execution:
     - cms_wordpress_scan
     - cms_framework_scan
   tool_overrides:
-    network_fast_scan:
-      rate_per_worker: 800
-      min_rate: 250
-      max_rate: 10000
     network_port_scan:
       min_threads: 1
       max_threads: 4
@@ -217,13 +211,6 @@ nmap:
   host_discovery_args:
     - "-sn"
   udp_top_ports: 0
-
-masscan:
-  enabled: true
-  args: []
-  ports: "1-65535"
-  rate: 1000
-  timeout_seconds: 300
 
 subdomain_enum:
   enabled: true
@@ -541,7 +528,6 @@ orchestration:
   retry_ceiling_by_capability:
     subdomain_enumeration: 1
     dns_resolution: 1
-    network_fast_scan: 1
     network_port_scan: 1
     web_probe: 1
     vhost_discovery: 1
@@ -567,9 +553,6 @@ orchestration:
     dns_resolution:
       max_runs: 1
       max_runtime_seconds: 120
-    network_fast_scan:
-      max_runs: 1
-      max_runtime_seconds: 1200
     network_port_scan:
       max_runs: 1
       max_runtime_seconds: 900

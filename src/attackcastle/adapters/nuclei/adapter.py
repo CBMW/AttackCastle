@@ -148,6 +148,7 @@ class NucleiAdapter:
             jsonl_path = context.run_store.artifact_path(self.name, f"nuclei_{slug}.jsonl")
             stdout_path = context.run_store.artifact_path(self.name, f"nuclei_{slug}.stdout.txt")
             stderr_path = context.run_store.artifact_path(self.name, f"nuclei_{slug}.stderr.txt")
+            transcript_path = context.run_store.artifact_path(self.name, f"nuclei_{slug}.transcript.txt")
             command = self._build_command(
                 nuclei_path=nuclei_path,
                 target_url=url,
@@ -162,10 +163,11 @@ class NucleiAdapter:
             error_message: str | None = None
             tool_started_at = now_utc()
             emit_runtime_event(context, "task.progress", {"adapter": self.name, "phase": "url_started", "url": url})
-            exit_code, _stdout_text, _stderr_text, stream_error = stream_command(
+            stream_result = stream_command(
                 command,
                 stdout_path=stdout_path,
                 stderr_path=stderr_path,
+                transcript_path=transcript_path,
                 timeout=timeout,
                 env=build_subprocess_env(proxy_url or None),
                 on_stdout=lambda chunk: emit_runtime_event(
@@ -179,20 +181,21 @@ class NucleiAdapter:
                     {"tool_name": self.name, "stream": "stderr", "text": chunk[-400:]},
                 ),
             )
-            if stream_error:
+            exit_code = stream_result.exit_code
+            if stream_result.termination_reason == "timeout":
                 status = "failed"
-                error_message = f"nuclei exceeded timeout of {timedelta(seconds=timeout)}"
+                error_message = stream_result.termination_detail or f"nuclei exceeded timeout of {timedelta(seconds=timeout)}"
                 partial.warnings.append(f"{error_message} for {url}")
-            elif exit_code is None:
+            elif stream_result.termination_reason != "completed" and exit_code is None:
                 status = "failed"
-                error_message = "nuclei execution failed"
+                error_message = stream_result.termination_detail or "nuclei execution failed"
                 partial.warnings.append(f"{error_message} for {url}")
-            elif exit_code != 0:
+            elif stream_result.termination_reason != "completed" and exit_code != 0:
                 status = "failed"
-                error_message = f"nuclei exited with code {exit_code}"
+                error_message = stream_result.termination_detail or f"nuclei exited with code {exit_code}"
                 partial.warnings.append(f"{error_message} for {url}")
             duration_seconds = max((now_utc() - tool_started_at).total_seconds(), 0.001)
-            timed_out = bool(error_message and "timeout" in error_message.lower())
+            timed_out = stream_result.timed_out
             if limiter is not None:
                 limiter.record(target_key=url, service_key=service_key or None, success=status == "completed")
             record_execution_telemetry(
@@ -294,8 +297,12 @@ class NucleiAdapter:
                     exit_code=exit_code,
                     stdout_path=str(stdout_path),
                     stderr_path=str(stderr_path),
+                    transcript_path=str(transcript_path),
                     raw_artifact_paths=[str(jsonl_path)],
                     error_message=error_message,
+                    termination_reason=stream_result.termination_reason,
+                    termination_detail=stream_result.termination_detail,
+                    timed_out=stream_result.timed_out,
                 )
             )
             return {"url": url, "issues": issues, "partial": partial}

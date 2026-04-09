@@ -104,6 +104,7 @@ def _task_issue_fields(task: dict[str, Any]) -> dict[str, Any] | None:
     stage = str(detail.get("stage") or "")
     message = (
         str(detail.get("reason") or "")
+        or str(task.get("termination_detail") or "")
         or str(task.get("error") or "")
         or str(detail.get("decision_reason") or "")
         or f"Task ended in {status} state."
@@ -139,7 +140,7 @@ def _tool_issue_fields(execution: dict[str, Any]) -> dict[str, Any] | None:
         return None
     tool_name = str(execution.get("tool_name") or "tool")
     exit_code = execution.get("exit_code")
-    error_message = str(execution.get("error_message") or "")
+    error_message = str(execution.get("termination_detail") or execution.get("error_message") or "")
     if exit_code is not None and error_message:
         message = f"{error_message} (exit code {exit_code})"
     elif exit_code is not None:

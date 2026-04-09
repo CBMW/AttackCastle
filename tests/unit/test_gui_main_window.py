@@ -609,7 +609,7 @@ def test_findings_workspace_surfaces_scanner_issue_summary(tmp_path: Path) -> No
                 {
                     "issue_id": "issue_1",
                     "kind": "tool",
-                    "label": "masscan execution",
+                    "label": "nmap execution",
                     "status": "failed",
                     "message": "permission denied",
                     "impact": "Network coverage may be incomplete.",

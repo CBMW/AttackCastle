@@ -38,26 +38,6 @@ tasks:
     max_retries: 1
     backoff_seconds: 0.4
 
-  - key: run-masscan
-    label: Running Masscan discovery
-    capability: network_fast_scan
-    approval_class: safe_auto
-    adapter_key: masscan
-    condition: has_network_scan_targets
-    dependencies:
-      - resolve-hosts
-    input_entity_types: [IPAddress]
-    produced_entity_types: [PortService]
-    can_run_many: true
-    profile_sensitivity: aggressive
-    network_intensity: high
-    noise_score: 5
-    cost_score: 5
-    stage: recon
-    retryable: true
-    max_retries: 1
-    backoff_seconds: 0.6
-
   - key: run-nmap
     label: Running Nmap
     capability: network_port_scan
@@ -65,7 +45,6 @@ tasks:
     adapter_key: nmap
     condition: has_service_scan_targets
     dependencies:
-      - run-masscan
       - resolve-hosts
     input_entity_types: [IPAddress, PortService]
     produced_entity_types: [PortService]

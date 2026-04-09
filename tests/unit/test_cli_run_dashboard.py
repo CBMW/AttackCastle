@@ -89,8 +89,8 @@ def test_run_dashboard_surfaces_plan_context_rows(tmp_path: Path) -> None:
                 "mode": {"json_only": False, "html_only": True, "no_report": False, "redact": True},
                 "scope_compiler": {"compiled_target_count": 9},
                 "items": [
-                    {"selected": True, "capability": "network_fast_scan", "noise_score": 4},
-                    {"selected": True, "capability": "network_port_scan", "noise_score": "3"},
+                    {"selected": True, "capability": "network_port_scan", "noise_score": 4},
+                    {"selected": True, "capability": "web_probe", "noise_score": "3"},
                     {"selected": False, "capability": "web_vuln_scan", "noise_score": 10},
                 ],
             }
@@ -131,7 +131,7 @@ def test_run_dashboard_warns_for_invalid_control_and_malformed_plan_items(tmp_pa
                 "mode": {},
                 "scope_compiler": {"compiled_target_count": 2},
                 "items": [
-                    {"selected": True, "capability": "network_fast_scan", "noise_score": 5},
+                    {"selected": True, "capability": "network_port_scan", "noise_score": 5},
                     "bad-item",
                     7,
                 ],
