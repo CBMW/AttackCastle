@@ -376,24 +376,6 @@ def test_web_discovery_passes_proxy_to_fetch_document(tmp_path: Path, monkeypatc
 def test_web_probe_screenshot_uses_proxy(tmp_path: Path, monkeypatch) -> None:
     screenshot_runs: list[dict[str, object]] = []
 
-    def _fake_fetch_with_redirects(  # noqa: ANN001
-        url,
-        user_agent,
-        timeout_seconds,
-        body_capture_bytes,
-        max_redirects=5,
-        proxy_url=None,
-    ):
-        return {
-            "status_code": 200,
-            "headers": {"server": "demo"},
-            "body_text": "<html><title>Demo</title><body>Hello</body></html>",
-            "raw_body": b"<html><title>Demo</title><body>Hello</body></html>",
-            "final_url": url,
-            "redirect_chain": [],
-            "error": None,
-        }
-
     def _fake_subprocess_run(command, **kwargs):  # noqa: ANN001
         screenshot_runs.append({"command": list(command), "env": dict(kwargs.get("env") or {})})
         for item in command:
@@ -401,7 +383,23 @@ def test_web_probe_screenshot_uses_proxy(tmp_path: Path, monkeypatch) -> None:
                 Path(str(item).split("=", 1)[1]).write_text("png", encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("attackcastle.adapters.web_probe.adapter._fetch_with_redirects", _fake_fetch_with_redirects)
+    monkeypatch.setattr(
+        "attackcastle.adapters.web_probe.adapter.run_command_spec",
+        lambda *args, **kwargs: SimpleNamespace(
+            execution=SimpleNamespace(),
+            evidence_artifacts=[],
+            task_result=SimpleNamespace(
+                task_id="task_web",
+                status="completed",
+                parsed_entities=[],
+                metrics={},
+                warnings=[],
+            ),
+            stdout_text='{"url":"https://example.com","input":"https://example.com","title":"Demo","status_code":200,"tech":["nginx"]}',
+            stdout_path=tmp_path / "httpx_stdout.txt",
+            execution_id="exec_web",
+        ),
+    )
     monkeypatch.setattr(
         "attackcastle.adapters.web_probe.adapter.shutil.which",
         lambda name: "chromium" if name in {"chromium", "google-chrome", "chrome"} else None,

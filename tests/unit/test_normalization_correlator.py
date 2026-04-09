@@ -1,4 +1,16 @@
-from attackcastle.core.models import Asset, Evidence, Observation, RunData, RunMetadata, Service, now_utc
+from attackcastle.core.models import (
+    Asset,
+    Evidence,
+    EvidenceArtifact,
+    NormalizedEntity,
+    Observation,
+    RunData,
+    RunMetadata,
+    Service,
+    TaskArtifactRef,
+    TaskResult,
+    now_utc,
+)
 from attackcastle.core.interfaces import AdapterResult
 from attackcastle.normalization.mapper import _merge_facts, merge_adapter_result
 
@@ -153,3 +165,53 @@ def test_merge_adapter_result_deduplicates_entities_and_creates_correlated_asser
         "scan_count": 2,
         "source": "manual",
     }
+
+
+def test_merge_adapter_result_merges_normalized_entities_artifacts_and_task_results():
+    run_data = _run_data()
+    result = AdapterResult(
+        normalized_entities=[
+            NormalizedEntity(
+                entity_id="entity_1",
+                entity_type="Hostname",
+                attributes={"fqdn": "api.example.com", "root_domain": "example.com"},
+                evidence_ids=["evidence_1"],
+                source_tool="subfinder",
+                source_task_id="task_1",
+                source_execution_id="exec_1",
+            )
+        ],
+        evidence_artifacts=[
+            EvidenceArtifact(
+                artifact_id="artifact_1",
+                kind="stdout",
+                path="/tmp/stdout.txt",
+                source_tool="subfinder",
+                source_task_id="task_1",
+                source_execution_id="exec_1",
+            )
+        ],
+        task_results=[
+            TaskResult(
+                task_id="task_1",
+                task_type="EnumerateSubdomains",
+                status="completed",
+                command="subfinder -silent -all -d example.com",
+                exit_code=0,
+                started_at=now_utc(),
+                finished_at=now_utc(),
+                raw_artifacts=[TaskArtifactRef(artifact_type="stdout", path="/tmp/stdout.txt")],
+                parsed_entities=[{"type": "Hostname", "value": "api.example.com"}],
+                metrics={"entities_created": 1},
+            )
+        ],
+    )
+
+    merge_adapter_result(run_data, result)
+
+    assert len(run_data.normalized_entities) == 1
+    assert run_data.normalized_entities[0].entity_type == "Hostname"
+    assert len(run_data.evidence_artifacts) == 1
+    assert run_data.evidence_artifacts[0].source_task_id == "task_1"
+    assert len(run_data.task_results) == 1
+    assert run_data.task_results[0].metrics["entities_created"] == 1

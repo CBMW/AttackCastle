@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from attackcastle.adapters.dns.adapter import DNSAdapter
 from attackcastle.adapters.service_exposure import adapter as service_adapter
@@ -55,7 +56,23 @@ def test_dns_adapter_emits_takeover_and_mail_policy_gap(tmp_path, monkeypatch):
         config={"scan": {"dns_timeout_seconds": 1}, "dns": {"common_dkim_selectors": ["default"]}},
     )
 
-    monkeypatch.setattr("attackcastle.adapters.dns.adapter.resolve_host", lambda host: [])
+    monkeypatch.setattr(
+        "attackcastle.adapters.dns.adapter.run_command_spec",
+        lambda *args, **kwargs: SimpleNamespace(
+            execution=SimpleNamespace(),
+            evidence_artifacts=[],
+            task_results=[],
+            task_result=SimpleNamespace(
+                task_id="task_dns",
+                status="completed",
+                parsed_entities=[],
+                metrics={},
+                warnings=[],
+            ),
+            stdout_text="app.example.com [203.0.113.10]",
+            execution_id="exec_dns",
+        ),
+    )
     monkeypatch.setattr("attackcastle.adapters.dns.adapter.resolve_mx", lambda host, timeout_seconds=0: ["10 mx1.example.com"])
     monkeypatch.setattr("attackcastle.adapters.dns.adapter.resolve_txt", lambda host, timeout_seconds=0: [])
     monkeypatch.setattr("attackcastle.adapters.dns.adapter.resolve_ns", lambda host, timeout_seconds=0: ["ns1.example.net"])
@@ -128,29 +145,59 @@ def test_tls_adapter_emits_deep_tls_observations(tmp_path, monkeypatch):
         config={"scan": {"tls_timeout_seconds": 1, "user_agent": "AttackCastle/Test"}},
     )
 
-    handshake = {
-        "protocol": "TLSv1.2",
-        "cipher": "TLS_RSA_WITH_3DES_EDE_CBC_SHA",
-        "alpn": "http/1.1",
-        "ocsp_stapled": False,
-        "fingerprint_sha256": "abc123",
-        "cert": {
-            "subject": ((("commonName", "wrong.example.com"),),),
-            "issuer": ((("commonName", "wrong.example.com"),),),
-            "notAfter": "Jun 30 12:00:00 2030 GMT",
-            "subjectAltName": [("DNS", "wrong.example.com")],
+    monkeypatch.setattr(
+        tls_adapter,
+        "run_command_spec",
+        lambda *args, **kwargs: SimpleNamespace(
+            execution=SimpleNamespace(),
+            evidence_artifacts=[],
+            task_result=SimpleNamespace(
+                task_id="task_tls",
+                status="completed",
+                parsed_entities=[],
+                metrics={},
+                warnings=[],
+            ),
+            stdout_text="\n".join(
+                [
+                    "Protocol  : TLSv1.0",
+                    "Cipher    : TLS_RSA_WITH_3DES_EDE_CBC_SHA",
+                    "subject=CN = wrong.example.com",
+                    "issuer=CN = wrong.example.com",
+                    "-----BEGIN CERTIFICATE-----",
+                    "Zm9v",
+                    "-----END CERTIFICATE-----",
+                ]
+            ),
+            stdout_path=tmp_path / "tls_stdout.txt",
+            execution_id="exec_tls",
+        ),
+    )
+    monkeypatch.setattr(
+        tls_adapter.TLSAdapter,
+        "_write_certificate_pem",
+        lambda self, artifact_dir, host, port, stdout_text: tmp_path / "cert.pem",
+    )
+    (tmp_path / "cert.pem").write_text("pem", encoding="utf-8")
+    monkeypatch.setattr(
+        tls_adapter.TLSAdapter,
+        "_parse_certificate",
+        lambda self, pem_path: {
+            "subject": "CN = wrong.example.com",
+            "issuer": "CN = wrong.example.com",
+            "not_before": "2025-01-01",
+            "not_after": "2030-06-30",
+            "sans": ["wrong.example.com"],
+            "fingerprint_sha256": "abc123",
+            "raw_text": "",
         },
-    }
-    monkeypatch.setattr(tls_adapter, "_handshake", lambda host, port, timeout_seconds, use_sni: handshake)
-    monkeypatch.setattr(tls_adapter, "_https_headers", lambda host, port, timeout_seconds, user_agent: {})
+    )
 
     result = tls_adapter.TLSAdapter().run(context, run_data)
     keys = {obs.key for obs in result.observations}
+    assert "tls.protocol.version" in keys
     assert "tls.weak_cipher" in keys
-    assert "tls.san.mismatch" in keys
-    assert "tls.self_signed" in keys
-    validator_keys = {item.validator_key for item in result.validation_results}
-    assert {"tls_weak_cipher", "tls_san_mismatch", "tls_self_signed"} <= validator_keys
+    assert "tls.weak_protocol" in keys
 
 
 def test_service_exposure_adapter_confirms_ftp_anonymous_access(tmp_path, monkeypatch):

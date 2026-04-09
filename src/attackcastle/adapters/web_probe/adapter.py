@@ -12,6 +12,7 @@ from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import (
     Evidence,
+    EvidenceArtifact,
     NormalizedEntity,
     Observation,
     RunData,
@@ -254,7 +255,7 @@ class WebProbeAdapter:
                 )
             if screenshot_path:
                 result.evidence_artifacts.append(
-                    command_result.evidence_artifacts[0].__class__(
+                    EvidenceArtifact(
                         artifact_id=new_id("artifact"),
                         kind="screenshot",
                         path=screenshot_path,
