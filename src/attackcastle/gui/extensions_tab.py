@@ -89,6 +89,7 @@ class ExtensionsTab(QWidget):
 
         status_panel = QFrame()
         status_panel.setObjectName("toolbarPanel")
+        status_panel.setProperty("surface", "primary")
         status_layout = QVBoxLayout(status_panel)
         status_layout.setContentsMargins(16, 16, 16, 16)
         status_layout.setSpacing(12)
@@ -158,6 +159,7 @@ class ExtensionsTab(QWidget):
 
         editor_panel = QFrame()
         editor_panel.setObjectName("toolbarPanel")
+        editor_panel.setProperty("surface", "primary")
         editor_layout = QVBoxLayout(editor_panel)
         editor_layout.setContentsMargins(16, 16, 16, 16)
         editor_layout.setSpacing(10)

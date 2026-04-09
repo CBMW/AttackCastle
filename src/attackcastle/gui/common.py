@@ -140,7 +140,10 @@ def build_surface_frame(
     frame.setObjectName(object_name)
     frame.setProperty("surface", surface)
     layout = QVBoxLayout(frame)
-    resolved_padding = 0 if surface == SURFACE_FLAT and padding is None else (padding or PANEL_CONTENT_PADDING)
+    if padding is None:
+        resolved_padding = 0 if surface == SURFACE_FLAT else PANEL_CONTENT_PADDING
+    else:
+        resolved_padding = padding
     layout.setContentsMargins(resolved_padding, resolved_padding, resolved_padding, resolved_padding)
     layout.setSpacing(spacing)
     return frame, layout

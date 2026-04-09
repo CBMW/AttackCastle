@@ -21,6 +21,7 @@ from attackcastle.adapters import (
     NucleiAdapter,
     NiktoAdapter,
     NmapAdapter,
+    ResolveHostsAdapter,
     ServiceExposureAdapter,
     SQLMapAdapter,
     SubdomainEnumAdapter,
@@ -573,6 +574,7 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
     )
     adapters: dict[str, Any] = {
         "subdomain_enum": SubdomainEnumAdapter(),
+        "resolve_hosts": ResolveHostsAdapter(),
         "dns": DNSAdapter(),
         "nmap": NmapAdapter(),
         "web_probe": WebProbeAdapter(),

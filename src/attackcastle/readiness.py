@@ -19,10 +19,10 @@ EXTERNAL_DEPENDENCY_SPECS = (
         "suggestion": "Install subfinder for passive subdomain enumeration.",
     },
     {
-        "check": "dnsx_binary",
-        "command": "dnsx",
-        "apt_package": "dnsx",
-        "suggestion": "Install dnsx for high-speed DNS resolution.",
+        "check": "dig_binary",
+        "command": "dig",
+        "apt_package": "dnsutils",
+        "suggestion": "Install dig for hostname resolution.",
     },
     {
         "check": "nmap_binary",
@@ -101,7 +101,7 @@ EXTERNAL_DEPENDENCY_SPECS = (
 CAPABILITY_TOOL_MAPPING: dict[str, tuple[str, str, str]] = {
     "subdomain_enumeration": ("subfinder", "subfinder", "Enumerating subdomains"),
     "network_port_scan": ("nmap", "nmap", "Running Nmap"),
-    "dns_resolution": ("dnsx", "dnsx", "Resolving hosts"),
+    "dns_resolution": ("dig", "dig", "Resolving hosts"),
     "web_probe": ("httpx", "httpx", "Probing web services"),
     "vhost_discovery": ("ffuf", "ffuf", "Discovering virtual hosts"),
     "web_discovery": ("katana", "katana", "Discovering web endpoints"),

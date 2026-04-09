@@ -511,7 +511,7 @@ class MainWindow(QMainWindow):
             padding=0,
             spacing=8,
         )
-        workspace_toolbar.setObjectName("toolbarPanel")
+        workspace_toolbar.setObjectName("toolbarStrip")
         workspace_toolbar_layout.setContentsMargins(0, 0, 0, 0)
         workspace_toolbar_layout.addLayout(filter_row)
         runs_panel, _runs_title, _runs_summary = build_table_section(
@@ -611,7 +611,7 @@ class MainWindow(QMainWindow):
             padding=0,
             spacing=8,
         )
-        run_toolbar.setObjectName("toolbarPanel")
+        run_toolbar.setObjectName("toolbarStrip")
         run_toolbar_layout.setContentsMargins(0, 0, 0, 0)
         run_toolbar_layout.addLayout(self.run_filter_grid)
         self.run_results_label = QLabel("Showing 0/0 runs")

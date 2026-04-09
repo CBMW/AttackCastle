@@ -111,7 +111,7 @@ class AssetsTab(QWidget):
         )
 
         toolbar, toolbar_layout = build_surface_frame(
-            object_name="toolbarPanel",
+            object_name="toolbarStrip",
             surface=SURFACE_FLAT,
             padding=0,
             spacing=8,

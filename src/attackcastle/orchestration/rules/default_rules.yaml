@@ -22,7 +22,7 @@ tasks:
     label: Resolving hosts
     capability: dns_resolution
     approval_class: safe_auto
-    adapter_key: dns
+    adapter_key: resolve_hosts
     condition: has_domain_like_targets
     dependencies:
       - run-subdomain-enum

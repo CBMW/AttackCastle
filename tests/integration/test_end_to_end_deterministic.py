@@ -534,7 +534,7 @@ def _snapshot_from_payload(payload: dict) -> dict:
 
 def test_end_to_end_pipeline_with_fixtures(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "_build_run_id", lambda: "deterministic_fixture_run")
-    monkeypatch.setattr(app_module, "DNSAdapter", FixtureDNSAdapter)
+    monkeypatch.setattr(app_module, "ResolveHostsAdapter", FixtureDNSAdapter)
     monkeypatch.setattr(app_module, "NmapAdapter", FixtureNmapAdapter)
     monkeypatch.setattr(app_module, "WebProbeAdapter", FixtureWebAdapter)
     monkeypatch.setattr(app_module, "VHostDiscoveryAdapter", FixtureVHostAdapter)
@@ -557,7 +557,7 @@ def test_end_to_end_pipeline_with_fixtures(monkeypatch, tmp_path):
 
 def test_partial_failure_tolerance_with_fixtures(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, "_build_run_id", lambda: "deterministic_failure_run")
-    monkeypatch.setattr(app_module, "DNSAdapter", FixtureDNSAdapter)
+    monkeypatch.setattr(app_module, "ResolveHostsAdapter", FixtureDNSAdapter)
     monkeypatch.setattr(app_module, "NmapAdapter", FixtureNmapAdapter)
     monkeypatch.setattr(app_module, "WebProbeAdapter", FailingWebAdapter)
     monkeypatch.setattr(app_module, "VHostDiscoveryAdapter", FixtureVHostAdapter)

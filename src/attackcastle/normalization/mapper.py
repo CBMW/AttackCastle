@@ -114,6 +114,23 @@ def _extend_unique(items: list[str], values: list[str]) -> None:
             items.append(value)
 
 
+def _merge_asset(existing, incoming) -> None:  # noqa: ANN001
+    if not existing.ip and incoming.ip:
+        existing.ip = incoming.ip
+    if not existing.parent_asset_id and incoming.parent_asset_id:
+        existing.parent_asset_id = incoming.parent_asset_id
+    _extend_unique(existing.resolved_ips, list(getattr(incoming, "resolved_ips", [])))
+    if incoming.ip and incoming.ip not in existing.resolved_ips:
+        existing.resolved_ips.append(incoming.ip)
+    _extend_unique(existing.aliases, list(getattr(incoming, "aliases", [])))
+    if not existing.source_execution_id and incoming.source_execution_id:
+        existing.source_execution_id = incoming.source_execution_id
+    if not existing.parser_version and incoming.parser_version:
+        existing.parser_version = incoming.parser_version
+    if not existing.canonical_key and incoming.canonical_key:
+        existing.canonical_key = incoming.canonical_key
+
+
 def _merge_normalized_entity(existing: NormalizedEntity, incoming: NormalizedEntity) -> None:
     for key, value in incoming.attributes.items():
         if key not in existing.attributes or existing.attributes[key] in (None, "", [], {}):
@@ -362,7 +379,13 @@ def merge_adapter_result(run_data: RunData, result: AdapterResult) -> None:
         make_key(asset.kind, asset.name, asset.ip, asset.parent_asset_id): asset.asset_id
         for asset in run_data.assets
     }
+    existing_assets_by_id = {asset.asset_id: asset for asset in run_data.assets}
     for asset in result.assets:
+        existing_by_id = existing_assets_by_id.get(asset.asset_id)
+        if existing_by_id is not None:
+            _merge_asset(existing_by_id, asset)
+            asset_map[asset.asset_id] = existing_by_id.asset_id
+            continue
         key = make_key(asset.kind, asset.name, asset.ip, asset.parent_asset_id)
         canonical_id = _canonical_id("asset", key)
         asset.canonical_key = key
@@ -375,6 +398,7 @@ def merge_adapter_result(run_data: RunData, result: AdapterResult) -> None:
         asset.asset_id = canonical_id
         run_data.assets.append(asset)
         existing_asset_keys[key] = asset.asset_id
+        existing_assets_by_id[asset.asset_id] = asset
         asset_map[old_id] = asset.asset_id
         _append_alias(run_data, asset.asset_id, old_id)
 

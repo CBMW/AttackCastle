@@ -82,9 +82,10 @@ class OutputTab(QWidget):
         top_layout.setSpacing(PAGE_SECTION_SPACING)
 
         filter_panel = QFrame()
-        filter_panel.setObjectName("toolbarPanel")
+        filter_panel.setObjectName("toolbarStrip")
+        filter_panel.setProperty("surface", SURFACE_FLAT)
         filter_layout = QVBoxLayout(filter_panel)
-        filter_layout.setContentsMargins(14, 14, 14, 14)
+        filter_layout.setContentsMargins(0, 0, 0, 0)
         filter_layout.setSpacing(10)
         self.filter_grid = QGridLayout()
         self.filter_grid.setHorizontalSpacing(10)
@@ -222,7 +223,7 @@ class OutputTab(QWidget):
         self.raw_text.setObjectName("consoleText")
         self.raw_text.setReadOnly(True)
         self.inspector_summary = QLabel("Select an item to inspect technical details and artifacts.")
-        self.inspector_summary.setObjectName("warningBanner")
+        self.inspector_summary.setObjectName("helperText")
         self.inspector_summary.setWordWrap(True)
         self.screenshot_preview = QLabel("Screenshot preview")
         self.screenshot_preview.setObjectName("previewSurface")
@@ -370,11 +371,11 @@ class OutputTab(QWidget):
         return section
 
     def _table_surface(self, title: str, table: QTableView) -> QWidget:
-        surface, _title, _summary = build_table_section(
-            title,
-            table,
-            summary_text="The active table remains expanded so live and future run data are readable even before population.",
-        )
+        surface = QWidget()
+        layout = QVBoxLayout(surface)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(table, 1)
         return surface
 
     def _make_table(self, model: MappingTableModel, callback: Callable[[QModelIndex], None]) -> QTableView:

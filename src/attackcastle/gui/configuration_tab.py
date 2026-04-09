@@ -118,6 +118,7 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
 
         action_panel = QFrame()
         action_panel.setObjectName("toolbarPanel")
+        action_panel.setProperty("surface", "secondary")
         action_layout = QVBoxLayout(action_panel)
         action_layout.setContentsMargins(16, 16, 16, 16)
         action_layout.setSpacing(12)

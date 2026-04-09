@@ -85,6 +85,7 @@ class Asset:
     kind: str
     name: str
     ip: str | None = None
+    resolved_ips: list[str] = field(default_factory=list)
     parent_asset_id: str | None = None
     source_tool: str = "internal"
     source_execution_id: str | None = None
@@ -838,6 +839,7 @@ def _asset_from_dict(data: dict[str, Any]) -> Asset:
         kind=data["kind"],
         name=data["name"],
         ip=data.get("ip"),
+        resolved_ips=list(data.get("resolved_ips", [])),
         parent_asset_id=data.get("parent_asset_id"),
         source_tool=data.get("source_tool", "internal"),
         source_execution_id=data.get("source_execution_id"),

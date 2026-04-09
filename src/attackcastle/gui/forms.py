@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -177,15 +176,19 @@ class CollapsibleSection(QFrame):
 
 
 class ProfileFieldsMixin:
-    def _form_section(self, title: str, description: str, widget: QWidget) -> QGroupBox:
-        group = QGroupBox(title)
-        group.setObjectName("panelGroup")
+    def _form_section(self, title: str, description: str, widget: QWidget) -> QWidget:
+        # Form sections stay visually light so the page reads as one workspace instead of stacked cards.
+        group = QWidget()
+        group.setObjectName("sectionBlock")
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        title_label = QLabel(title)
+        title_label.setObjectName("sectionTitle")
         helper = QLabel(description)
         helper.setObjectName("sectionHelper")
         helper.setWordWrap(True)
+        layout.addWidget(title_label)
         layout.addWidget(helper)
         layout.addWidget(widget)
         return group
@@ -512,6 +515,7 @@ class ProfileFieldsMixin:
     def _build_preset_panel(self, title: str, helper: str) -> QWidget:
         panel = QFrame()
         panel.setObjectName("toolbarPanel")
+        panel.setProperty("surface", "secondary")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
