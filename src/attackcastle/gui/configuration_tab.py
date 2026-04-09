@@ -3,21 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from attackcastle.gui.common import FlowButtonRow, configure_scroll_surface, set_tooltips, title_case_label
+from attackcastle.gui.common import FlowButtonRow, apply_responsive_splitter, configure_scroll_surface, set_tooltips, title_case_label
 from attackcastle.gui.forms import ProfileFieldsMixin
 from attackcastle.gui.models import GuiProfile
 from attackcastle.gui.profile_store import GuiProfileStore
@@ -30,9 +31,11 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         self.on_profiles_changed = on_profiles_changed
         self._profiles = self.store.load()
 
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(16)
+        self.splitter = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
+        root.addWidget(self.splitter, 1)
 
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
@@ -50,7 +53,7 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         rail_layout.addWidget(rail_title)
         rail_layout.addWidget(rail_helper)
         rail_layout.addWidget(self.profile_list, 1)
-        root.addWidget(rail, 1)
+        self.splitter.addWidget(rail)
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
@@ -141,10 +144,23 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         scroll_layout.addStretch(1)
         scroll.setWidget(scroll_container)
         right_layout.addWidget(scroll)
-        root.addWidget(right, 3)
+        self.splitter.addWidget(right)
 
         self.reload_profiles()
         self.sync_profile_form_width(self.width())
+        self._sync_responsive_mode(self.width())
+
+    def _sync_responsive_mode(self, width: int) -> None:
+        if width >= 1280:
+            self.splitter.setOrientation(Qt.Horizontal)
+            self.splitter.setSizes([320, max(width - 320, 760)])
+            return
+        if width >= 1040:
+            self.splitter.setOrientation(Qt.Horizontal)
+            self.splitter.setSizes([280, max(width - 280, 660)])
+            return
+        self.splitter.setOrientation(Qt.Vertical)
+        self.splitter.setSizes([240, max(self.height() - 240, 480)])
 
     def reload_profiles(self, preferred_profile_name: str | None = None) -> None:
         current_name = preferred_profile_name or self._selected_profile_name()
@@ -288,3 +304,4 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self.sync_profile_form_width(self.width())
+        self._sync_responsive_mode(self.width())

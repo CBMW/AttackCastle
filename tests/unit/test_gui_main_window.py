@@ -96,8 +96,8 @@ def test_restore_geometry_uses_smaller_manageable_window_size(tmp_path: Path) ->
 
         assert window.width() < geometry.width()
         assert window.height() < geometry.height()
-        assert window.width() == MainWindow._fit_restore_dimension(1280, 1024, 0.72, 680)
-        assert window.height() == MainWindow._fit_restore_dimension(840, 700, 0.74, 520)
+        assert window.width() == MainWindow._fit_restore_dimension(1440, 1024, 0.82, 820)
+        assert window.height() == MainWindow._fit_restore_dimension(900, 700, 0.82, 620)
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -211,6 +211,22 @@ def test_workspace_view_omits_removed_status_and_summary_sections(tmp_path: Path
         window.close()
 
 
+def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        workspace_titles = {group.title() for group in window.workspace_page.findChildren(QGroupBox)}
+        scanner_titles = {group.title() for group in window.runs_page.findChildren(QGroupBox)}
+
+        assert "Launch" not in workspace_titles
+        assert "Launch" in scanner_titles
+        assert window.start_scan_button.parentWidget() is not None
+        assert window.runs_page.isAncestorOf(window.start_scan_button)
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
 def test_header_omits_removed_branding_and_run_context_sections(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
@@ -307,6 +323,7 @@ def test_responsive_layout_switches_to_stacked_mode_on_narrow_width(tmp_path: Pa
         window._sync_responsive_layouts()
 
         assert window.workspace_content_split.orientation() == Qt.Vertical
+        assert window.runs_top_split.orientation() == Qt.Vertical
         assert window.output_tab.main_split.orientation() == Qt.Vertical
     finally:
         window._refresh_timer.stop()
@@ -321,6 +338,7 @@ def test_responsive_layout_uses_horizontal_splits_on_wide_width(tmp_path: Path) 
         window._sync_responsive_layouts()
 
         assert window.workspace_content_split.orientation() == Qt.Horizontal
+        assert window.runs_top_split.orientation() == Qt.Horizontal
         assert window.output_tab.main_split.orientation() == Qt.Horizontal
     finally:
         window._refresh_timer.stop()

@@ -6,6 +6,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QFileDialog, QGroupBox, QMessageBox
 
 from attackcastle.gui.configuration_tab import ConfigurationTab
@@ -64,6 +65,23 @@ def test_profile_form_reflows_tool_cards_for_narrow_widths(tmp_path: Path) -> No
         tab.sync_profile_form_width(tab.width())
 
         assert tab.tool_family_grid.itemAtPosition(0, 1) is not None
+    finally:
+        tab.close()
+
+
+def test_configuration_tab_stacks_library_above_editor_on_narrow_widths(tmp_path: Path) -> None:
+    tab = _make_tab(tmp_path)
+
+    try:
+        tab.resize(920, 900)
+        tab.sync_profile_form_width(tab.width())
+        tab._sync_responsive_mode(tab.width())
+        assert tab.splitter.orientation() == Qt.Vertical
+
+        tab.resize(1400, 900)
+        tab.sync_profile_form_width(tab.width())
+        tab._sync_responsive_mode(tab.width())
+        assert tab.splitter.orientation() == Qt.Horizontal
     finally:
         tab.close()
 

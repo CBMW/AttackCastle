@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QPoint, QRect, QSize, Qt
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QHeaderView,
     QLabel,
     QLayout,
     QSizePolicy,
@@ -161,10 +162,45 @@ def ensure_table_defaults(table: QTableView) -> None:
     table.setSelectionMode(QTableView.SingleSelection)
     table.setAlternatingRowColors(True)
     table.setSortingEnabled(True)
+    table.setWordWrap(False)
     table.verticalHeader().setVisible(False)
     header = table.horizontalHeader()
-    header.setStretchLastSection(True)
+    header.setStretchLastSection(False)
+    header.setMinimumSectionSize(110)
+    header.setDefaultSectionSize(160)
     configure_scroll_surface(table)
+    _install_table_autosizing(table)
+
+
+def _install_table_autosizing(table: QTableView) -> None:
+    model = table.model()
+    if model is None or table.property("_autosize_bound"):
+        return
+
+    def queue_resize(*_args: object) -> None:
+        QTimer.singleShot(0, lambda: _autosize_table_columns(table))
+
+    model.modelReset.connect(queue_resize)
+    model.layoutChanged.connect(queue_resize)
+    model.rowsInserted.connect(queue_resize)
+    model.columnsInserted.connect(queue_resize)
+    model.dataChanged.connect(queue_resize)
+    table.setProperty("_autosize_bound", True)
+    queue_resize()
+
+
+def _autosize_table_columns(table: QTableView) -> None:
+    model = table.model()
+    if model is None:
+        return
+    column_count = model.columnCount()
+    if column_count <= 0:
+        return
+    header = table.horizontalHeader()
+    for column in range(column_count - 1):
+        header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+    header.setSectionResizeMode(column_count - 1, QHeaderView.Stretch)
+    table.resizeColumnsToContents()
 
 
 class FlowLayout(QLayout):

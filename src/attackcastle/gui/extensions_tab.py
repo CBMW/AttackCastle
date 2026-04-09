@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
@@ -20,7 +21,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from attackcastle.gui.common import FlowButtonRow, configure_scroll_surface, refresh_widget_style, set_tooltips, title_case_label
+from attackcastle.gui.common import (
+    FlowButtonRow,
+    apply_responsive_splitter,
+    configure_scroll_surface,
+    refresh_widget_style,
+    set_tooltips,
+    title_case_label,
+)
 from attackcastle.gui.extensions import ExtensionManifest, ExtensionValidationError
 from attackcastle.gui.extensions_store import GuiExtensionStore
 
@@ -51,9 +59,8 @@ class ExtensionsTab(QWidget):
         helper.setWordWrap(True)
         root.addWidget(helper)
 
-        splitter = QSplitter()
-        splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(8)
+        splitter = apply_responsive_splitter(QSplitter(), (2, 3, 5))
+        self.splitter = splitter
 
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
@@ -166,12 +173,25 @@ class ExtensionsTab(QWidget):
         editor_layout.addWidget(self.editor, 1)
         splitter.addWidget(editor_panel)
 
-        splitter.setSizes([260, 360, 860])
+        splitter.setSizes([280, 360, 920])
         root.addWidget(splitter, 1)
 
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_current)
 
         self.reload_extensions()
+        self.sync_responsive_mode(self.width())
+
+    def sync_responsive_mode(self, width: int) -> None:
+        if width >= 1400:
+            self.splitter.setOrientation(Qt.Horizontal)
+            self.splitter.setSizes([300, 380, max(width - 680, 760)])
+            return
+        if width >= 1120:
+            self.splitter.setOrientation(Qt.Horizontal)
+            self.splitter.setSizes([260, 320, max(width - 580, 620)])
+            return
+        self.splitter.setOrientation(Qt.Vertical)
+        self.splitter.setSizes([220, 240, max(self.height() - 460, 360)])
 
     def reload_extensions(self) -> None:
         self._records = self.store.discover()
@@ -284,6 +304,10 @@ class ExtensionsTab(QWidget):
         record = next((candidate for candidate in self._records if candidate.extension_id == self._selected_extension_id), None)
         if record is not None:
             self._refresh_record_status(record)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self.sync_responsive_mode(self.width())
 
     def _create_extension(self) -> None:
         manifest = self.store.create_command_hook_extension()
