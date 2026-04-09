@@ -40,11 +40,9 @@ from PySide6.QtWidgets import (
 from attackcastle.gui.common import (
     FlowButtonRow,
     MappingTableModel,
-    PAGE_CARD_SPACING,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     RUN_STATE_ORDER,
-    SummaryCard,
     apply_responsive_splitter,
     build_inspector_panel,
     build_page_header,
@@ -171,7 +169,6 @@ class MainWindow(QMainWindow):
         else:
             mode = "stacked"
 
-        self._arrange_cards(self.workspace_card_grid, self.workspace_cards, 4 if mode == "desktop" else 2)
         self.nav_hint.setVisible(mode != "compact")
         if mode == "stacked":
             self.workspace_content_split.setOrientation(Qt.Vertical)
@@ -237,12 +234,6 @@ class MainWindow(QMainWindow):
         self.output_tab.sync_responsive_mode(width)
         self.scanner_panel.sync_responsive_mode(width)
         self.configuration_tab.sync_profile_form_width(width)
-
-    def _arrange_cards(self, grid: QGridLayout, cards: tuple[SummaryCard, ...], columns: int) -> None:
-        while grid.count():
-            grid.takeAt(0)
-        for index, card in enumerate(cards):
-            grid.addWidget(card, index // columns, index % columns)
 
     def _arrange_run_filters(self, width: int) -> None:
         while self.run_filter_grid.count():
@@ -313,7 +304,7 @@ class MainWindow(QMainWindow):
         self.nav_list = configure_scroll_surface(QListWidget())
         self.nav_list.setObjectName("navList")
         self.nav_list.currentRowChanged.connect(self._nav_row_changed)
-        for label in ("Workspaces", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"):
+        for label in ("Overview", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"):
             self.nav_list.addItem(QListWidgetItem(label))
         set_tooltip(self.nav_list, "Switch between the main workflow areas of the GUI.")
         nav_layout.addWidget(self.nav_list, 1)
@@ -380,31 +371,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        header_panel, _header_title, _header_summary, self.workspace_page_meta_label, _header_status = build_page_header(
-            "Workspace Control",
-            "Keep the active workspace, live run queue, and selected run context in view without jumping between sections.",
-            meta_text="The active workspace drives the session-scoped queue and inspection context.",
-        )
-        layout.addWidget(header_panel)
-
-        card_grid = QGridLayout()
-        card_grid.setHorizontalSpacing(PAGE_CARD_SPACING)
-        card_grid.setVerticalSpacing(PAGE_CARD_SPACING)
-        self.workspace_card_grid = card_grid
-        self.card_active_runs = SummaryCard("Active Runs")
-        self.card_critical_findings = SummaryCard("Critical + High")
-        self.card_needs_validation = SummaryCard("Needs Validation")
-        self.card_recent_failures = SummaryCard("Recent Failures")
-        self.workspace_cards = (
-            self.card_active_runs,
-            self.card_critical_findings,
-            self.card_needs_validation,
-            self.card_recent_failures,
-        )
-        for idx, card in enumerate(self.workspace_cards):
-            card_grid.addWidget(card, 0, idx)
-        layout.addLayout(card_grid)
-
         content_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
         self.workspace_content_split = content_split
         self._register_splitter(self.workspace_content_split, "workspace_content_split")
@@ -418,7 +384,7 @@ class MainWindow(QMainWindow):
         left_top_layout = QVBoxLayout(left_top_panel)
         left_top_layout.setContentsMargins(0, 0, 0, 0)
         left_top_layout.setSpacing(10)
-        left_title = QLabel("Workspaces")
+        left_title = QLabel("Overview")
         left_title.setObjectName("sectionTitle")
         left_top_layout.addWidget(left_title)
         self.workspace_tab_context_label = QLabel("Active session workspace")
@@ -1925,24 +1891,6 @@ class MainWindow(QMainWindow):
         self._refresh_dashboard()
 
     def _refresh_dashboard(self) -> None:
-        active_runs = [item for item in self._run_snapshots.values() if item.state == "running"]
-        failed_runs = [item for item in self._run_snapshots.values() if item.state in {"failed", "blocked"}]
-        findings = 0
-        critical_high = 0
-        needs_validation = 0
-        for snapshot in self._run_snapshots.values():
-            metrics = finding_metrics(snapshot.findings, self._finding_states_by_run.get(snapshot.run_id, {}))
-            findings += len(snapshot.findings)
-            critical_high += metrics["critical_high"]
-            for finding in snapshot.findings:
-                state = self._finding_states_by_run.get(snapshot.run_id, {}).get(str(finding.get("finding_id") or ""))
-                if state is None or state.status == "needs-validation":
-                    needs_validation += 1
-        self.card_active_runs.set_value(str(len(active_runs)), f"{len(self._run_snapshots)} runs tracked")
-        self.card_critical_findings.set_value(str(critical_high), f"{findings} total findings across tracked runs")
-        self.card_needs_validation.set_value(str(needs_validation), "Analyst attention queue")
-        latest_failure = failed_runs[0].scan_name if failed_runs else "No failed or blocked runs"
-        self.card_recent_failures.set_value(str(len(failed_runs)), latest_failure)
         self._refresh_context_panels()
         self._refresh_workspace_alerts()
 

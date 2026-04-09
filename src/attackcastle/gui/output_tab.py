@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QProgressBar,
     QSplitter,
     QTabWidget,
     QTableView,
@@ -32,22 +31,17 @@ from attackcastle.gui.common import (
     FINDING_STATUSES,
     FlowButtonRow,
     MappingTableModel,
-    PAGE_CARD_SPACING,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     SEVERITY_ORDER,
-    SummaryCard,
     apply_responsive_splitter,
     apply_form_layout_defaults,
     build_inspector_panel,
-    build_page_header,
     build_table_section,
     configure_scroll_surface,
     ensure_table_defaults,
-    format_duration,
     format_progress,
     is_previewable_image,
-    progress_percent,
     refresh_widget_style,
     set_tooltip,
     set_tooltips,
@@ -84,45 +78,10 @@ class OutputTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        hero, self.output_title, self.summary_label, self.progress_label, self.hero_status_label = build_page_header(
-            "Findings Workspace",
-            "Inspect findings, validation queues, evidence, and report staging with the data region kept primary and the inspector clearly secondary.",
-            meta_text="No run selected",
-        )
-        self.progress_label.setObjectName("headerMeta")
-        self.hero_status_label.hide()
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setValue(0)
-        hero.layout().addWidget(self.progress_bar)
         top_panel = QWidget()
         top_layout = QVBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(PAGE_SECTION_SPACING)
-        top_layout.addWidget(hero)
-
-        cards = QGridLayout()
-        cards.setHorizontalSpacing(PAGE_CARD_SPACING)
-        cards.setVerticalSpacing(PAGE_CARD_SPACING)
-        self.summary_cards_grid = cards
-        self.findings_card = SummaryCard("Findings")
-        self.critical_card = SummaryCard("Critical + High")
-        self.coverage_card = SummaryCard("Coverage")
-        self.health_card = SummaryCard("Execution Health")
-        self.assets_card = SummaryCard("Assets")
-        self.evidence_card = SummaryCard("Evidence")
-        self.summary_cards = (
-            self.findings_card,
-            self.critical_card,
-            self.coverage_card,
-            self.health_card,
-            self.assets_card,
-            self.evidence_card,
-        )
-        for idx, card in enumerate(self.summary_cards):
-            cards.addWidget(card, idx // 3, idx % 3)
-        top_layout.addLayout(cards)
 
         filter_panel = QFrame()
         filter_panel.setObjectName("toolbarPanel")
@@ -428,17 +387,8 @@ class OutputTab(QWidget):
             layout_saver,
             self,
         )
-        self.content_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
-        self.content_split_controller = PersistentSplitterController(
-            self.content_split,
-            "findings_content_split",
-            layout_loader,
-            layout_saver,
-            self,
-        )
-        self.content_split.addWidget(top_panel)
-        self.content_split.addWidget(main_split)
-        layout.addWidget(self.content_split, 1)
+        layout.addWidget(top_panel)
+        layout.addWidget(main_split, 1)
         self.sync_responsive_mode(self.width())
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
@@ -481,23 +431,12 @@ class OutputTab(QWidget):
         return table
 
     def sync_responsive_mode(self, width: int) -> None:
-        columns = 3 if width >= 1480 else 2 if width >= 1180 else 1
-        self._arrange_cards(self.summary_cards_grid, self.summary_cards, columns)
         self._arrange_filter_controls(width)
-        top_height = 284 if width >= 1480 else 324 if width >= 1180 else 380
-        self.content_split.setOrientation(Qt.Vertical)
-        self.content_split_controller.apply([max(top_height, 260), max(self.height() - top_height, 360)])
         self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
         if width >= 1180:
             self.main_split_controller.apply([max(int(width * 0.64), 640), max(int(width * 0.36), 380)])
         else:
             self.main_split_controller.apply([max(int(self.height() * 0.6), 320), max(int(self.height() * 0.4), 260)])
-
-    def _arrange_cards(self, grid: QGridLayout, cards: tuple[SummaryCard, ...], columns: int) -> None:
-        while grid.count():
-            grid.takeAt(0)
-        for index, card in enumerate(cards):
-            grid.addWidget(card, index // columns, index % columns)
 
     def _arrange_filter_controls(self, width: int) -> None:
         while self.filter_grid.count():
@@ -565,19 +504,6 @@ class OutputTab(QWidget):
     def _refresh_models(self) -> None:
         snapshot = self._snapshot
         if snapshot is None:
-            self.output_title.setText("Findings Workspace")
-            self.summary_label.setText("Select a run from Workspace or Scanner to inspect findings, validation queues, and evidence.")
-            self.progress_label.setText("No run selected")
-            self.progress_bar.setValue(0)
-            for card, hint in (
-                (self.findings_card, "Triage queue for the selected run"),
-                (self.critical_card, "Escalate confirmed highs"),
-                (self.coverage_card, "Execution coverage snapshot"),
-                (self.health_card, "Warnings, errors, and tool transparency"),
-                (self.assets_card, "Run inventory summary"),
-                (self.evidence_card, "Artifacts and evidence linked to the run"),
-            ):
-                card.set_value("0", hint)
             for model in (
                 self.assets_model,
                 self.web_apps_model,
@@ -664,12 +590,6 @@ class OutputTab(QWidget):
         needs_validation = sum(1 for item in findings if str(item.get("workflow_status") or "") == "needs-validation")
         issue_count = int(issue_summary.get("total_count", 0) or 0)
         completeness_status = str(issue_summary.get("completeness_status") or getattr(snapshot, "completeness_status", "healthy"))
-        self.output_title.setText(snapshot.scan_name)
-        self.summary_label.setText(
-            f"Workspace: {snapshot.workspace_name or 'Unassigned'} | State: {title_case_label(snapshot.state)} | Completeness: {title_case_label(completeness_status)} | Issues: {issue_count} | Elapsed: {format_duration(snapshot.elapsed_seconds)} | ETA: {format_duration(snapshot.eta_seconds)} | Current task: {snapshot.current_task}"
-        )
-        self.progress_label.setText(f"{format_progress(snapshot.completed_tasks, snapshot.total_tasks)} | {progress_percent(snapshot.completed_tasks, snapshot.total_tasks)}% complete")
-        self.progress_bar.setValue(progress_percent(snapshot.completed_tasks, snapshot.total_tasks))
         self.assets_model.set_rows(filtered_assets)
         self.web_apps_model.set_rows(filtered_web_apps)
         self.endpoints_model.set_rows(filtered_endpoints)
@@ -692,15 +612,6 @@ class OutputTab(QWidget):
         self.services_model.set_rows(filtered_services)
         self.findings_model.set_rows(filtered_findings)
         self.report_model.set_rows(report_rows)
-        self.findings_card.set_value(str(len(findings)), f"{len(report_rows)} staged for reporting")
-        self.critical_card.set_value(str(critical_high), f"{needs_validation} still need validation")
-        self.coverage_card.set_value(f"{progress_percent(snapshot.completed_tasks, snapshot.total_tasks)}%", format_progress(snapshot.completed_tasks, snapshot.total_tasks))
-        health_hint = "No execution issues detected. Open Scanner > Issues for a consolidated review."
-        if issue_count:
-            health_hint = f"{issue_count} execution issue(s) recorded | Open Scanner > Issues"
-        self.health_card.set_value(title_case_label(completeness_status), health_hint)
-        self.assets_card.set_value(str(len(snapshot.assets)), summarize_target_input(snapshot.target_input))
-        self.evidence_card.set_value(str(len(snapshot.evidence) + len(snapshot.artifacts)), f"{len(snapshot.screenshots)} screenshot artifacts")
 
         attention_items: list[str] = []
         if critical_high:

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -33,13 +32,10 @@ from attackcastle.gui.asset_inventory import (
 )
 from attackcastle.gui.common import (
     MappingTableModel,
-    PAGE_CARD_SPACING,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
-    SummaryCard,
     apply_responsive_splitter,
     build_inspector_panel,
-    build_page_header,
     build_table_section,
     configure_scroll_surface,
     ensure_table_defaults,
@@ -110,40 +106,6 @@ class AssetsTab(QWidget):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(PAGE_SECTION_SPACING)
 
-        hero, self.title_label, self.summary_label, self.status_label, self.header_helper_label = build_page_header(
-            "Assets Workspace",
-            "Organize discovered hosts, services, URLs, routes, and technologies with the inventory tables as the primary working surface.",
-            meta_text="No run selected",
-        )
-        self.status_label.setObjectName("headerMeta")
-        self.header_helper_label.hide()
-        overview_panel = QWidget()
-        overview_layout = QVBoxLayout(overview_panel)
-        overview_layout.setContentsMargins(0, 0, 0, 0)
-        overview_layout.setSpacing(PAGE_SECTION_SPACING)
-        overview_layout.addWidget(hero)
-
-        cards = QGridLayout()
-        cards.setHorizontalSpacing(PAGE_CARD_SPACING)
-        cards.setVerticalSpacing(PAGE_CARD_SPACING)
-        self.assets_card = SummaryCard("Assets")
-        self.services_card = SummaryCard("Services")
-        self.web_card = SummaryCard("Web")
-        self.routes_card = SummaryCard("Routes")
-        self.technologies_card = SummaryCard("Technologies")
-        self.notes_card = SummaryCard("Notes")
-        self.summary_cards = (
-            self.assets_card,
-            self.services_card,
-            self.web_card,
-            self.routes_card,
-            self.technologies_card,
-            self.notes_card,
-        )
-        for index, card in enumerate(self.summary_cards):
-            cards.addWidget(card, index // 3, index % 3)
-        overview_layout.addLayout(cards)
-
         toolbar = QFrame()
         toolbar.setObjectName("toolbarPanel")
         toolbar_layout = QVBoxLayout(toolbar)
@@ -157,11 +119,7 @@ class AssetsTab(QWidget):
         set_tooltip(self.search_edit, "Search across discovered asset inventory and stored operator notes.")
         search_row.addWidget(self.search_edit, 1)
         toolbar_layout.addLayout(search_row)
-        self.results_label = QLabel("Inventory will appear here once a run is selected.")
-        self.results_label.setObjectName("helperText")
-        self.results_label.setWordWrap(True)
-        toolbar_layout.addWidget(self.results_label)
-        overview_layout.addWidget(toolbar)
+        content_layout.addWidget(toolbar)
 
         self.assets_model = MappingTableModel(
             [
@@ -280,17 +238,7 @@ class AssetsTab(QWidget):
         self.inventory_tabs.addTab(web_page, "Web")
 
         self.inventory_tabs.addTab(self._table_surface("Technology Inventory", self.technologies_view), "Technology")
-        self.content_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
-        self.content_split_controller = PersistentSplitterController(
-            self.content_split,
-            "assets_content_split",
-            layout_loader,
-            layout_saver,
-            self,
-        )
-        self.content_split.addWidget(overview_panel)
-        self.content_split.addWidget(self.inventory_tabs)
-        content_layout.addWidget(self.content_split, 1)
+        content_layout.addWidget(self.inventory_tabs, 1)
 
         detail_body = QWidget()
         detail_body_layout = QVBoxLayout(detail_body)
@@ -441,9 +389,6 @@ class AssetsTab(QWidget):
         self.search_edit.selectAll()
 
     def sync_responsive_mode(self, width: int) -> None:
-        top_height = 276 if width >= 1480 else 312 if width >= 1180 else 360
-        self.content_split.setOrientation(Qt.Vertical)
-        self.content_split_controller.apply([max(top_height, 300), max(self.height() - top_height, 320)])
         self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
         if width >= 1280:
             self.main_split_controller.apply([max(int(width * 0.74), 760), max(int(width * 0.26), 340)])
@@ -459,22 +404,9 @@ class AssetsTab(QWidget):
     def _refresh_models(self) -> None:
         snapshot = self._snapshot
         if snapshot is None:
-            self.title_label.setText("Assets Workspace")
-            self.summary_label.setText("Select a run to organize discovered hosts, services, URLs, routes, and technologies.")
-            self.status_label.setText("No run selected")
-            self.results_label.setText("Inventory will appear here once a run is selected.")
             self.detail_title.setText("Asset Details")
             self.detail_summary.setText("Select an asset, service, route, or technology to inspect details.")
             self.detail_text.setPlainText("Choose an item from the inventory to open the docked inspector.")
-            for card, hint in (
-                (self.assets_card, "Observed host and domain inventory"),
-                (self.services_card, "Open ports and named services"),
-                (self.web_card, "Web apps, endpoints, forms, and login surfaces"),
-                (self.routes_card, "Mapped routes and related discovery"),
-                (self.technologies_card, "Detected technology stack"),
-                (self.notes_card, "Workspace-scoped notes on discovered entities"),
-            ):
-                card.set_value("0", hint)
             for model in (
                 self.assets_model,
                 self.services_model,
@@ -518,33 +450,6 @@ class AssetsTab(QWidget):
         self.login_surfaces_model.set_rows(filtered_login_surfaces)
         self.site_map_model.set_rows(filtered_routes)
         self.technologies_model.set_rows(filtered_technologies)
-
-        self.title_label.setText(snapshot.scan_name)
-        self.summary_label.setText(
-            f"Workspace: {snapshot.workspace_name or 'Unassigned'} | Target: {snapshot.target_input or 'n/a'}"
-        )
-        self.status_label.setText(
-            f"Assets {len(snapshot.assets)} | Services {len(snapshot.services)} | Web {len(snapshot.web_apps)} | Routes {len(snapshot.site_map)} | Notes {len([note for note in self._notes.values() if note.note.strip()])}"
-        )
-        self.results_label.setText(
-            "Showing "
-            f"{len(filtered_assets)}/{len(snapshot.assets)} assets, "
-            f"{len(filtered_services)}/{len(snapshot.services)} services, "
-            f"{len(filtered_web_apps)}/{len(snapshot.web_apps)} web apps, "
-            f"{len(filtered_endpoints)}/{len(snapshot.endpoints)} endpoints, "
-            f"{len(filtered_routes)}/{len(snapshot.site_map)} routes, "
-            f"{len(filtered_technologies)}/{len(snapshot.technologies)} technologies"
-        )
-        self.assets_card.set_value(str(len(snapshot.assets)), "Observed hosts, domains, and IP-backed entities")
-        self.services_card.set_value(str(len(snapshot.services)), "Open ports and parsed service banners")
-        self.web_card.set_value(
-            str(len(snapshot.web_apps) + len(snapshot.endpoints) + len(snapshot.forms)),
-            f"{len(snapshot.login_surfaces)} login surfaces and {len(snapshot.parameters)} parameters",
-        )
-        self.routes_card.set_value(str(len(snapshot.site_map)), "Mapped routes and discovery URLs")
-        self.technologies_card.set_value(str(len(snapshot.technologies)), "Detected technologies tied to discovered assets")
-        note_count = len([note for note in self._notes.values() if note.note.strip()])
-        self.notes_card.set_value(str(note_count), "Workspace-scoped operator notes for rediscovered entities")
 
     def _enrich_rows(self, entity_kind: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         snapshot = self._snapshot
