@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -297,3 +298,72 @@ def test_scheduler_requeues_repeatable_task_when_new_frontier_appears(tmp_path: 
     assert scan_runs == [["alpha.example.com"], ["beta.example.com"]]
     assert len(scan_states) == 2
     assert [state.detail["iteration"] for state in scan_states] == [1, 2]
+
+
+def test_scheduler_fans_out_can_run_many_task_instances(tmp_path: Path) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-fanout")
+    context = AdapterContext(
+        profile_name="standard",
+        config={
+            "orchestration": {
+                "task_start_delay_seconds": 0.0,
+                "capability_budgets": {"scanner": {"max_runs": 1, "max_runtime_seconds": 600}},
+            }
+        },
+        profile_config={"concurrency": 4},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-fanout"),
+        audit=_AuditStub(),
+    )
+    scanned_inputs: list[tuple[str, ...]] = []
+    dependent_seen: list[int] = []
+
+    def _scan_runner(scan_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        time.sleep(0.02)
+        scanned_inputs.append(tuple(scan_context.task_inputs))
+        return AdapterResult()
+
+    def _dependent_runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        dependent_seen.append(len(scanned_inputs))
+        return AdapterResult()
+
+    tasks = [
+        TaskDefinition(
+            key="scan-targets",
+            label="Scan targets",
+            capability="scanner",
+            stage="enumeration",
+            runner=_scan_runner,
+            should_run=lambda _run_data: (True, "pending_targets_available"),
+            can_run_many=True,
+            input_items=lambda _run_data: ["alpha.example.com", "beta.example.com", "gamma.example.com"],
+        ),
+        TaskDefinition(
+            key="dependent-task",
+            label="Dependent task",
+            capability="analysis",
+            stage="analysis",
+            runner=_dependent_runner,
+            should_run=lambda _run_data: (True, "scanner_complete"),
+            dependencies=["scan-targets"],
+        ),
+    ]
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=tasks,
+        context=context,
+        run_data=_run_data(),
+    )
+
+    scan_states = [state for state in states if state.key == "scan-targets"]
+    dependent_states = [state for state in states if state.key == "dependent-task"]
+
+    assert len(scan_states) == 3
+    assert all(state.status == "completed" for state in scan_states)
+    assert sorted(scanned_inputs) == [
+        ("alpha.example.com",),
+        ("beta.example.com",),
+        ("gamma.example.com",),
+    ]
+    assert dependent_seen == [3]
+    assert dependent_states[0].status == "completed"

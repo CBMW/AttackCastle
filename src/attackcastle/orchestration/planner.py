@@ -9,7 +9,7 @@ import yaml
 from attackcastle.analysis import approval_class_for_task
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import RunData
-from attackcastle.orchestration.rules import CONDITION_MAP, INPUT_SIGNATURE_MAP
+from attackcastle.orchestration.rules import CONDITION_MAP, INPUT_ITEMS_MAP, INPUT_SIGNATURE_MAP
 from attackcastle.orchestration.task_graph import TaskDefinition
 
 TaskRunner = Callable[[AdapterContext, RunData], AdapterResult | None]
@@ -86,6 +86,7 @@ def _build_task_definition(
         preview_commands=preview_callable,
         repeatable_on_new_inputs=bool(rule_task.get("repeatable_on_new_inputs", False)),
         input_signature=INPUT_SIGNATURE_MAP.get(str(rule_task["key"])),
+        input_items=INPUT_ITEMS_MAP.get(str(rule_task["key"])),
     )
 
 

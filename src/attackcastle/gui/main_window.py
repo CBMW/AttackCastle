@@ -759,12 +759,6 @@ class MainWindow(QMainWindow):
         self.skip_button.clicked.connect(lambda: self._send_control_action("skip"))
         self.retry_button = QPushButton("Retry Run")
         self.retry_button.clicked.connect(self._retry_selected_run)
-        self.open_run_button = QPushButton("Open Run Folder")
-        self.open_run_button.clicked.connect(self._open_selected_run_folder)
-        self.open_output_button = QPushButton("Open Findings")
-        self.open_output_button.clicked.connect(lambda checked=False: self._navigate_to("findings"))
-        self.open_health_button = QPushButton("Open Health")
-        self.open_health_button.clicked.connect(self._focus_health_panel)
 
         set_tooltips(
             (
@@ -773,9 +767,6 @@ class MainWindow(QMainWindow):
                 (self.stop_button, "Stop the selected run."),
                 (self.skip_button, "Skip the current task for the selected run."),
                 (self.retry_button, "Relaunch the selected run configuration. Shortcut: Ctrl+R."),
-                (self.open_run_button, "Open the selected run folder in the file manager."),
-                (self.open_output_button, "Open the Findings workspace for the selected run."),
-                (self.open_health_button, "Open the Scanner health view for the selected run."),
             )
         )
 
@@ -784,9 +775,6 @@ class MainWindow(QMainWindow):
             self.resume_button,
             self.skip_button,
             self.retry_button,
-            self.open_run_button,
-            self.open_output_button,
-            self.open_health_button,
         ):
             button.setObjectName("scannerActionButton")
             style_button(button, role="secondary", min_height=38)
@@ -799,14 +787,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(
             self._build_scanner_action_section("Task Flow", (self.skip_button, self.retry_button))
         )
-        layout.addWidget(
-            self._build_scanner_action_section("Inspect", (self.open_run_button, self.open_output_button, self.open_health_button))
-        )
-
-        self.run_actions_hint_label = QLabel("Scanner controls stay disabled until a run is selected.")
-        self.run_actions_hint_label.setObjectName("helperText")
-        self.run_actions_hint_label.setWordWrap(True)
-        layout.addWidget(self.run_actions_hint_label)
         layout.addStretch(1)
         return card
 
@@ -2595,9 +2575,6 @@ class MainWindow(QMainWindow):
                 self.stop_button,
                 self.skip_button,
                 self.retry_button,
-                self.open_run_button,
-                self.open_output_button,
-                self.open_health_button,
             ):
                 button.setEnabled(False)
             self.selected_run_name_label.setText("No run selected")
@@ -2610,7 +2587,6 @@ class MainWindow(QMainWindow):
             self.selected_run_status_label.setText(
                 "No run selected. Choose a run from the table before using Scanner controls."
             )
-            self.run_actions_hint_label.setText("Scanner controls stay disabled until a run is selected.")
             self.general_status_detail.setText(
                 "Select a run to review context, health, and findings for the current session."
             )
@@ -2630,26 +2606,11 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(snapshot.state in {"running", "paused"} or snapshot.resume_required)
         self.skip_button.setEnabled(snapshot.state == "running" and not snapshot.pause_requested and not snapshot.resume_required)
         self.retry_button.setEnabled(bool(str(snapshot.run_dir or "").strip()))
-        self.open_run_button.setEnabled(bool(str(snapshot.run_dir or "").strip()))
-        self.open_output_button.setEnabled(has_snapshot)
-        self.open_health_button.setEnabled(has_snapshot)
-        self.run_actions_hint_label.setText(self._selected_run_action_hint(snapshot))
         issue_count = int(snapshot.execution_issues_summary.get("total_count", 0) or 0)
         self.general_status_detail.setText(
             f"Focused on {snapshot.workspace_name or 'the ad-hoc session'} with {issue_count} execution issue(s). "
             "Use Scanner > Issues for the consolidated review."
         )
-
-    def _selected_run_action_hint(self, snapshot: RunSnapshot) -> str:
-        if snapshot.state == "running":
-            return "Use Pause, Stop, or Skip Task to adjust the active run without leaving the Scanner dashboard."
-        if snapshot.state == "paused":
-            return "Resume restarts execution. Open Findings and Open Health are available for review before continuing."
-        if snapshot.state in {"failed", "blocked"}:
-            return "Review Scanner health first, then retry the run or inspect the run folder for artifacts and logs."
-        if snapshot.state in {"completed", "cancelled"}:
-            return "Open Findings to review results or Retry Run to launch the same configuration again."
-        return "Open Findings, Open Health, or the run folder to inspect the current run."
 
 
 def run() -> int:

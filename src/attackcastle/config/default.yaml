@@ -207,6 +207,7 @@ adaptive_execution:
 
 nmap:
   enabled: true
+  timeout_seconds: 1800
   args: []
   host_discovery_args:
     - "-sn"
@@ -555,7 +556,7 @@ orchestration:
       max_runtime_seconds: 120
     network_port_scan:
       max_runs: 1
-      max_runtime_seconds: 900
+      max_runtime_seconds: 21600
     web_probe:
       max_runs: 1
       max_runtime_seconds: 600

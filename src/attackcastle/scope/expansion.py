@@ -65,6 +65,41 @@ def collect_host_scan_targets(run_data: RunData) -> list[str]:
     return sorted(targets)
 
 
+def collect_resolved_host_scan_targets(run_data: RunData) -> list[str]:
+    targets: set[str] = set()
+    resolved_names: set[str] = set()
+
+    for asset in run_data.assets:
+        resolved_ips = {
+            normalize_host_scan_value(asset.ip),
+            *(normalize_host_scan_value(item) for item in list(getattr(asset, "resolved_ips", []))),
+        }
+        resolved_ips = {item for item in resolved_ips if item and is_ip_literal(item)}
+        if not resolved_ips:
+            continue
+        for candidate in (asset.name, *list(asset.aliases)):
+            normalized = normalize_host_scan_value(candidate)
+            if normalized:
+                resolved_names.add(normalized)
+        targets.update(resolved_ips)
+
+    for target in run_data.scope:
+        normalized = normalize_host_scan_value(normalize_target_for_host_scan(target))
+        if not normalized:
+            continue
+        if is_ip_literal(normalized) or normalized in resolved_names:
+            targets.add(normalized)
+
+    discovered_hosts = run_data.facts.get("subdomain_enum.discovered_hosts", [])
+    if isinstance(discovered_hosts, list):
+        for candidate in discovered_hosts:
+            normalized = normalize_host_scan_value(str(candidate or ""))
+            if normalized and normalized in resolved_names:
+                targets.add(normalized)
+
+    return sorted(targets)
+
+
 def collect_network_targets(run_data: RunData) -> list[str]:
     targets: set[str] = set()
     for target in run_data.scope:

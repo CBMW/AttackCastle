@@ -34,6 +34,7 @@ class TaskDefinition:
     preview_commands: Callable[[AdapterContext, RunData], list[str]] | None = None
     repeatable_on_new_inputs: bool = False
     input_signature: Callable[[RunData], str] | None = None
+    input_items: Callable[[RunData], list[str]] | None = None
 
 
 @dataclass

@@ -5,8 +5,9 @@ import signal
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
+from hashlib import sha1
 from threading import Event
 
 from rich.console import Console
@@ -37,6 +38,8 @@ class ScheduledTask:
     attempt: int = 0
     input_signature: str = ""
     iteration: int = 1
+    instance_key: str = ""
+    task_inputs: tuple[str, ...] = ()
 
 
 def _emit_adapter_result_runtime_events(context: AdapterContext, result: AdapterResult) -> None:
@@ -141,6 +144,7 @@ class WorkflowScheduler:
         capability_budgets = context.config.get("orchestration", {}).get("capability_budgets", {})
         stage_concurrency = context.config.get("orchestration", {}).get("stage_concurrency", {})
         capability_runs: dict[str, int] = {}
+        capability_run_tokens: set[str] = set()
         capability_runtime: dict[str, float] = {}
         total_retries = 0
         waiting_reason_by_task: dict[str, str] = {}
@@ -154,12 +158,23 @@ class WorkflowScheduler:
         if execution_controller is not None and getattr(execution_controller, "is_enabled", lambda: False)():
             hard_concurrency = int(getattr(execution_controller, "hard_max_workers", hard_concurrency))
 
+        def build_instance_key(task_key: str, iteration: int, task_inputs: tuple[str, ...]) -> str:
+            if not task_inputs:
+                return f"{task_key}::iter{iteration}"
+            digest = sha1("|".join(task_inputs).encode("utf-8")).hexdigest()[:12]  # noqa: S324
+            return f"{task_key}::iter{iteration}::{digest}"
+
         pending: dict[str, ScheduledTask] = {
-            task.key: ScheduledTask(definition=task, attempt=0, iteration=1)
+            build_instance_key(task.key, 1, ()): ScheduledTask(
+                definition=task,
+                attempt=0,
+                iteration=1,
+                instance_key=build_instance_key(task.key, 1, ()),
+            )
             for task in tasks
             if task.key not in completed
         }
-        running: dict[Future, tuple[TaskDefinition, int, object, str, str, int]] = {}
+        running: dict[Future, tuple[ScheduledTask, object, str]] = {}
         executor = ThreadPoolExecutor(max_workers=max(1, hard_concurrency))
 
         progress = (
@@ -240,6 +255,92 @@ class WorkflowScheduler:
                     except Exception:
                         return ""
 
+                def has_active_instances(task_key: str) -> bool:
+                    if any(item.definition.key == task_key for item in pending.values()):
+                        return True
+                    return any(item.definition.key == task_key for item, *_rest in running.values())
+
+                def mark_task_completed_if_idle(task_key: str) -> None:
+                    if not has_active_instances(task_key):
+                        completed.add(task_key)
+
+                def expand_fanout_instances(queue_key: str, item: ScheduledTask) -> bool:
+                    task = item.definition
+                    if not task.can_run_many or task.input_items is None or item.task_inputs:
+                        return False
+                    try:
+                        raw_inputs = task.input_items(run_data) or []
+                    except Exception:
+                        raw_inputs = []
+                    normalized_inputs: list[str] = []
+                    seen_inputs: set[str] = set()
+                    for raw_input in raw_inputs:
+                        text = str(raw_input or "").strip()
+                        if not text or text in seen_inputs:
+                            continue
+                        seen_inputs.add(text)
+                        normalized_inputs.append(text)
+                    if len(normalized_inputs) <= 1:
+                        single_inputs = tuple(normalized_inputs)
+                        instance_key = build_instance_key(task.key, item.iteration, single_inputs)
+                        updated = ScheduledTask(
+                            definition=task,
+                            attempt=item.attempt,
+                            input_signature=single_inputs[0] if single_inputs else item.input_signature,
+                            iteration=item.iteration,
+                            instance_key=instance_key,
+                            task_inputs=single_inputs,
+                        )
+                        if instance_key != queue_key:
+                            pending.pop(queue_key, None)
+                            pending[instance_key] = updated
+                            waiting_reason_by_task.pop(queue_key, None)
+                        else:
+                            pending[queue_key] = updated
+                        return False
+
+                    pending.pop(queue_key, None)
+                    waiting_reason_by_task.pop(queue_key, None)
+                    progress_delta = 0
+                    for task_input in normalized_inputs:
+                        task_inputs = (task_input,)
+                        instance_key = build_instance_key(task.key, item.iteration, task_inputs)
+                        if instance_key in pending or any(
+                            running_item.instance_key == instance_key for running_item, *_rest in running.values()
+                        ):
+                            continue
+                        pending[instance_key] = ScheduledTask(
+                            definition=task,
+                            attempt=item.attempt,
+                            input_signature=task_input,
+                            iteration=item.iteration,
+                            instance_key=instance_key,
+                            task_inputs=task_inputs,
+                        )
+                        progress_delta += 1
+                    if progress_delta > 1:
+                        for _ in range(progress_delta - 1):
+                            extend_progress_total()
+                    context.audit.write(
+                        "task.fanned_out",
+                        {
+                            "task": task.key,
+                            "iteration": item.iteration,
+                            "count": progress_delta,
+                        },
+                    )
+                    emit_runtime_event(
+                        context,
+                        "task.fanned_out",
+                        {
+                            "task": task.key,
+                            "label": task.label,
+                            "iteration": item.iteration,
+                            "count": progress_delta,
+                        },
+                    )
+                    return True
+
                 def extend_progress_total() -> None:
                     nonlocal progress_total
                     progress_total += 1
@@ -247,11 +348,11 @@ class WorkflowScheduler:
                         progress.update(progress_id, total=progress_total)
 
                 def enqueue_repeatable_frontiers() -> None:
-                    running_keys = {running_task.key for running_task, *_rest in running.values()}
+                    running_keys = {running_item.definition.key for running_item, *_rest in running.values()}
                     for task in tasks:
                         if not task.repeatable_on_new_inputs:
                             continue
-                        if task.key in pending or task.key in running_keys:
+                        if has_active_instances(task.key) or task.key in running_keys:
                             continue
                         if not all(dep in completed for dep in task.dependencies):
                             continue
@@ -259,11 +360,13 @@ class WorkflowScheduler:
                         if not signature or signature == last_input_signature_by_task.get(task.key, ""):
                             continue
                         next_iteration = last_iteration_by_task.get(task.key, 1) + 1
-                        pending[task.key] = ScheduledTask(
+                        instance_key = build_instance_key(task.key, next_iteration, ())
+                        pending[instance_key] = ScheduledTask(
                             definition=task,
                             attempt=0,
                             input_signature=signature,
                             iteration=next_iteration,
+                            instance_key=instance_key,
                         )
                         if task.key in completed:
                             extend_progress_total()
@@ -290,7 +393,11 @@ class WorkflowScheduler:
                     nonlocal total_retries
                     done_futures = [future for future in list(running.keys()) if future.done()]
                     for future in done_futures:
-                        task, attempt, started_at, decision_reason, input_signature, iteration = running.pop(future)
+                        item, started_at, decision_reason = running.pop(future)
+                        task = item.definition
+                        attempt = item.attempt
+                        input_signature = item.input_signature
+                        iteration = item.iteration
                         ended_at = now_utc()
                         error_message = None
                         status = TaskStatus.COMPLETED.value
@@ -330,14 +437,18 @@ class WorkflowScheduler:
                             effective_retry_limit = min(task.max_retries, capability_retry_ceiling)
                             if total_retries >= max_total_retries:
                                 effective_retry_limit = 0
-                            capability_runtime[task.capability] = capability_runtime.get(task.capability, 0.0) + duration_seconds
+                            capability_runtime[task.capability] = (
+                                capability_runtime.get(task.capability, 0.0) + duration_seconds
+                            )
                             retry_attempt = attempt + 1
                             if retry_attempt <= effective_retry_limit:
-                                pending[task.key] = ScheduledTask(
+                                pending[item.instance_key] = ScheduledTask(
                                     definition=task,
                                     attempt=retry_attempt,
                                     input_signature=input_signature,
                                     iteration=iteration,
+                                    instance_key=item.instance_key,
+                                    task_inputs=item.task_inputs,
                                 )
                                 total_retries += 1
                                 status = TaskStatus.PENDING.value
@@ -345,6 +456,7 @@ class WorkflowScheduler:
                                     "task.retry",
                                     {
                                         "task": task.key,
+                                        "instance_key": item.instance_key,
                                         "attempt": retry_attempt + 1,
                                         "backoff_seconds": task.backoff_seconds,
                                     },
@@ -362,7 +474,9 @@ class WorkflowScheduler:
                                 )
 
                         if status in terminal_status | {TaskStatus.FAILED.value, TaskStatus.BLOCKED.value}:
-                            capability_runtime[task.capability] = capability_runtime.get(task.capability, 0.0) + duration_seconds
+                            capability_runtime[task.capability] = (
+                                capability_runtime.get(task.capability, 0.0) + duration_seconds
+                            )
                             last_input_signature_by_task[task.key] = input_signature
                             last_iteration_by_task[task.key] = iteration
                             if execution_controller is not None and getattr(
@@ -377,7 +491,7 @@ class WorkflowScheduler:
                                     success=status == TaskStatus.COMPLETED.value,
                                     timed_out=bool(error_message and "timeout" in error_message.lower()),
                                 )
-                            completed.add(task.key)
+                            mark_task_completed_if_idle(task.key)
                             state = TaskExecutionState(
                                 key=task.key,
                                 label=task.label,
@@ -393,6 +507,8 @@ class WorkflowScheduler:
                                     "decision_reason": decision_reason,
                                     "last_input_signature": input_signature,
                                     "iteration": iteration,
+                                    "instance_key": item.instance_key,
+                                    "task_inputs": list(item.task_inputs),
                                 },
                             )
                             states.append(state)
@@ -412,6 +528,8 @@ class WorkflowScheduler:
                                     "error": error_message,
                                     "attempt": attempt + 1,
                                     "iteration": iteration,
+                                    "instance_key": item.instance_key,
+                                    "task_inputs": list(item.task_inputs),
                                     "run_id": run_data.metadata.run_id,
                                 },
                             )
@@ -425,6 +543,8 @@ class WorkflowScheduler:
                                     "attempt": attempt + 1,
                                     "error": error_message,
                                     "iteration": iteration,
+                                    "instance_key": item.instance_key,
+                                    "task_inputs": list(item.task_inputs),
                                 },
                             )
                             context.run_store.save_checkpoint(task.key, status, run_data)
@@ -435,8 +555,10 @@ class WorkflowScheduler:
                     status: str,
                     reason: str,
                     *,
+                    queue_key: str | None = None,
                     input_signature: str = "",
                     iteration: int = 1,
+                    task_inputs: tuple[str, ...] = (),
                 ) -> None:
                     timestamp = now_utc()
                     last_input_signature_by_task[task.key] = input_signature
@@ -453,12 +575,15 @@ class WorkflowScheduler:
                                 "capability": task.capability,
                                 "last_input_signature": input_signature,
                                 "iteration": iteration,
+                                "instance_key": queue_key or build_instance_key(task.key, iteration, task_inputs),
+                                "task_inputs": list(task_inputs),
                             },
                         )
                     )
-                    completed.add(task.key)
-                    pending.pop(task.key, None)
-                    waiting_reason_by_task.pop(task.key, None)
+                    if queue_key is not None:
+                        pending.pop(queue_key, None)
+                        waiting_reason_by_task.pop(queue_key, None)
+                    mark_task_completed_if_idle(task.key)
                     if progress is not None and progress_id is not None:
                         progress.advance(progress_id, 1)
                     else:
@@ -603,13 +728,14 @@ class WorkflowScheduler:
                         item = pending[key]
                         task = item.definition
                         if not all(dep in completed for dep in task.dependencies):
-                            previous_reason = waiting_reason_by_task.get(task.key)
+                            previous_reason = waiting_reason_by_task.get(key)
                             if previous_reason != "waiting_for_dependencies":
-                                waiting_reason_by_task[task.key] = "waiting_for_dependencies"
+                                waiting_reason_by_task[key] = "waiting_for_dependencies"
                                 context.audit.write(
                                     "task.waiting",
                                     {
                                         "task": task.key,
+                                        "instance_key": item.instance_key,
                                         "reason": "waiting_for_dependencies",
                                         "dependencies": task.dependencies,
                                     },
@@ -634,7 +760,11 @@ class WorkflowScheduler:
                                     status=TaskStatus.BLOCKED.value,
                                     started_at=timestamp,
                                     ended_at=timestamp,
-                                    detail={"reason": "circuit_breaker_open"},
+                                    detail={
+                                        "reason": "circuit_breaker_open",
+                                        "instance_key": item.instance_key,
+                                        "task_inputs": list(item.task_inputs),
+                                    },
                                 )
                             )
                             context.audit.write(
@@ -643,10 +773,12 @@ class WorkflowScheduler:
                                     "task": task.key,
                                     "capability": task.capability,
                                     "reason": "circuit_breaker_open",
+                                    "instance_key": item.instance_key,
                                 },
                             )
-                            completed.add(task.key)
                             pending.pop(key, None)
+                            waiting_reason_by_task.pop(key, None)
+                            mark_task_completed_if_idle(task.key)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:
@@ -657,7 +789,16 @@ class WorkflowScheduler:
                         capability_budget = capability_budgets.get(task.capability, {})
                         max_runs = capability_budget.get("max_runs")
                         max_runtime_seconds = capability_budget.get("max_runtime_seconds")
-                        if max_runs is not None and capability_runs.get(task.capability, 0) >= int(max_runs):
+                        capability_run_token = (
+                            f"{task.capability}:{task.key}:{item.iteration}"
+                            if task.can_run_many and task.input_items is not None
+                            else item.instance_key
+                        )
+                        if (
+                            max_runs is not None
+                            and capability_run_token not in capability_run_tokens
+                            and capability_runs.get(task.capability, 0) >= int(max_runs)
+                        ):
                             timestamp = now_utc()
                             states.append(
                                 TaskExecutionState(
@@ -666,11 +807,16 @@ class WorkflowScheduler:
                                     status=TaskStatus.BLOCKED.value,
                                     started_at=timestamp,
                                     ended_at=timestamp,
-                                    detail={"reason": "capability_run_budget_exceeded"},
+                                    detail={
+                                        "reason": "capability_run_budget_exceeded",
+                                        "instance_key": item.instance_key,
+                                        "task_inputs": list(item.task_inputs),
+                                    },
                                 )
                             )
-                            completed.add(task.key)
                             pending.pop(key, None)
+                            waiting_reason_by_task.pop(key, None)
+                            mark_task_completed_if_idle(task.key)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:
@@ -678,7 +824,11 @@ class WorkflowScheduler:
                                     self.console.print(f"{task.label}: blocked (run budget)")
                             context.audit.write(
                                 "task.blocked",
-                                {"task": task.key, "reason": "capability_run_budget_exceeded"},
+                                {
+                                    "task": task.key,
+                                    "reason": "capability_run_budget_exceeded",
+                                    "instance_key": item.instance_key,
+                                },
                             )
                             continue
                         if (
@@ -693,11 +843,16 @@ class WorkflowScheduler:
                                     status=TaskStatus.BLOCKED.value,
                                     started_at=timestamp,
                                     ended_at=timestamp,
-                                    detail={"reason": "capability_runtime_budget_exceeded"},
+                                    detail={
+                                        "reason": "capability_runtime_budget_exceeded",
+                                        "instance_key": item.instance_key,
+                                        "task_inputs": list(item.task_inputs),
+                                    },
                                 )
                             )
-                            completed.add(task.key)
                             pending.pop(key, None)
+                            waiting_reason_by_task.pop(key, None)
+                            mark_task_completed_if_idle(task.key)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:
@@ -705,7 +860,11 @@ class WorkflowScheduler:
                                     self.console.print(f"{task.label}: blocked (runtime budget)")
                             context.audit.write(
                                 "task.blocked",
-                                {"task": task.key, "reason": "capability_runtime_budget_exceeded"},
+                                {
+                                    "task": task.key,
+                                    "reason": "capability_runtime_budget_exceeded",
+                                    "instance_key": item.instance_key,
+                                },
                             )
                             continue
 
@@ -717,13 +876,14 @@ class WorkflowScheduler:
                                     paused = True
                                     pause_notice_emitted = False
                                     wait_reason = f"policy_pause:{decision.reason}"
-                                    previous_reason = waiting_reason_by_task.get(task.key)
+                                    previous_reason = waiting_reason_by_task.get(key)
                                     if previous_reason != wait_reason:
-                                        waiting_reason_by_task[task.key] = wait_reason
+                                        waiting_reason_by_task[key] = wait_reason
                                         context.audit.write(
                                             "task.waiting",
                                             {
                                                 "task": task.key,
+                                                "instance_key": item.instance_key,
                                                 "reason": wait_reason,
                                                 "rule_id": decision.rule_id,
                                             },
@@ -742,6 +902,10 @@ class WorkflowScheduler:
                                     task,
                                     TaskStatus.BLOCKED.value,
                                     f"policy_denied:{decision.reason}",
+                                    queue_key=key,
+                                    input_signature=item.input_signature,
+                                    iteration=item.iteration,
+                                    task_inputs=item.task_inputs,
                                 )
                                 continue
 
@@ -751,12 +915,16 @@ class WorkflowScheduler:
                             context.config,
                         )
                         if not matrix_allowed:
-                            previous_reason = waiting_reason_by_task.get(task.key)
+                            previous_reason = waiting_reason_by_task.get(key)
                             if previous_reason != matrix_reason:
-                                waiting_reason_by_task[task.key] = matrix_reason
+                                waiting_reason_by_task[key] = matrix_reason
                                 context.audit.write(
                                     "task.waiting",
-                                    {"task": task.key, "reason": matrix_reason},
+                                    {
+                                        "task": task.key,
+                                        "reason": matrix_reason,
+                                        "instance_key": item.instance_key,
+                                    },
                                 )
                                 emit_runtime_event(
                                     context,
@@ -769,13 +937,17 @@ class WorkflowScheduler:
                         if task.repeatable_on_new_inputs:
                             frontier_signature = current_input_signature(task)
                             if not frontier_signature:
-                                previous_reason = waiting_reason_by_task.get(task.key)
+                                previous_reason = waiting_reason_by_task.get(key)
                                 wait_reason = "no_pending_inputs"
                                 if previous_reason != wait_reason:
-                                    waiting_reason_by_task[task.key] = wait_reason
+                                    waiting_reason_by_task[key] = wait_reason
                                     context.audit.write(
                                         "task.waiting",
-                                        {"task": task.key, "reason": wait_reason},
+                                        {
+                                            "task": task.key,
+                                            "reason": wait_reason,
+                                            "instance_key": item.instance_key,
+                                        },
                                     )
                                     emit_runtime_event(
                                         context,
@@ -785,15 +957,23 @@ class WorkflowScheduler:
                                 continue
                             item.input_signature = frontier_signature
 
+                        if expand_fanout_instances(key, item):
+                            scheduled_any = True
+                            break
+
                         should_run, reason = task.should_run(run_data)
                         if not should_run:
                             # Keep pending until nothing else can change run facts.
-                            previous_reason = waiting_reason_by_task.get(task.key)
+                            previous_reason = waiting_reason_by_task.get(key)
                             if previous_reason != reason:
-                                waiting_reason_by_task[task.key] = reason
+                                waiting_reason_by_task[key] = reason
                                 context.audit.write(
                                     "task.waiting",
-                                    {"task": task.key, "reason": reason},
+                                    {
+                                        "task": task.key,
+                                        "reason": reason,
+                                        "instance_key": item.instance_key,
+                                    },
                                 )
                                 emit_runtime_event(
                                     context,
@@ -820,17 +1000,21 @@ class WorkflowScheduler:
                         if isinstance(stage_limit, int) and stage_limit > 0:
                             current_stage_running = sum(
                                 1
-                                for running_task, *_rest in running.values()
-                                if running_task.stage == task.stage
+                                for running_item, *_rest in running.values()
+                                if running_item.definition.stage == task.stage
                             )
                             if current_stage_running >= stage_limit:
-                                previous_reason = waiting_reason_by_task.get(task.key)
+                                previous_reason = waiting_reason_by_task.get(key)
                                 wait_reason = f"stage_concurrency_limit:{task.stage}"
                                 if previous_reason != wait_reason:
-                                    waiting_reason_by_task[task.key] = wait_reason
+                                    waiting_reason_by_task[key] = wait_reason
                                     context.audit.write(
                                         "task.waiting",
-                                        {"task": task.key, "reason": wait_reason},
+                                        {
+                                            "task": task.key,
+                                            "reason": wait_reason,
+                                            "instance_key": item.instance_key,
+                                        },
                                     )
                                     emit_runtime_event(
                                         context,
@@ -846,18 +1030,22 @@ class WorkflowScheduler:
                         )() and execution_controller.is_heavy_capability(task.capability):
                             heavy_running = sum(
                                 1
-                                for running_task, *_rest in running.values()
-                                if execution_controller.is_heavy_capability(running_task.capability)
+                                for running_item, *_rest in running.values()
+                                if execution_controller.is_heavy_capability(running_item.definition.capability)
                             )
                             heavy_limit = int(execution_controller.heavy_process_limit())
                             if heavy_running >= heavy_limit:
-                                previous_reason = waiting_reason_by_task.get(task.key)
+                                previous_reason = waiting_reason_by_task.get(key)
                                 wait_reason = "adaptive_heavy_process_limit"
                                 if previous_reason != wait_reason:
-                                    waiting_reason_by_task[task.key] = wait_reason
+                                    waiting_reason_by_task[key] = wait_reason
                                     context.audit.write(
                                         "task.waiting",
-                                        {"task": task.key, "reason": wait_reason},
+                                        {
+                                            "task": task.key,
+                                            "reason": wait_reason,
+                                            "instance_key": item.instance_key,
+                                        },
                                     )
                                     emit_runtime_event(
                                         context,
@@ -871,9 +1059,11 @@ class WorkflowScheduler:
                             "task.started",
                             {
                                 "task": task.key,
+                                "instance_key": item.instance_key,
                                 "label": task.label,
                                 "attempt": item.attempt + 1,
                                 "iteration": item.iteration,
+                                "task_inputs": list(item.task_inputs),
                                 "run_id": run_data.metadata.run_id,
                             },
                         )
@@ -882,10 +1072,12 @@ class WorkflowScheduler:
                             "task.started",
                             {
                                 "task": task.key,
+                                "instance_key": item.instance_key,
                                 "label": task.label,
                                 "attempt": item.attempt + 1,
                                 "reason": reason,
                                 "iteration": item.iteration,
+                                "task_inputs": list(item.task_inputs),
                             },
                         )
                         context.run_store.save_checkpoint(task.key, "running", run_data)
@@ -893,29 +1085,34 @@ class WorkflowScheduler:
                             progress.update(progress_id, description=f"[cyan]{task.label}")
                         else:
                             if self.emit_plain_logs:
-                                self.console.print(f"Starting: {task.label} (attempt={item.attempt + 1})")
-                        future = executor.submit(task.runner, context, run_data)
-                        running[future] = (
-                            task,
-                            item.attempt,
-                            started_at,
-                            reason,
-                            frontier_signature,
-                            item.iteration,
+                                target_suffix = f" target={item.task_inputs[0]}" if item.task_inputs else ""
+                                self.console.print(
+                                    f"Starting: {task.label} (attempt={item.attempt + 1}{target_suffix})"
+                                )
+                        task_context = replace(
+                            context,
+                            task_instance_key=item.instance_key,
+                            task_inputs=list(item.task_inputs),
                         )
-                        capability_runs[task.capability] = capability_runs.get(task.capability, 0) + 1
+                        future = executor.submit(task.runner, task_context, run_data)
+                        running[future] = (item, started_at, reason)
+                        if capability_run_token not in capability_run_tokens:
+                            capability_runs[task.capability] = capability_runs.get(task.capability, 0) + 1
+                            capability_run_tokens.add(capability_run_token)
                         pending.pop(key, None)
-                        waiting_reason_by_task.pop(task.key, None)
+                        waiting_reason_by_task.pop(key, None)
                         scheduled_any = True
                         pause_notice_emitted = False
                         context.audit.write(
                             "task.queued",
                             {
                                 "task": task.key,
+                                "instance_key": item.instance_key,
                                 "reason": reason,
                                 "attempt": item.attempt + 1,
                                 "iteration": item.iteration,
                                 "input_signature": frontier_signature,
+                                "task_inputs": list(item.task_inputs),
                             },
                         )
                         emit_runtime_event(
@@ -923,10 +1120,12 @@ class WorkflowScheduler:
                             "task.queued",
                             {
                                 "task": task.key,
+                                "instance_key": item.instance_key,
                                 "label": task.label,
                                 "reason": reason,
                                 "attempt": item.attempt + 1,
                                 "iteration": item.iteration,
+                                "task_inputs": list(item.task_inputs),
                             },
                         )
                         update_live_metrics()
@@ -966,14 +1165,16 @@ class WorkflowScheduler:
                                             "capability": task.capability,
                                             "last_input_signature": frontier_signature,
                                             "iteration": item.iteration,
+                                            "instance_key": item.instance_key,
+                                            "task_inputs": list(item.task_inputs),
                                         },
                                     )
                                 )
                                 last_input_signature_by_task[task.key] = frontier_signature
                                 last_iteration_by_task[task.key] = item.iteration
-                                completed.add(task.key)
                                 pending.pop(key, None)
-                                waiting_reason_by_task.pop(task.key, None)
+                                waiting_reason_by_task.pop(key, None)
+                                mark_task_completed_if_idle(task.key)
                                 skipped_any = True
                                 if progress is not None and progress_id is not None:
                                     progress.advance(progress_id, 1)
@@ -987,6 +1188,8 @@ class WorkflowScheduler:
                                         "reason": matrix_reason,
                                         "iteration": item.iteration,
                                         "input_signature": frontier_signature,
+                                        "instance_key": item.instance_key,
+                                        "task_inputs": list(item.task_inputs),
                                     },
                                 )
                                 continue
@@ -1006,14 +1209,16 @@ class WorkflowScheduler:
                                         "capability": task.capability,
                                         "last_input_signature": frontier_signature,
                                         "iteration": item.iteration,
+                                        "instance_key": item.instance_key,
+                                        "task_inputs": list(item.task_inputs),
                                     },
                                 )
                             )
                             last_input_signature_by_task[task.key] = frontier_signature
                             last_iteration_by_task[task.key] = item.iteration
-                            completed.add(task.key)
                             pending.pop(key, None)
-                            waiting_reason_by_task.pop(task.key, None)
+                            waiting_reason_by_task.pop(key, None)
+                            mark_task_completed_if_idle(task.key)
                             skipped_any = True
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
@@ -1027,6 +1232,8 @@ class WorkflowScheduler:
                                     "reason": reason,
                                     "iteration": item.iteration,
                                     "input_signature": frontier_signature,
+                                    "instance_key": item.instance_key,
+                                    "task_inputs": list(item.task_inputs),
                                 },
                             )
 
@@ -1052,14 +1259,16 @@ class WorkflowScheduler:
                                         "capability": task.capability,
                                         "last_input_signature": frontier_signature,
                                         "iteration": item.iteration,
+                                        "instance_key": item.instance_key,
+                                        "task_inputs": list(item.task_inputs),
                                     },
                                 )
                             )
                             last_input_signature_by_task[task.key] = frontier_signature
                             last_iteration_by_task[task.key] = item.iteration
-                            completed.add(task.key)
                             pending.pop(key, None)
-                            waiting_reason_by_task.pop(task.key, None)
+                            waiting_reason_by_task.pop(key, None)
+                            mark_task_completed_if_idle(task.key)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:
@@ -1072,6 +1281,8 @@ class WorkflowScheduler:
                                     "reason": skipped_reason,
                                     "iteration": item.iteration,
                                     "input_signature": frontier_signature,
+                                    "instance_key": item.instance_key,
+                                    "task_inputs": list(item.task_inputs),
                                 },
                             )
 
@@ -1083,7 +1294,8 @@ class WorkflowScheduler:
                 if self._cancel_event.is_set():
                     timestamp = now_utc()
                     for key in list(pending.keys()):
-                        task = pending.pop(key).definition
+                        item = pending.pop(key)
+                        task = item.definition
                         states.append(
                             TaskExecutionState(
                                 key=task.key,
@@ -1091,9 +1303,15 @@ class WorkflowScheduler:
                                 status=TaskStatus.CANCELLED.value,
                                 started_at=timestamp,
                                 ended_at=timestamp,
-                                detail={"reason": "orchestration_cancelled"},
+                                detail={
+                                    "reason": "orchestration_cancelled",
+                                    "instance_key": item.instance_key,
+                                    "task_inputs": list(item.task_inputs),
+                                },
                             )
                         )
+                        waiting_reason_by_task.pop(key, None)
+                        mark_task_completed_if_idle(task.key)
                     if progress is not None and progress_id is not None:
                         progress.update(progress_id, description="[red]Workflow cancelled")
                         update_live_metrics()

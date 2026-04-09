@@ -83,6 +83,8 @@ class AdapterContext:
     execution_controller: Any = None
     event_emitter: Callable[[str, dict[str, Any]], None] | None = None
     post_run_processors: list[Callable[[Any, RunData, Any], None]] = field(default_factory=list)
+    task_instance_key: str | None = None
+    task_inputs: list[str] = field(default_factory=list)
 
 
 class ToolAdapter(Protocol):

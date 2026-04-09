@@ -11,7 +11,7 @@ from attackcastle.normalization.correlator import (
     collect_web_targets,
     collect_wordpress_targets,
 )
-from attackcastle.scope.expansion import collect_host_scan_targets
+from attackcastle.scope.expansion import collect_host_scan_targets, collect_resolved_host_scan_targets
 
 
 def condition_always(_: RunData) -> tuple[bool, str]:
@@ -62,10 +62,23 @@ def _pending_host_signature(run_data: RunData) -> str:
     }
     pending = [
         _normalize_host_target(item)
-        for item in collect_host_scan_targets(run_data)
+        for item in collect_resolved_host_scan_targets(run_data)
         if _normalize_host_target(item) and _normalize_host_target(item) not in scanned
     ]
     return _signature(pending)
+
+
+def _pending_host_targets(run_data: RunData) -> list[str]:
+    scanned = {
+        _normalize_host_target(item)
+        for item in run_data.facts.get("nmap.scanned_targets", [])
+        if str(item).strip()
+    }
+    return [
+        _normalize_host_target(item)
+        for item in collect_resolved_host_scan_targets(run_data)
+        if _normalize_host_target(item) and _normalize_host_target(item) not in scanned
+    ]
 
 
 def _pending_candidate_web_signature(run_data: RunData, fact_key: str) -> str:
@@ -200,4 +213,8 @@ INPUT_SIGNATURE_MAP = {
     "assess-web": lambda run_data: _pending_confirmed_web_signature(run_data, "nikto.scanned_urls"),
     "run-nuclei": lambda run_data: _pending_confirmed_web_signature(run_data, "nuclei.scanned_urls"),
     "run-wpscan": _pending_wordpress_signature,
+}
+
+INPUT_ITEMS_MAP = {
+    "run-nmap": _pending_host_targets,
 }

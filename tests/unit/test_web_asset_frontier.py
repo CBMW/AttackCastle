@@ -22,7 +22,7 @@ from attackcastle.core.models import (
     now_utc,
 )
 from attackcastle.normalization.mapper import merge_adapter_result
-from attackcastle.scope.expansion import collect_host_scan_targets
+from attackcastle.scope.expansion import collect_host_scan_targets, collect_resolved_host_scan_targets
 from attackcastle.storage.run_store import RunStore
 
 
@@ -87,6 +87,32 @@ def test_collect_host_scan_targets_unions_scope_and_discovered_hosts(tmp_path: P
     assert "example.com" in targets
     assert "api.example.com" in targets
     assert "www.example.com" in targets
+
+
+def test_collect_resolved_host_scan_targets_excludes_unresolved_hosts(tmp_path: Path) -> None:
+    run_data = _run_data(tmp_path)
+    run_data.scope.append(
+        ScanTarget(
+            target_id="target-1",
+            raw="example.com",
+            target_type=TargetType.DOMAIN,
+            value="example.com",
+            host="example.com",
+        )
+    )
+    run_data.facts["subdomain_enum.discovered_hosts"] = ["api.example.com", "shop.example.com"]
+    run_data.assets.extend(
+        [
+            Asset(asset_id="asset-root", kind="domain", name="example.com", ip="198.51.100.10"),
+            Asset(asset_id="asset-api", kind="host", name="api.example.com", ip="203.0.113.10"),
+        ]
+    )
+
+    targets = collect_resolved_host_scan_targets(run_data)
+
+    assert "example.com" in targets
+    assert "api.example.com" in targets
+    assert "shop.example.com" not in targets
 
 
 def test_web_probe_prefers_hostname_targets_and_creates_confirmed_web_app(
