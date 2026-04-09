@@ -1,0 +1,447 @@
+{
+  "run_data": {
+    "alias_map": {
+      "asset_0a31611404ff": [
+        "asset_fd60e987e1ef"
+      ],
+      "asset_d5e5487c5554": [
+        "asset_a36c40ce0ae1"
+      ],
+      "service_c93a3c1ad5b3": [
+        "svc_af13b98aca32",
+        "svc_847920c1e85b"
+      ],
+      "web_56acc8c5224a": [
+        "web_8c3b40248548"
+      ]
+    },
+    "approval_decisions": [],
+    "assertions": [],
+    "assets": [
+      {
+        "aliases": [],
+        "asset_id": "asset_0a31611404ff",
+        "canonical_key": "domain|www.example.com||",
+        "ip": null,
+        "kind": "domain",
+        "name": "www.example.com",
+        "parent_asset_id": null,
+        "parser_version": null,
+        "source_execution_id": null,
+        "source_tool": "subfinder"
+      },
+      {
+        "aliases": [],
+        "asset_id": "asset_d5e5487c5554",
+        "canonical_key": "host|www.example.com|203.0.113.10|",
+        "ip": "203.0.113.10",
+        "kind": "host",
+        "name": "www.example.com",
+        "parent_asset_id": null,
+        "parser_version": null,
+        "source_execution_id": null,
+        "source_tool": "dnsx"
+      }
+    ],
+    "attack_paths": [],
+    "authorization_comparisons": [],
+    "coverage_decisions": [],
+    "coverage_gaps": [],
+    "endpoints": [
+      {
+        "asset_id": "asset_d5e5487c5554",
+        "auth_hints": [],
+        "canonical_key": "web_56acc8c5224a|https://www.example.com|base",
+        "confidence": 0.95,
+        "endpoint_id": "endpoint_7eee025eb973",
+        "kind": "base",
+        "method": null,
+        "parser_version": "autonomy_v2",
+        "path": "/",
+        "service_id": "service_c93a3c1ad5b3",
+        "source_execution_id": null,
+        "source_tool": "httpx",
+        "tags": [
+          "base",
+          "webapp"
+        ],
+        "url": "https://www.example.com",
+        "webapp_id": "web_56acc8c5224a"
+      }
+    ],
+    "errors": [],
+    "evidence": [],
+    "evidence_artifacts": [],
+    "evidence_bundles": [],
+    "facts": {
+      "approval.pending_count": 0,
+      "attack_surface.summary": {
+        "attack_path_count": 0,
+        "endpoint_count": 1,
+        "form_count": 0,
+        "investigation_step_count": 0,
+        "login_surface_count": 0,
+        "parameter_count": 0,
+        "surface_signal_count": 0
+      },
+      "autonomy.queue_summary": {
+        "approval_required_count": 0,
+        "attack_path_count": 0,
+        "confirmed_count": 0,
+        "coverage_gap_count": 0,
+        "hypothesis_count": 0,
+        "playbook_execution_count": 0,
+        "validation_task_count": 0
+      },
+      "nmap.scanned_targets": [
+        "www.example.com",
+        "203.0.113.10"
+      ],
+      "subdomain_enum.discovered_hosts": [
+        "www.example.com"
+      ],
+      "web_probe.scanned_urls": [
+        "https://www.example.com/"
+      ]
+    },
+    "findings": [],
+    "forms": [],
+    "hypotheses": [],
+    "investigation_steps": [],
+    "leads": [],
+    "login_surfaces": [],
+    "metadata": {
+      "audience": "consultant",
+      "ended_at": null,
+      "output_dir": "C:\\dev\\redteam\\AttackCastle\\tmp_scheduler_probe",
+      "profile": "aggressive",
+      "run_id": "probe",
+      "schema_version": "2.2.0",
+      "started_at": "2026-04-09T14:42:22.697129+00:00",
+      "state": "created",
+      "target_input": "example.com",
+      "tool_version": "0.1.0"
+    },
+    "normalized_entities": [
+      {
+        "attributes": {
+          "fqdn": "www.example.com",
+          "root_domain": "example.com",
+          "source": "subfinder",
+          "value": "www.example.com"
+        },
+        "canonical_key": "Hostname|fqdn=www.example.com|root_domain=example.com|source=subfinder|value=www.example.com",
+        "entity_id": "entity_c997aa31bfdd",
+        "entity_type": "Hostname",
+        "evidence_ids": [],
+        "parser_version": null,
+        "source_execution_id": null,
+        "source_task_id": null,
+        "source_tool": "subfinder",
+        "timestamp": "2026-04-09T14:42:22.799538+00:00"
+      },
+      {
+        "attributes": {
+          "address": "203.0.113.10",
+          "source": "dnsx",
+          "version": 4
+        },
+        "canonical_key": "IPAddress|address=203.0.113.10|source=dnsx|version=4",
+        "entity_id": "entity_76987f12e0aa",
+        "entity_type": "IPAddress",
+        "evidence_ids": [],
+        "parser_version": null,
+        "source_execution_id": null,
+        "source_task_id": null,
+        "source_tool": "dnsx",
+        "timestamp": "2026-04-09T14:42:22.825450+00:00"
+      },
+      {
+        "attributes": {
+          "asset_id": "asset_d5e5487c5554",
+          "banner": null,
+          "confidence": 1.0,
+          "port": 443,
+          "protocol": "tcp",
+          "service_name": "https",
+          "state": "open"
+        },
+        "canonical_key": "PortService|asset_id=asset_d5e5487c5554|confidence=1.0|port=443|protocol=tcp|service_name=https|state=open",
+        "entity_id": "entity_6c7fd230db4c",
+        "entity_type": "PortService",
+        "evidence_ids": [],
+        "parser_version": null,
+        "source_execution_id": null,
+        "source_task_id": null,
+        "source_tool": "nmap",
+        "timestamp": "2026-04-09T14:42:22.852868+00:00"
+      },
+      {
+        "attributes": {
+          "asset_id": "asset_d5e5487c5554",
+          "service_id": "service_c93a3c1ad5b3",
+          "status_code": 200,
+          "title": "Example",
+          "url": "https://www.example.com"
+        },
+        "canonical_key": "WebService|asset_id=asset_d5e5487c5554|service_id=service_c93a3c1ad5b3|status_code=200|title=Example|url=https://www.example.com",
+        "entity_id": "entity_c283a4061012",
+        "entity_type": "WebService",
+        "evidence_ids": [],
+        "parser_version": null,
+        "source_execution_id": null,
+        "source_task_id": null,
+        "source_tool": "httpx",
+        "timestamp": "2026-04-09T14:42:22.890386+00:00"
+      }
+    ],
+    "observations": [],
+    "parameters": [],
+    "playbook_executions": [],
+    "proof_outcomes": [],
+    "replay_requests": [],
+    "response_deltas": [],
+    "scope": [
+      {
+        "aliases": [],
+        "host": "example.com",
+        "port": null,
+        "raw": "example.com",
+        "scheme": null,
+        "target_id": "t1",
+        "target_type": "domain",
+        "value": "example.com"
+      }
+    ],
+    "services": [
+      {
+        "asset_id": "asset_d5e5487c5554",
+        "banner": null,
+        "canonical_key": "asset_d5e5487c5554|443|tcp|open|https",
+        "name": "https",
+        "parser_version": null,
+        "port": 443,
+        "protocol": "tcp",
+        "service_id": "service_c93a3c1ad5b3",
+        "source_execution_id": null,
+        "source_tool": "nmap",
+        "state": "open"
+      }
+    ],
+    "state_history": [],
+    "surface_signals": [],
+    "task_results": [],
+    "task_states": [
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "subdomain_enumeration",
+          "decision_reason": "domain-like targets detected",
+          "duration": "0:00:00.012941",
+          "iteration": 1,
+          "last_input_signature": "",
+          "stage": "recon"
+        },
+        "ended_at": "2026-04-09T14:42:22.798995+00:00",
+        "error": null,
+        "key": "run-subdomain-enum",
+        "label": "Enumerating subdomains",
+        "started_at": "2026-04-09T14:42:22.786054+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "dns_resolution",
+          "decision_reason": "domain-like targets detected",
+          "duration": "0:00:00.010996",
+          "iteration": 1,
+          "last_input_signature": "",
+          "stage": "recon"
+        },
+        "ended_at": "2026-04-09T14:42:22.825369+00:00",
+        "error": null,
+        "key": "resolve-hosts",
+        "label": "Resolving hosts",
+        "started_at": "2026-04-09T14:42:22.814373+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "network_port_scan",
+          "decision_reason": "scannable targets available for nmap service discovery",
+          "duration": "0:00:00.017719",
+          "iteration": 1,
+          "last_input_signature": "203.0.113.10|example.com|www.example.com",
+          "stage": "recon"
+        },
+        "ended_at": "2026-04-09T14:42:22.852792+00:00",
+        "error": null,
+        "key": "run-nmap",
+        "label": "Running Nmap",
+        "started_at": "2026-04-09T14:42:22.835073+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "web_probe",
+          "decision_reason": "http/https services detected",
+          "duration": "0:00:00.025245",
+          "iteration": 1,
+          "last_input_signature": "http://example.com/|http://example.com:8080/|http://www.example.com/|http://www.example.com:8080/|https://example.com/|https://example.com:8443/|https://www.example.com/|https://www.example.com:8443/",
+          "stage": "enumeration"
+        },
+        "ended_at": "2026-04-09T14:42:22.890313+00:00",
+        "error": null,
+        "key": "probe-web",
+        "label": "Probing web services",
+        "started_at": "2026-04-09T14:42:22.865068+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "tls_probe",
+          "decision_reason": "tls-capable endpoints detected",
+          "duration": "0:00:00.032159",
+          "iteration": 1,
+          "last_input_signature": "",
+          "stage": "enumeration"
+        },
+        "ended_at": "2026-04-09T14:42:22.909643+00:00",
+        "error": null,
+        "key": "detect-tls",
+        "label": "Detecting TLS and certificates",
+        "started_at": "2026-04-09T14:42:22.877484+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "vhost_discovery",
+          "decision_reason": "http/https services detected",
+          "duration": "0:00:00.027888",
+          "iteration": 1,
+          "last_input_signature": "",
+          "stage": "enumeration"
+        },
+        "ended_at": "2026-04-09T14:42:22.953227+00:00",
+        "error": null,
+        "key": "run-vhost-discovery",
+        "label": "Discovering virtual hosts",
+        "started_at": "2026-04-09T14:42:22.925339+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "service_exposure_checks",
+          "decision_reason": "services detected for exposure checks",
+          "duration": "0:00:00.026924",
+          "iteration": 1,
+          "last_input_signature": "",
+          "stage": "enumeration"
+        },
+        "ended_at": "2026-04-09T14:42:22.964901+00:00",
+        "error": null,
+        "key": "analyze-services",
+        "label": "Analyzing service exposure",
+        "started_at": "2026-04-09T14:42:22.937977+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "web_discovery",
+          "decision_reason": "http/https services detected",
+          "duration": "0:00:00.036832",
+          "iteration": 1,
+          "last_input_signature": "https://www.example.com/",
+          "stage": "enumeration"
+        },
+        "ended_at": "2026-04-09T14:42:23.020147+00:00",
+        "error": null,
+        "key": "discover-web",
+        "label": "Discovering web endpoints",
+        "started_at": "2026-04-09T14:42:22.983315+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "network_port_scan",
+          "decision_reason": "scannable targets available for nmap service discovery",
+          "duration": "0:00:00.035851",
+          "iteration": 2,
+          "last_input_signature": "example.com",
+          "stage": "recon"
+        },
+        "ended_at": "2026-04-09T14:42:23.036453+00:00",
+        "error": null,
+        "key": "run-nmap",
+        "label": "Running Nmap",
+        "started_at": "2026-04-09T14:42:23.000602+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "web_fingerprint",
+          "decision_reason": "http/https services detected",
+          "duration": "0:00:00.027677",
+          "iteration": 1,
+          "last_input_signature": "https://www.example.com/",
+          "stage": "enumeration"
+        },
+        "ended_at": "2026-04-09T14:42:23.082191+00:00",
+        "error": null,
+        "key": "fingerprint-web",
+        "label": "Fingerprinting web technologies",
+        "started_at": "2026-04-09T14:42:23.054514+00:00",
+        "status": "completed"
+      },
+      {
+        "detail": {
+          "attempt": 1,
+          "capability": "request_capture",
+          "decision_reason": "http/https services detected",
+          "duration": "0:00:00.033961",
+          "iteration": 1,
+          "last_input_signature": "",
+          "stage": "analysis"
+        },
+        "ended_at": "2026-04-09T14:42:23.101527+00:00",
+        "error": null,
+        "key": "capture-requests",
+        "label": "Capturing replayable web requests",
+        "started_at": "2026-04-09T14:42:23.067566+00:00",
+        "status": "completed"
+      }
+    ],
+    "technologies": [],
+    "tls_assets": [],
+    "tool_executions": [],
+    "validation_results": [],
+    "validation_tasks": [],
+    "warnings": [],
+    "web_apps": [
+      {
+        "asset_id": "asset_d5e5487c5554",
+        "canonical_key": "asset_d5e5487c5554|service_c93a3c1ad5b3|https://www.example.com",
+        "forms_count": 0,
+        "parser_version": null,
+        "service_id": "service_c93a3c1ad5b3",
+        "source_execution_id": null,
+        "source_tool": "httpx",
+        "status_code": 200,
+        "title": "Example",
+        "url": "https://www.example.com",
+        "webapp_id": "web_56acc8c5224a"
+      }
+    ]
+  },
+  "status": "completed",
+  "task_key": "capture-requests"
+}

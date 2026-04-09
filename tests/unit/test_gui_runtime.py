@@ -223,6 +223,60 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     assert snapshot.completeness_status in {"partial", "failed"}
 
 
+def test_load_run_snapshot_merges_running_manifest_tasks_into_checkpoint_timeline(tmp_path: Path) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="gui-running-merge")
+    started_at = now_utc()
+    run_store.write_json(
+        "data/gui_session.json",
+        {
+            "scan_name": "Running Merge",
+            "started_at": started_at.isoformat(),
+            "run_id": "gui-running-merge",
+        },
+    )
+    run_store.write_json(
+        "data/plan.json",
+        {
+            "items": [
+                {"key": "run-subdomain-enum", "selected": True},
+                {"key": "resolve-hosts", "selected": True},
+            ]
+        },
+    )
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="gui-running-merge",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(run_store.run_dir),
+            started_at=started_at,
+            state=RunState.RUNNING,
+        ),
+        task_states=[
+            {
+                "key": "run-subdomain-enum",
+                "label": "Enumerating subdomains",
+                "status": TaskStatus.COMPLETED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {"stage": "recon", "capability": "subdomain_enumeration"},
+            }
+        ],
+    )
+    run_store.save_checkpoint("run-subdomain-enum", "completed", run_data)
+    run_store.save_checkpoint("resolve-hosts", "running", run_data)
+
+    snapshot = load_run_snapshot(run_store.run_dir)
+
+    statuses_by_key = {
+        str(item.get("key")): str(item.get("status"))
+        for item in snapshot.tasks
+    }
+    assert statuses_by_key["run-subdomain-enum"] == "completed"
+    assert statuses_by_key["resolve-hosts"] == "running"
+    assert snapshot.current_task == "resolve-hosts"
+
+
 def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Path) -> None:
     started_at = now_utc()
     snapshot = load_run_snapshot(

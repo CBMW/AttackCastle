@@ -471,6 +471,37 @@ def _synthesize_task_rows(
     return rows
 
 
+def _merge_manifest_task_rows(
+    task_rows: list[dict[str, Any]],
+    manifest: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged = list(task_rows)
+    visible_manifest = [item for item in manifest if str(item.get("task_key") or "") not in RUNTIME_CHECKPOINT_KEYS]
+    for item in visible_manifest:
+        task_key = str(item.get("task_key") or "").strip()
+        status = str(item.get("status") or "unknown").strip()
+        if not task_key:
+            continue
+        matching_rows = [row for row in merged if str(row.get("key") or "").strip() == task_key]
+        if any(str(row.get("status") or "").strip() == status for row in matching_rows):
+            continue
+        if status in ACTIVE_TASK_STATUSES and any(
+            str(row.get("status") or "").strip() in ACTIVE_TASK_STATUSES for row in matching_rows
+        ):
+            continue
+        merged.append(
+            {
+                "key": task_key,
+                "label": task_key,
+                "status": status or "unknown",
+                "started_at": "",
+                "ended_at": "",
+                "detail": {"source": "checkpoint_manifest"},
+            }
+        )
+    return merged
+
+
 def _format_mapping_block(title: str, payload: dict[str, Any], *, skip_keys: set[str] | None = None) -> list[str]:
     skip = skip_keys or set()
     lines = [title]
@@ -967,6 +998,11 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         target_input = run_data.metadata.target_input
         profile_name = run_data.metadata.profile
 
+    if tasks:
+        tasks = _merge_manifest_task_rows(tasks, manifest)
+    else:
+        tasks = _synthesize_task_rows(manifest, task_results, tool_executions)
+
     if started_at is None:
         started_at = parse_datetime(gui_session.get("started_at")) or datetime.now(timezone.utc)
     if ended_at is None and state in {"completed", "failed", "cancelled"}:
@@ -997,8 +1033,6 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     task_results.sort(key=_result_sort_key)
     tool_executions.sort(key=lambda item: (str(item.get("tool_name", "")), str(item.get("started_at", ""))))
     evidence_artifacts.sort(key=lambda item: (str(item.get("source_tool", "")), str(item.get("path", ""))))
-    if not tasks:
-        tasks = _synthesize_task_rows(manifest, task_results, tool_executions)
     if current_task == "Idle" and tasks:
         running_task_rows = [item for item in tasks if str(item.get("status") or "") in ACTIVE_TASK_STATUSES]
         selected_task = running_task_rows[0] if running_task_rows else sorted(tasks, key=_task_sort_key)[-1]

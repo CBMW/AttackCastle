@@ -34,6 +34,8 @@ from attackcastle.gui.common import (
     MappingTableModel,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
+    SURFACE_FLAT,
+    SURFACE_PRIMARY,
     apply_responsive_splitter,
     build_inspector_panel,
     build_surface_frame,
@@ -101,16 +103,19 @@ class AssetsTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        content_panel = QWidget()
-        content_layout = QVBoxLayout(content_panel)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(PAGE_SECTION_SPACING)
+        # Keep the inventory side as the one primary panel; tables inside tabs stay flat to avoid stacked cards.
+        content_panel, content_layout = build_surface_frame(
+            object_name="assetInventoryPanel",
+            surface=SURFACE_PRIMARY,
+            spacing=PAGE_SECTION_SPACING,
+        )
 
-        toolbar = QFrame()
-        toolbar.setObjectName("toolbarPanel")
-        toolbar_layout = QVBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(14, 14, 14, 14)
-        toolbar_layout.setSpacing(8)
+        toolbar, toolbar_layout = build_surface_frame(
+            object_name="toolbarPanel",
+            surface=SURFACE_FLAT,
+            padding=0,
+            spacing=8,
+        )
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Search"))
         self.search_edit = QLineEdit()
@@ -297,7 +302,7 @@ class AssetsTab(QWidget):
         return section
 
     def _table_surface(self, title: str, table: QTableView) -> QWidget:
-        section, layout = build_surface_frame()
+        section, layout = build_surface_frame(surface=SURFACE_FLAT, padding=0, spacing=0)
         layout.addWidget(table, 1)
         return section
 

@@ -34,6 +34,7 @@ from attackcastle.gui.common import (
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     SEVERITY_ORDER,
+    SURFACE_FLAT,
     apply_responsive_splitter,
     apply_form_layout_defaults,
     build_inspector_panel,

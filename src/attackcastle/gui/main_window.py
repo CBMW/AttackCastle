@@ -47,6 +47,9 @@ from attackcastle.gui.common import (
     PANEL_COMPACT_PADDING,
     PersistentSplitterController,
     RUN_STATE_ORDER,
+    SURFACE_FLAT,
+    SURFACE_PRIMARY,
+    SURFACE_SECONDARY,
     apply_responsive_splitter,
     build_inspector_panel,
     build_page_header,
@@ -503,7 +506,11 @@ class MainWindow(QMainWindow):
         )
         set_tooltip(self.workspace_run_table, "Select a run to inspect it, or double-click to jump into Findings.")
         workspace_runs_layout.addWidget(self.workspace_run_table, 1)
-        workspace_toolbar, workspace_toolbar_layout = build_surface_frame(padding=0, spacing=8)
+        workspace_toolbar, workspace_toolbar_layout = build_surface_frame(
+            surface=SURFACE_FLAT,
+            padding=0,
+            spacing=8,
+        )
         workspace_toolbar.setObjectName("toolbarPanel")
         workspace_toolbar_layout.setContentsMargins(0, 0, 0, 0)
         workspace_toolbar_layout.addLayout(filter_row)
@@ -511,6 +518,7 @@ class MainWindow(QMainWindow):
             "Runs In Workspace",
             workspace_runs,
             summary_text="Live session queue for the current workspace. Double-click a row to jump into Findings.",
+            surface=SURFACE_PRIMARY,
             toolbar=workspace_toolbar,
             status_label=self.workspace_run_results_label,
         )
@@ -527,27 +535,29 @@ class MainWindow(QMainWindow):
         self.overview_checklist_panel.toggled.connect(self._toggle_overview_checklist_item)
         self.overview_checklist_panel.delete_requested.connect(self._delete_overview_checklist_item)
 
-        notes_panel, notes_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
+        # The right rail is already a primary panel, so keep inner sections lighter and let spacing do the grouping.
+        notes_panel, notes_layout = build_surface_frame(
+            object_name="sectionPanel",
+            surface=SURFACE_SECONDARY,
+            padding=12,
+            spacing=10,
+        )
         notes_header = QLabel("Notes")
         notes_header.setObjectName("sectionTitle")
         self.overview_notes_edit = configure_scroll_surface(QPlainTextEdit())
         self.overview_notes_edit.setObjectName("consoleText")
         self.overview_notes_edit.setPlaceholderText("Operator notes for this engagement...")
         self.overview_notes_edit.textChanged.connect(self._handle_overview_notes_changed)
-        self.overview_notes_edit.setStyleSheet(
-            """
-            QPlainTextEdit#consoleText {
-                border-radius: 10px;
-                padding: 10px;
-            }
-            """
-        )
         notes_layout.addWidget(notes_header)
         notes_layout.addWidget(self.overview_notes_edit, 1)
 
         inspector_layout.addWidget(self.overview_checklist_panel, 1)
         inspector_layout.addWidget(notes_panel, 1)
-        inspector_panel, inspector_panel_layout = build_surface_frame(object_name="subtlePanel", spacing=10)
+        inspector_panel, inspector_panel_layout = build_surface_frame(
+            object_name="inspectorPanel",
+            surface=SURFACE_PRIMARY,
+            spacing=10,
+        )
         inspector_panel_layout.addWidget(inspector_body, 1)
 
         content_split.addWidget(self.workspace_primary_split)
@@ -566,14 +576,15 @@ class MainWindow(QMainWindow):
         self.runs_top_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
         self._register_splitter(self.runs_top_split, "runs_top_split")
         self.runs_top_split.setChildrenCollapsible(False)
-        self.runs_top_split.addWidget(self._wrap_group("Start New Scan", self._build_scanner_launch_card()))
+        self.runs_top_split.addWidget(self._wrap_group("", self._build_scanner_launch_card()))
         self.runs_top_split.addWidget(self._wrap_group("Active Run", self._build_selected_run_control_card()))
-        runs_control_panel = QWidget()
+        runs_control_panel = QFrame()
         runs_control_panel.setObjectName("scannerConsoleLeftColumn")
+        runs_control_panel.setProperty("surface", SURFACE_PRIMARY)
         runs_control_panel.setMinimumWidth(300)
         runs_control_layout = QVBoxLayout(runs_control_panel)
-        runs_control_layout.setContentsMargins(0, 0, 0, 0)
-        runs_control_layout.setSpacing(0)
+        runs_control_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        runs_control_layout.setSpacing(PAGE_SECTION_SPACING)
         runs_control_layout.addWidget(self.runs_top_split, 1)
 
         self.run_filter_grid = QGridLayout()
@@ -595,7 +606,11 @@ class MainWindow(QMainWindow):
             (QLabel("Search"), self.run_search_edit),
             (QLabel("State"), self.run_state_filter),
         ]
-        run_toolbar, run_toolbar_layout = build_surface_frame(padding=0, spacing=8)
+        run_toolbar, run_toolbar_layout = build_surface_frame(
+            surface=SURFACE_FLAT,
+            padding=0,
+            spacing=8,
+        )
         run_toolbar.setObjectName("toolbarPanel")
         run_toolbar_layout.setContentsMargins(0, 0, 0, 0)
         run_toolbar_layout.addLayout(self.run_filter_grid)
@@ -644,6 +659,7 @@ class MainWindow(QMainWindow):
             "Run Queue",
             self.run_table,
             summary_text="",
+            surface=SURFACE_PRIMARY,
             toolbar=run_toolbar,
             status_label=self.run_results_label,
         )
@@ -651,6 +667,7 @@ class MainWindow(QMainWindow):
             "Scanner Detail",
             self.scanner_panel,
             summary_text="",
+            surface=SURFACE_PRIMARY,
         )
         self.runs_body_split.addWidget(run_queue_panel)
         self.runs_body_split.addWidget(scanner_detail_panel)
@@ -666,30 +683,19 @@ class MainWindow(QMainWindow):
         card.setObjectName("scannerLaunchCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PAGE_CARD_SPACING)
-
-        self.start_scan_context_label = QLabel("Session workspace: Ad-Hoc Session")
-        self.start_scan_context_label.setObjectName("scannerContextPill")
-        self.start_scan_context_label.setWordWrap(True)
-
-        launch_headline = QLabel("Queue the next external scan.")
-        launch_headline.setObjectName("scannerLeadText")
-        launch_headline.setWordWrap(True)
-
-        launch_helper = QLabel("Open the scan builder with the active session context, then push a run straight into the queue.")
-        launch_helper.setObjectName("helperText")
-        launch_helper.setWordWrap(True)
+        layout.setSpacing(0)
 
         self.start_scan_button = QPushButton("Launch New Scan")
         self.start_scan_button.setObjectName("scannerStartButton")
         self.start_scan_button.clicked.connect(self._start_scan)
         self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
         style_button(self.start_scan_button, min_height=48)
+        self.start_scan_button.setMinimumWidth(220)
+        self.start_scan_button.setMaximumWidth(320)
+        self.start_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        layout.addWidget(self.start_scan_context_label, 0, Qt.AlignLeft)
-        layout.addWidget(launch_headline)
-        layout.addWidget(launch_helper)
-        layout.addWidget(self.start_scan_button)
+        layout.addStretch(1)
+        layout.addWidget(self.start_scan_button, 0, Qt.AlignCenter)
         layout.addStretch(1)
         return card
 
@@ -1081,9 +1087,12 @@ class MainWindow(QMainWindow):
 
     def _wrap_group(self, title: str, widget: QWidget) -> QWidget:
         group = QGroupBox(title)
-        group.setObjectName("panelGroup")
+        group.setObjectName("panelGroup" if title else "panelGroupUntitled")
         group_layout = QVBoxLayout(group)
-        group_layout.setContentsMargins(14, 18, 14, 14)
+        if title:
+            group_layout.setContentsMargins(14, 18, 14, 14)
+        else:
+            group_layout.setContentsMargins(14, 14, 14, 14)
         group_layout.setSpacing(0)
         group_layout.addWidget(widget)
         return group
@@ -2564,16 +2573,7 @@ class MainWindow(QMainWindow):
         self._refresh_header_context()
 
     def _refresh_header_context(self) -> None:
-        if not hasattr(self, "start_scan_context_label"):
-            return
-        workspace = self._active_workspace()
-        if self._switch_in_progress:
-            context = "Session workspace: Switching..."
-        elif workspace is not None:
-            context = f"Session workspace: {workspace.name}"
-        else:
-            context = "Session workspace: Ad-Hoc Session"
-        self.start_scan_context_label.setText(context)
+        return
 
     def _set_selected_run_badge(self, state: str) -> None:
         normalized = str(state or "idle").strip().lower() or "idle"

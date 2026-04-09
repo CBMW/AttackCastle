@@ -60,6 +60,9 @@ INSPECTOR_SPACING = 10
 BUTTON_MIN_HEIGHT = 40
 BUTTON_CHIP_MIN_HEIGHT = 32
 TABLE_ROW_HEIGHT = 34
+SURFACE_PRIMARY = "primary"
+SURFACE_SECONDARY = "secondary"
+SURFACE_FLAT = "flat"
 
 
 def page_vbox(parent: QWidget | None = None) -> QVBoxLayout:
@@ -127,15 +130,18 @@ def build_page_header(
 
 def build_surface_frame(
     *,
-    object_name: str = "toolbarPanel",
-    padding: int = PANEL_CONTENT_PADDING,
+    object_name: str = "surfaceFrame",
+    surface: str = SURFACE_PRIMARY,
+    padding: int | None = None,
     spacing: int = TOOLBAR_SPACING,
     parent: QWidget | None = None,
 ) -> tuple[QFrame, QVBoxLayout]:
     frame = QFrame(parent)
     frame.setObjectName(object_name)
+    frame.setProperty("surface", surface)
     layout = QVBoxLayout(frame)
-    layout.setContentsMargins(padding, padding, padding, padding)
+    resolved_padding = 0 if surface == SURFACE_FLAT and padding is None else (padding or PANEL_CONTENT_PADDING)
+    layout.setContentsMargins(resolved_padding, resolved_padding, resolved_padding, resolved_padding)
     layout.setSpacing(spacing)
     return frame, layout
 
@@ -166,11 +172,12 @@ def build_table_section(
     table: QWidget,
     *,
     summary_text: str = "",
+    surface: str = SURFACE_PRIMARY,
     toolbar: QWidget | None = None,
     status_label: QLabel | None = None,
     parent: QWidget | None = None,
 ) -> tuple[QFrame, QLabel, QLabel]:
-    frame, layout = build_surface_frame(parent=parent)
+    frame, layout = build_surface_frame(parent=parent, surface=surface)
     header, title_label, summary_label = build_section_header(title, summary=summary_text)
     layout.addWidget(header)
     if toolbar is not None:
@@ -188,10 +195,16 @@ def build_inspector_panel(
     body: QWidget,
     *,
     summary_text: str = "",
+    surface: str = SURFACE_PRIMARY,
     footer: QWidget | None = None,
     parent: QWidget | None = None,
 ) -> tuple[QFrame, QLabel, QLabel]:
-    frame, layout = build_surface_frame(object_name="subtlePanel", parent=parent, spacing=INSPECTOR_SPACING)
+    frame, layout = build_surface_frame(
+        object_name="inspectorPanel",
+        surface=surface,
+        parent=parent,
+        spacing=INSPECTOR_SPACING,
+    )
     header_row = QHBoxLayout()
     header_row.setContentsMargins(0, 0, 0, 0)
     header_row.setSpacing(10)
