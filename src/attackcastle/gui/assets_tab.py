@@ -36,7 +36,7 @@ from attackcastle.gui.common import (
     PersistentSplitterController,
     apply_responsive_splitter,
     build_inspector_panel,
-    build_table_section,
+    build_surface_frame,
     configure_scroll_surface,
     ensure_table_defaults,
     set_tooltip,
@@ -297,11 +297,8 @@ class AssetsTab(QWidget):
         return section
 
     def _table_surface(self, title: str, table: QTableView) -> QWidget:
-        section, _title, _summary = build_table_section(
-            title,
-            table,
-            summary_text="The inventory grid expands to show populated data as runs complete and notes are attached.",
-        )
+        section, layout = build_surface_frame()
+        layout.addWidget(table, 1)
         return section
 
     def _make_table(self, model: MappingTableModel, entity_kind: str) -> QTableView:

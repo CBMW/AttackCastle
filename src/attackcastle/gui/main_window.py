@@ -9,7 +9,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -89,6 +89,7 @@ from attackcastle.gui.models import (
     WorkspaceOverviewState,
     now_iso,
 )
+from attackcastle.gui.overview_checklist import OverviewChecklistPanel
 from attackcastle.gui.output_tab import OutputTab
 from attackcastle.gui.profile_store import GuiProfileStore
 from attackcastle.gui.runtime import build_run_debug_bundle, load_run_snapshot
@@ -97,124 +98,6 @@ from attackcastle.core.execution_issues import build_execution_issues, summarize
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore, ad_hoc_output_home
 from attackcastle.storage.run_store import RunStore
-
-
-class OverviewChecklistRow(QFrame):
-    toggled = Signal(str)
-    delete_requested = Signal(str)
-
-    def __init__(self, item: OverviewChecklistItem, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.item_id = item.item_id
-        self.setObjectName("overviewChecklistRow")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet(
-            """
-            QFrame#overviewChecklistRow {
-                background-color: rgba(255, 255, 255, 0.02);
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 10px;
-            }
-            QFrame#overviewChecklistRow:hover {
-                border-color: rgba(111, 155, 255, 0.38);
-                background-color: rgba(111, 155, 255, 0.06);
-            }
-            """
-        )
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(10)
-
-        self.toggle_button = QPushButton("")
-        self.toggle_button.setCursor(Qt.PointingHandCursor)
-        self.toggle_button.setFixedSize(24, 24)
-        self.toggle_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.toggle_button.clicked.connect(lambda: self.toggled.emit(self.item_id))
-
-        self.label = QLabel(item.label)
-        self.label.setWordWrap(True)
-        self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-
-        self.delete_button = QPushButton("X")
-        self.delete_button.setCursor(Qt.PointingHandCursor)
-        self.delete_button.setFixedSize(22, 22)
-        self.delete_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.delete_button.setToolTip("Delete checklist item")
-        self.delete_button.setVisible(False)
-        self.delete_button.clicked.connect(lambda: self.delete_requested.emit(self.item_id))
-        self.delete_button.setStyleSheet(
-            """
-            QPushButton {
-                border: none;
-                border-radius: 11px;
-                color: #f38b8b;
-                background-color: transparent;
-                font-weight: 700;
-            }
-            QPushButton:hover {
-                color: #ff9e9e;
-                background-color: rgba(255, 94, 94, 0.12);
-            }
-            """
-        )
-
-        layout.addWidget(self.toggle_button, 0, Qt.AlignTop)
-        layout.addWidget(self.label, 1)
-        layout.addWidget(self.delete_button, 0, Qt.AlignTop)
-        self.set_item(item)
-
-    def set_item(self, item: OverviewChecklistItem) -> None:
-        self.item_id = item.item_id
-        self.label.setText(item.label)
-        font = self.label.font()
-        font.setStrikeOut(item.completed)
-        self.label.setFont(font)
-        self.label.setStyleSheet("color: rgba(235, 240, 255, 0.72);" if item.completed else "")
-        self.toggle_button.setText("X" if item.completed else "")
-        self.toggle_button.setStyleSheet(
-            """
-            QPushButton {
-                border-radius: 12px;
-                border: 1px solid rgba(111, 155, 255, 0.42);
-                background-color: rgba(111, 155, 255, 0.18);
-                color: #8fd3ff;
-                font-weight: 700;
-            }
-            QPushButton:hover {
-                background-color: rgba(111, 155, 255, 0.28);
-                border-color: rgba(143, 211, 255, 0.66);
-            }
-            """
-            if item.completed
-            else """
-            QPushButton {
-                border-radius: 12px;
-                border: 1px solid rgba(255, 255, 255, 0.16);
-                background-color: transparent;
-                color: transparent;
-            }
-            QPushButton:hover {
-                border-color: rgba(111, 155, 255, 0.36);
-                background-color: rgba(111, 155, 255, 0.08);
-            }
-            """
-        )
-
-    def enterEvent(self, event: Any) -> None:  # noqa: N802
-        self.delete_button.setVisible(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event: Any) -> None:  # noqa: N802
-        self.delete_button.setVisible(False)
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event: Any) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton:
-            child = self.childAt(event.position().toPoint()) if hasattr(event, "position") else self.childAt(event.pos())
-            if child not in {self.delete_button, self.toggle_button}:
-                self.toggled.emit(self.item_id)
-        super().mousePressEvent(event)
-
 
 class MainWindow(QMainWindow):
     def __init__(
@@ -644,57 +527,10 @@ class MainWindow(QMainWindow):
         inspector_layout.setContentsMargins(0, 0, 0, 0)
         inspector_layout.setSpacing(10)
 
-        checklist_panel, checklist_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
-        checklist_header = QLabel("Checklist")
-        checklist_header.setObjectName("sectionTitle")
-        checklist_input_row = QHBoxLayout()
-        checklist_input_row.setContentsMargins(0, 0, 0, 0)
-        checklist_input_row.setSpacing(8)
-        self.overview_checklist_input = QLineEdit()
-        self.overview_checklist_input.setPlaceholderText("Add checklist item")
-        self.overview_checklist_input.returnPressed.connect(self._handle_overview_add_item)
-        self.overview_checklist_add_button = QPushButton("+")
-        self.overview_checklist_add_button.setCursor(Qt.PointingHandCursor)
-        self.overview_checklist_add_button.setFixedSize(34, 34)
-        self.overview_checklist_add_button.clicked.connect(self._handle_overview_add_item)
-        self.overview_checklist_add_button.setStyleSheet(
-            """
-            QPushButton {
-                border-radius: 17px;
-                border: 1px solid rgba(111, 155, 255, 0.46);
-                background-color: rgba(111, 155, 255, 0.16);
-                color: #dce7ff;
-                font-size: 18px;
-                font-weight: 700;
-            }
-            QPushButton:hover {
-                background-color: rgba(111, 155, 255, 0.28);
-                border-color: rgba(143, 211, 255, 0.68);
-            }
-            """
-        )
-        checklist_input_row.addWidget(self.overview_checklist_input, 1)
-        checklist_input_row.addWidget(self.overview_checklist_add_button, 0, Qt.AlignTop)
-
-        self.overview_checklist_scroll = configure_scroll_surface(QScrollArea())
-        self.overview_checklist_scroll.setWidgetResizable(True)
-        self.overview_checklist_scroll.setFrameShape(QFrame.NoFrame)
-        self.overview_checklist_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.overview_checklist_scroll.setMinimumHeight(180)
-        self.overview_checklist_container = QWidget()
-        self.overview_checklist_layout = QVBoxLayout(self.overview_checklist_container)
-        self.overview_checklist_layout.setContentsMargins(0, 0, 0, 0)
-        self.overview_checklist_layout.setSpacing(8)
-        self.overview_checklist_empty_label = QLabel("No checklist items yet. Add one above to start tracking the engagement.")
-        self.overview_checklist_empty_label.setObjectName("helperText")
-        self.overview_checklist_empty_label.setWordWrap(True)
-        self.overview_checklist_layout.addWidget(self.overview_checklist_empty_label)
-        self.overview_checklist_layout.addStretch(1)
-        self.overview_checklist_scroll.setWidget(self.overview_checklist_container)
-        self._overview_checklist_rows: dict[str, OverviewChecklistRow] = {}
-        checklist_layout.addWidget(checklist_header)
-        checklist_layout.addLayout(checklist_input_row)
-        checklist_layout.addWidget(self.overview_checklist_scroll, 1)
+        self.overview_checklist_panel = OverviewChecklistPanel()
+        self.overview_checklist_panel.add_requested.connect(self._add_overview_checklist_item)
+        self.overview_checklist_panel.toggled.connect(self._toggle_overview_checklist_item)
+        self.overview_checklist_panel.delete_requested.connect(self._delete_overview_checklist_item)
 
         notes_panel, notes_layout = build_surface_frame(object_name="toolbarPanel", padding=12, spacing=10)
         notes_header = QLabel("Notes")
@@ -714,7 +550,7 @@ class MainWindow(QMainWindow):
         notes_layout.addWidget(notes_header)
         notes_layout.addWidget(self.overview_notes_edit, 1)
 
-        inspector_layout.addWidget(checklist_panel, 1)
+        inspector_layout.addWidget(self.overview_checklist_panel, 1)
         inspector_layout.addWidget(notes_panel, 1)
         inspector_panel, inspector_panel_layout = build_surface_frame(object_name="subtlePanel", spacing=10)
         inspector_panel_layout.addWidget(inspector_body, 1)
@@ -2088,42 +1924,19 @@ class MainWindow(QMainWindow):
     def _apply_overview_state_to_ui(self) -> None:
         self._applying_overview_state = True
         try:
-            self.overview_checklist_input.clear()
+            self.overview_checklist_panel.clear_input()
             self._render_overview_checklist()
             self.overview_notes_edit.setPlainText(self._overview_state.notes)
         finally:
             self._applying_overview_state = False
 
     def _render_overview_checklist(self) -> None:
-        self._overview_checklist_rows = {}
-        while self.overview_checklist_layout.count():
-            item = self.overview_checklist_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        has_items = bool(self._overview_state.checklist_items)
-        self.overview_checklist_empty_label = QLabel(
-            "No checklist items yet. Add one above to start tracking the engagement."
-        )
-        self.overview_checklist_empty_label.setObjectName("helperText")
-        self.overview_checklist_empty_label.setWordWrap(True)
-        self.overview_checklist_empty_label.setVisible(not has_items)
-        self.overview_checklist_layout.addWidget(self.overview_checklist_empty_label)
-        for item in self._overview_state.checklist_items:
-            row = OverviewChecklistRow(item)
-            row.toggled.connect(self._toggle_overview_checklist_item)
-            row.delete_requested.connect(self._delete_overview_checklist_item)
-            self._overview_checklist_rows[item.item_id] = row
-            self.overview_checklist_layout.addWidget(row)
-        self.overview_checklist_layout.addStretch(1)
-
-    def _handle_overview_add_item(self) -> None:
-        self._add_overview_checklist_item(self.overview_checklist_input.text())
+        self.overview_checklist_panel.set_items(self._overview_state.checklist_items)
 
     def _add_overview_checklist_item(self, label: str) -> None:
         normalized = str(label or "").strip()
         if not normalized:
-            self.overview_checklist_input.clear()
+            self.overview_checklist_panel.clear_input()
             return
         timestamp = now_iso()
         self._overview_state.checklist_items.append(
@@ -2136,7 +1949,8 @@ class MainWindow(QMainWindow):
             )
         )
         self._render_overview_checklist()
-        self.overview_checklist_input.clear()
+        self.overview_checklist_panel.clear_input()
+        self.overview_checklist_panel.focus_input()
         self._persist_overview_state()
 
     def _toggle_overview_checklist_item(self, item_id: str) -> None:

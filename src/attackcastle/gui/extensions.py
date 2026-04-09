@@ -287,7 +287,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#attentionBanner[tone="warning"] {{ background: {severity['medium'][0]}; border-color: {palette['border']}; color: {severity['medium'][1]}; }}
     QLabel#attentionBanner[tone="ok"] {{ background: {workflow['confirmed'][0]}; border-color: {palette['border']}; color: {workflow['confirmed'][1]}; }}
     QFrame#summaryCard {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['surface_bottom']}); border: 1px solid {palette['border_soft']}; border-radius: {radii['surface']}; }}
-    QFrame#toolbarPanel, QFrame#sidebarPanel, QFrame#subtlePanel, QFrame#collapsibleSection {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['surface']['start']}, stop:1 {gradients['surface']['end']}); border: 1px solid {palette['border_soft']}; border-radius: {radii['surface']}; }}
+    QFrame#toolbarPanel, QFrame#sidebarPanel, QFrame#subtlePanel, QFrame#collapsibleSection, QFrame#overviewChecklistPanel {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['surface']['start']}, stop:1 {gradients['surface']['end']}); border: 1px solid {palette['border_soft']}; border-radius: {radii['surface']}; }}
     QFrame#summaryCardAccent {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {gradients['summary_accent']['start']}, stop:0.5 {gradients['summary_accent']['mid']}, stop:1 {gradients['summary_accent']['end']}); border: 0; border-radius: 2px; }}
     QLabel#summaryCardTitle {{ color: {palette['text_soft']}; font-size: 11px; font-weight: 700; background: transparent; }}
     QLabel#summaryCardValue {{ color: {palette['text_strong']}; font-size: 26px; font-weight: 700; background: transparent; }}
@@ -345,7 +345,114 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QCheckBox {{ spacing: 8px; background: transparent; }}
     QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; border: 1px solid {palette['border']}; background: {palette['input_bg']}; }}
     QCheckBox::indicator:checked {{ background: {palette['accent_primary']}; border-color: {palette['accent_border']}; }}
+    QWidget#overviewChecklistHeader, QWidget#overviewChecklistListContainer {{ background: transparent; }}
+    QLabel#overviewChecklistTitle {{ color: {palette['text_strong']}; font-size: 16px; font-weight: 700; letter-spacing: 0.3px; background: transparent; }}
+    QLabel#overviewChecklistSummary {{ color: {palette['text_soft']}; background: transparent; }}
+    QLabel#overviewChecklistCountBadge {{
+        padding: 6px 10px;
+        background: {palette['chip_bg']};
+        border: 1px solid {palette['border']};
+        border-radius: {radii['badge']};
+        color: {palette['text_muted']};
+        font-size: 11px;
+        font-weight: 700;
+    }}
+    QLabel#overviewChecklistCountBadge[tone="ready"] {{ background: {run_states['idle'][0]}; color: {run_states['idle'][1]}; border-color: {palette['border']}; }}
+    QLabel#overviewChecklistCountBadge[tone="active"] {{ background: {run_states['running'][0]}; color: {run_states['running'][1]}; border-color: {palette['accent_border']}; }}
+    QLabel#overviewChecklistCountBadge[tone="complete"] {{ background: {workflow['confirmed'][0]}; color: {workflow['confirmed'][1]}; border-color: {palette['border']}; }}
+    QFrame#overviewChecklistComposer {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['input_bg']}, stop:1 {palette['panel_bottom']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['input']};
+    }}
+    QFrame#overviewChecklistComposer:hover {{ border-color: {palette['border']}; }}
+    QFrame#overviewChecklistComposer[focusWithin="true"] {{ border-color: {palette['accent_border']}; background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_bg']}, stop:1 {palette['input_bg']}); }}
+    QLineEdit#overviewChecklistInput {{
+        background: transparent;
+        border: 0;
+        padding: 10px 4px;
+        color: {palette['text_primary']};
+        selection-background-color: {palette['selection_bg']};
+        selection-color: {palette['selection_fg']};
+    }}
+    QLineEdit#overviewChecklistInput:focus {{ border: 0; }}
+    QPushButton#overviewChecklistAddButton {{
+        min-height: 32px;
+        padding: 0 14px;
+        border-radius: 10px;
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']});
+        color: {palette['window_bg']};
+        border: 1px solid {palette['accent_border']};
+    }}
+    QPushButton#overviewChecklistAddButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_soft']}, stop:1 {palette['accent_primary']}); }}
+    QPushButton#overviewChecklistAddButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
+    QFrame#overviewChecklistListSurface {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['surface']};
+    }}
+    QFrame#overviewChecklistItemCard {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['surface_bottom']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['input']};
+    }}
+    QFrame#overviewChecklistItemCard:hover {{
+        border-color: {palette['accent_border']};
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_hover']}, stop:1 {palette['surface_bottom']});
+    }}
+    QFrame#overviewChecklistItemCard[completed="true"] {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_bg']}, stop:1 {palette['surface_bottom']});
+        border-color: {palette['border']};
+    }}
+    QCheckBox#overviewChecklistToggle {{ spacing: 0; }}
+    QCheckBox#overviewChecklistToggle::indicator {{
+        width: 20px;
+        height: 20px;
+        border-radius: 7px;
+        border: 1px solid {palette['border']};
+        background: {palette['window_bg']};
+    }}
+    QCheckBox#overviewChecklistToggle::indicator:hover {{ border-color: {palette['accent_border']}; background: {palette['chip_bg']}; }}
+    QCheckBox#overviewChecklistToggle::indicator:checked {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_soft']});
+        border-color: {palette['accent_border']};
+    }}
+    QLabel#overviewChecklistItemLabel {{ color: {palette['text_primary']}; background: transparent; }}
+    QLabel#overviewChecklistItemLabel[completed="true"] {{ color: {palette['text_soft']}; }}
+    QPushButton#overviewChecklistDelete {{
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        color: {palette['text_soft']};
+        font-weight: 700;
+        padding: 0;
+    }}
+    QPushButton#overviewChecklistDelete:hover {{
+        background: {severity['critical'][0]};
+        border-color: #8b2e3f;
+        color: {severity['critical'][1]};
+    }}
+    QFrame#overviewChecklistEmptyState {{
+        background: transparent;
+        border: 1px dashed {palette['border']};
+        border-radius: {radii['input']};
+    }}
+    QLabel#overviewChecklistEmptyIcon {{
+        min-width: 44px;
+        max-width: 44px;
+        min-height: 44px;
+        max-height: 44px;
+        border-radius: 22px;
+        background: {palette['chip_bg']};
+        border: 1px solid {palette['border']};
+        color: {palette['accent_soft']};
+        font-size: 18px;
+        font-weight: 700;
+    }}
+    QLabel#overviewChecklistEmptyTitle {{ color: {palette['text_strong']}; font-weight: 700; background: transparent; }}
+    QLabel#overviewChecklistEmptySummary {{ color: {palette['text_soft']}; background: transparent; }}
     QScrollArea {{ background: transparent; border: 0; }}
+    QScrollArea#overviewChecklistScroll {{ background: transparent; border: 0; }}
     QSplitter::handle {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['panel_bottom']}, stop:1 {palette['chip_hover']});
         border: 1px solid {palette['border_soft']};
