@@ -96,6 +96,7 @@ def test_assets_tab_populates_grouped_inventory_tables(tmp_path: Path) -> None:
         assert tab.web_apps_model.rowCount() == 1
         assert tab.endpoints_model.rowCount() == 1
         assert tab.technologies_model.rowCount() == 1
+        assert tab.content_split.count() == 2
         row = tab.services_model.index(0, 0).data(Qt.UserRole)
         assert row["__target"] == "203.0.113.10:443"
     finally:

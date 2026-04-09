@@ -24,7 +24,7 @@ from attackcastle.analysis import refresh_autonomy_state, register_approval_deci
 from attackcastle.core.enums import RunState, TaskStatus
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.lifecycle import transition_run_state
-from attackcastle.core.models import RunData, now_utc
+from attackcastle.core.models import RunData, now_utc, to_serializable
 from attackcastle.core.runtime_events import emit_runtime_event
 from attackcastle.normalization.mapper import merge_adapter_result
 from attackcastle.orchestration.escalation import task_allowed_by_matrix
@@ -35,6 +35,62 @@ from attackcastle.orchestration.task_graph import TaskDefinition, TaskExecutionS
 class ScheduledTask:
     definition: TaskDefinition
     attempt: int = 0
+
+
+def _emit_adapter_result_runtime_events(context: AdapterContext, result: AdapterResult) -> None:
+    entity_groups = (
+        ("asset", result.assets),
+        ("service", result.services),
+        ("web_app", result.web_apps),
+        ("technology", result.technologies),
+        ("endpoint", result.endpoints),
+        ("parameter", result.parameters),
+        ("form", result.forms),
+        ("login_surface", result.login_surfaces),
+        ("replay_request", result.replay_requests),
+        ("surface_signal", result.surface_signals),
+        ("investigation_step", result.investigation_steps),
+        ("playbook_execution", result.playbook_executions),
+        ("coverage_decision", result.coverage_decisions),
+        ("validation_result", result.validation_results),
+        ("hypothesis", result.hypotheses),
+        ("validation_task", result.validation_tasks),
+        ("coverage_gap", result.coverage_gaps),
+        ("evidence", result.evidence),
+    )
+    for entity_type, rows in entity_groups:
+        for row in rows:
+            emit_runtime_event(
+                context,
+                "entity.upserted",
+                {
+                    "entity_type": entity_type,
+                    "action": "upsert",
+                    "source": getattr(row, "source_tool", None),
+                    "entity": row,
+                },
+            )
+
+    for artifact in result.evidence_artifacts:
+        emit_runtime_event(
+            context,
+            "artifact.available",
+            {
+                "artifact_path": artifact.path,
+                "kind": artifact.kind,
+                "source_tool": artifact.source_tool,
+                "caption": artifact.caption or "",
+                "artifact_id": artifact.artifact_id,
+                "source_task_id": artifact.source_task_id,
+                "source_execution_id": artifact.source_execution_id,
+            },
+        )
+
+    for task_result in result.task_results:
+        emit_runtime_event(context, "task_result.recorded", {"result": task_result})
+
+    for execution in result.tool_executions:
+        emit_runtime_event(context, "tool_execution.recorded", {"execution": execution})
 
 
 class WorkflowScheduler:
@@ -182,6 +238,7 @@ class WorkflowScheduler:
                             result = future.result()
                             if isinstance(result, AdapterResult):
                                 merge_adapter_result(run_data, result)
+                                _emit_adapter_result_runtime_events(context, result)
                                 refresh_autonomy_state(run_data, context.config)
                         except Exception as exc:  # noqa: BLE001
                             context.logger.exception("Task failed: %s", task.key)
@@ -263,6 +320,7 @@ class WorkflowScheduler:
                                 },
                             )
                             states.append(state)
+                            run_data.task_states = to_serializable(states)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:

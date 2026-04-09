@@ -427,10 +427,12 @@ def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: 
     try:
         assert window.body_split.count() == 2
         assert window.workspace_sidebar_split.count() == 2
+        assert window.runs_page_split.count() == 2
         assert window.runs_top_split.count() == 2
         assert window.runs_body_split.count() == 2
         assert window.output_tab.content_split.count() == 2
         assert window.output_tab.main_split.count() == 2
+        assert window.assets_tab.content_split.count() == 2
         assert window.assets_tab.main_split.count() == 2
         assert window.settings_split.count() == 2
     finally:
@@ -742,6 +744,127 @@ def test_worker_completed_keeps_current_section(tmp_path: Path, monkeypatch: pyt
 
         assert window.section_stack.currentWidget() is window.assets_tab
         assert window._selected_run_id == snapshot.run_id
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_apply_task_event_merges_structured_detail_without_crashing(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-task-merge",
+            scan_name="Task Merge Run",
+            run_dir=str(tmp_path / "run-task-merge"),
+            state="running",
+            elapsed_seconds=0.0,
+            eta_seconds=30.0,
+            current_task="Starting",
+            total_tasks=1,
+            completed_tasks=0,
+        )
+
+        window._apply_task_event(
+            snapshot,
+            "task.started",
+            {
+                "task": "resolve-hosts",
+                "label": "Resolve Hosts",
+                "status": "running",
+                "started_at": "2026-04-09T01:00:00+00:00",
+                "attempt": 1,
+                "reason": "dependencies_satisfied",
+            },
+        )
+        window._apply_task_event(
+            snapshot,
+            "task.completed",
+            {
+                "task": "resolve-hosts",
+                "label": "Resolve Hosts",
+                "status": "completed",
+                "ended_at": "2026-04-09T01:00:05+00:00",
+            },
+        )
+
+        assert len(snapshot.tasks) == 1
+        assert snapshot.tasks[0]["status"] == "completed"
+        assert snapshot.tasks[0]["started_at"] == "2026-04-09T01:00:00+00:00"
+        assert snapshot.tasks[0]["ended_at"] == "2026-04-09T01:00:05+00:00"
+        assert snapshot.tasks[0]["detail"] == {"attempt": 1, "reason": "dependencies_satisfied"}
+        assert snapshot.completed_tasks == 1
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_worker_runtime_result_events_update_snapshot_debug_data(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-live-results",
+            scan_name="Live Result Run",
+            run_dir=str(tmp_path / "run-live-results"),
+            state="running",
+            elapsed_seconds=0.0,
+            eta_seconds=30.0,
+            current_task="Enumerate Subdomains",
+            total_tasks=1,
+            completed_tasks=0,
+        )
+        window._run_snapshots[snapshot.run_id] = snapshot
+        process = QProcess(window)
+
+        window._handle_worker_event(
+            process,
+            WorkerEvent(
+                event="task_result.recorded",
+                payload={
+                    "run_id": snapshot.run_id,
+                    "result": {
+                        "task_id": "task-subfinder",
+                        "task_type": "EnumerateSubdomains",
+                        "status": "completed",
+                    },
+                },
+            ),
+        )
+        window._handle_worker_event(
+            process,
+            WorkerEvent(
+                event="tool_execution.recorded",
+                payload={
+                    "run_id": snapshot.run_id,
+                    "execution": {
+                        "execution_id": "exec-subfinder",
+                        "tool_name": "subfinder",
+                        "status": "completed",
+                    },
+                },
+            ),
+        )
+        window._handle_worker_event(
+            process,
+            WorkerEvent(
+                event="artifact.available",
+                payload={
+                    "run_id": snapshot.run_id,
+                    "artifact_path": str(tmp_path / "subfinder.stdout.txt"),
+                    "kind": "stdout",
+                    "source_tool": "subfinder",
+                    "caption": "EnumerateSubdomains stdout",
+                    "artifact_id": "artifact-subfinder",
+                    "source_task_id": "task-subfinder",
+                    "source_execution_id": "exec-subfinder",
+                },
+            ),
+        )
+
+        assert snapshot.task_results[0]["task_id"] == "task-subfinder"
+        assert snapshot.tool_executions[0]["execution_id"] == "exec-subfinder"
+        assert snapshot.evidence_artifacts[0]["artifact_id"] == "artifact-subfinder"
     finally:
         window._refresh_timer.stop()
         window.close()

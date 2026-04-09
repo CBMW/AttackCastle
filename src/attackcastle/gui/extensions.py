@@ -343,8 +343,14 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; border: 1px solid {palette['border']}; background: {palette['input_bg']}; }}
     QCheckBox::indicator:checked {{ background: {palette['accent_primary']}; border-color: {palette['accent_border']}; }}
     QScrollArea {{ background: transparent; border: 0; }}
-    QSplitter::handle {{ background: {palette['panel_bottom']}; border-radius: 3px; }}
-    QSplitter::handle:hover {{ background: {palette['border']}; }}
+    QSplitter::handle {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['panel_bottom']}, stop:1 {palette['chip_hover']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: 4px;
+        margin: 2px;
+    }}
+    QSplitter::handle:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_hover']}, stop:1 {palette['selection_bg']}); border-color: {palette['border']}; }}
+    QSplitter::handle:pressed {{ background: {palette['selection_bg']}; border-color: {palette['accent_border']}; }}
     """
     appended = str(qss_append or "").strip()
     return css + ("\n" + appended if appended else "")

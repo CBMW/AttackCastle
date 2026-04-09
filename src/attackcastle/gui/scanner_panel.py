@@ -57,6 +57,7 @@ class ScannerPanel(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("subTabs")
         self.tabs.setDocumentMode(True)
+        self.tabs.setMinimumWidth(340)
 
         self.tasks_model = MappingTableModel(
             [
@@ -112,6 +113,7 @@ class ScannerPanel(QWidget):
         self.inspector_tabs = QTabWidget()
         self.inspector_tabs.setObjectName("subTabs")
         self.inspector_tabs.setDocumentMode(True)
+        self.inspector_tabs.setMinimumWidth(300)
         self.inspector_summary = QLabel("Select a task, tool run, issue, or audit entry to inspect details.")
         self.inspector_summary.setObjectName("warningBanner")
         self.inspector_summary.setWordWrap(True)
@@ -221,6 +223,7 @@ class ScannerPanel(QWidget):
                 index = table.model().index(0, 0)
         if not index.isValid():
             return
+        table.setCurrentIndex(index)
         table.selectRow(index.row())
         row = index.data(Qt.UserRole) or {}
         if not isinstance(row, dict):

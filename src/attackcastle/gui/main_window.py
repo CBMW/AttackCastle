@@ -193,6 +193,12 @@ class MainWindow(QMainWindow):
             self._apply_splitter_layout("body_split", [240, max(width - 240, 900)])
 
         self._arrange_run_filters(width)
+        if hasattr(self, "runs_page_split"):
+            self.runs_page_split.setOrientation(Qt.Vertical)
+            self._apply_splitter_layout(
+                "runs_page_split",
+                [max(int(self.height() * 0.2), 160), max(int(self.height() * 0.62), 460)],
+            )
         if hasattr(self, "runs_top_split"):
             if width >= 1360:
                 self.runs_top_split.setOrientation(Qt.Horizontal)
@@ -204,7 +210,7 @@ class MainWindow(QMainWindow):
             self.runs_body_split.setOrientation(Qt.Vertical)
             self._apply_splitter_layout(
                 "runs_body_split",
-                [max(int(self.height() * 0.36), 220), max(int(self.height() * 0.44), 280)],
+                [max(int(self.height() * 0.34), 240), max(int(self.height() * 0.5), 340)],
             )
         if hasattr(self, "settings_split"):
             self.settings_split.setOrientation(Qt.Vertical)
@@ -457,6 +463,7 @@ class MainWindow(QMainWindow):
         workspace_runs_layout.addLayout(filter_row)
         self.workspace_run_results_label = QLabel("Showing 0/0 runs")
         self.workspace_run_results_label.setObjectName("helperText")
+        self.workspace_run_results_label.setWordWrap(True)
         workspace_runs_layout.addWidget(self.workspace_run_results_label)
         self.workspace_run_model = MappingTableModel(
             [("Scan Name", "scan_name"), ("State", "state"), ("Current Task", "current_task"), ("Progress", lambda row: row.get("progress") or "--")]
@@ -579,7 +586,11 @@ class MainWindow(QMainWindow):
         self._register_splitter(self.runs_top_split, "runs_top_split")
         self.runs_top_split.addWidget(self._wrap_group("Launch", launch_panel))
         self.runs_top_split.addWidget(self._wrap_group("Run Actions", controls_panel))
-        layout.addWidget(self.runs_top_split)
+        runs_top_panel = QWidget()
+        runs_top_layout = QVBoxLayout(runs_top_panel)
+        runs_top_layout.setContentsMargins(0, 0, 0, 0)
+        runs_top_layout.setSpacing(0)
+        runs_top_layout.addWidget(self.runs_top_split)
 
         run_panel = QWidget()
         run_layout = QVBoxLayout(run_panel)
@@ -607,6 +618,7 @@ class MainWindow(QMainWindow):
         run_layout.addLayout(self.run_filter_grid)
         self.run_results_label = QLabel("Showing 0/0 runs")
         self.run_results_label.setObjectName("helperText")
+        self.run_results_label.setWordWrap(True)
         run_layout.addWidget(self.run_results_label)
         self.run_model = MappingTableModel(
             [
@@ -637,7 +649,11 @@ class MainWindow(QMainWindow):
         self._register_splitter(self.runs_body_split, "runs_body_split")
         self.runs_body_split.addWidget(self._wrap_group("Run Queue", run_panel))
         self.runs_body_split.addWidget(self._wrap_group("Scanner Detail", self.scanner_panel))
-        layout.addWidget(self.runs_body_split, 1)
+        self.runs_page_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 6))
+        self._register_splitter(self.runs_page_split, "runs_page_split")
+        self.runs_page_split.addWidget(runs_top_panel)
+        self.runs_page_split.addWidget(self.runs_body_split)
+        layout.addWidget(self.runs_page_split, 1)
         return page
 
     def _build_settings_page(self) -> QWidget:
@@ -1065,13 +1081,32 @@ class MainWindow(QMainWindow):
                 self._apply_entity_event(snapshot, payload)
             elif event.event == "site_map.updated":
                 self._apply_site_map_event(snapshot, payload)
+            elif event.event == "task_result.recorded":
+                result = payload.get("result", {})
+                if isinstance(result, dict):
+                    self._append_unique(snapshot.task_results, result, "task_id")
+            elif event.event == "tool_execution.recorded":
+                execution = payload.get("execution", {})
+                if isinstance(execution, dict):
+                    self._append_unique(snapshot.tool_executions, execution, "execution_id")
             elif event.event == "artifact.available":
-                self._append_unique(snapshot.artifacts, {
+                artifact_row = {
                     "path": payload.get("artifact_path", ""),
                     "kind": payload.get("kind", ""),
                     "source_tool": payload.get("source_tool", ""),
                     "caption": payload.get("caption", ""),
-                }, "path")
+                }
+                self._append_unique(snapshot.artifacts, artifact_row, "path")
+                if any(payload.get(key) for key in ("artifact_id", "source_task_id", "source_execution_id")):
+                    evidence_artifact_row = dict(artifact_row)
+                    evidence_artifact_row.update(
+                        {
+                            "artifact_id": payload.get("artifact_id", ""),
+                            "source_task_id": payload.get("source_task_id", ""),
+                            "source_execution_id": payload.get("source_execution_id", ""),
+                        }
+                    )
+                    self._append_unique(snapshot.evidence_artifacts, evidence_artifact_row, "path")
                 if str(payload.get("kind")) == "web_screenshot":
                     self._append_unique(snapshot.screenshots, {
                         "path": payload.get("artifact_path", ""),
@@ -1146,22 +1181,40 @@ class MainWindow(QMainWindow):
                 return
         rows.append(row)
 
+    @staticmethod
+    def _task_update_value_present(value: Any) -> bool:
+        return value is not None and value != ""
+
     def _apply_task_event(self, snapshot: RunSnapshot, event_name: str, payload: dict[str, Any]) -> None:
         task_key = str(payload.get("task") or "")
         if not task_key:
             return
+        detail = {
+            key: value
+            for key, value in {
+                "reason": payload.get("reason"),
+                "attempt": payload.get("attempt"),
+                "error": payload.get("error"),
+            }.items()
+            if self._task_update_value_present(value)
+        }
         row = {
             "key": task_key,
             "label": payload.get("label") or task_key,
             "status": payload.get("status") or event_name.replace("task.", ""),
             "started_at": payload.get("started_at") or "",
             "ended_at": payload.get("ended_at") or "",
-            "detail": {"reason": payload.get("reason"), "attempt": payload.get("attempt")},
         }
+        if detail:
+            row["detail"] = detail
         for idx, existing in enumerate(snapshot.tasks):
             if str(existing.get("key") or "") == task_key:
                 merged = dict(existing)
-                merged.update({k: v for k, v in row.items() if v not in {"", None}})
+                if detail:
+                    merged_detail = dict(existing.get("detail") or {})
+                    merged_detail.update(detail)
+                    merged["detail"] = merged_detail
+                merged.update({k: v for k, v in row.items() if self._task_update_value_present(v)})
                 snapshot.tasks[idx] = merged
                 break
         else:

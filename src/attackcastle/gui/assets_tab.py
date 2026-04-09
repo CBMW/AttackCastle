@@ -113,12 +113,18 @@ class AssetsTab(QWidget):
         self.title_label.setObjectName("heroTitle")
         self.summary_label = QLabel("Select a run to organize discovered hosts, services, URLs, routes, and technologies.")
         self.summary_label.setObjectName("outputSummary")
+        self.summary_label.setWordWrap(True)
         self.status_label = QLabel("No run selected")
         self.status_label.setObjectName("headerMeta")
+        self.status_label.setWordWrap(True)
         hero_layout.addWidget(self.title_label)
         hero_layout.addWidget(self.summary_label)
         hero_layout.addWidget(self.status_label)
-        content_layout.addWidget(hero)
+        overview_panel = QWidget()
+        overview_layout = QVBoxLayout(overview_panel)
+        overview_layout.setContentsMargins(0, 0, 0, 0)
+        overview_layout.setSpacing(16)
+        overview_layout.addWidget(hero)
 
         cards = QGridLayout()
         cards.setHorizontalSpacing(12)
@@ -139,7 +145,7 @@ class AssetsTab(QWidget):
         )
         for index, card in enumerate(self.summary_cards):
             cards.addWidget(card, index // 3, index % 3)
-        content_layout.addLayout(cards)
+        overview_layout.addLayout(cards)
 
         toolbar = QFrame()
         toolbar.setObjectName("toolbarPanel")
@@ -158,7 +164,7 @@ class AssetsTab(QWidget):
         self.results_label.setObjectName("helperText")
         self.results_label.setWordWrap(True)
         toolbar_layout.addWidget(self.results_label)
-        content_layout.addWidget(toolbar)
+        overview_layout.addWidget(toolbar)
 
         self.assets_model = MappingTableModel(
             [
@@ -277,7 +283,17 @@ class AssetsTab(QWidget):
         self.inventory_tabs.addTab(web_page, "Web")
 
         self.inventory_tabs.addTab(self._section("Technology Inventory", self.technologies_view), "Technology")
-        content_layout.addWidget(self.inventory_tabs, 1)
+        self.content_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
+        self.content_split_controller = PersistentSplitterController(
+            self.content_split,
+            "assets_content_split",
+            layout_loader,
+            layout_saver,
+            self,
+        )
+        self.content_split.addWidget(overview_panel)
+        self.content_split.addWidget(self.inventory_tabs)
+        content_layout.addWidget(self.content_split, 1)
 
         self.detail_card = QFrame()
         self.detail_card.setObjectName("subtlePanel")
@@ -348,6 +364,9 @@ class AssetsTab(QWidget):
         self.search_edit.selectAll()
 
     def sync_responsive_mode(self, width: int) -> None:
+        top_height = 360 if width >= 1480 else 400 if width >= 1180 else 460
+        self.content_split.setOrientation(Qt.Vertical)
+        self.content_split_controller.apply([max(top_height, 300), max(self.height() - top_height, 320)])
         self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
         if width >= 1280:
             self.main_split_controller.apply([max(int(width * 0.7), 720), max(int(width * 0.3), 320)])

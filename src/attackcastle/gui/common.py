@@ -164,6 +164,8 @@ def ensure_table_defaults(table: QTableView) -> None:
     table.setSortingEnabled(True)
     table.setWordWrap(False)
     table.verticalHeader().setVisible(False)
+    table.verticalHeader().setMinimumSectionSize(26)
+    table.verticalHeader().setDefaultSectionSize(30)
     header = table.horizontalHeader()
     header.setStretchLastSection(False)
     header.setMinimumSectionSize(110)
@@ -334,6 +336,8 @@ class FlowButtonRow(QWidget):
 
 def configure_scroll_surface(widget: QWidget) -> QWidget:
     widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    widget.setMinimumWidth(0)
+    widget.setMinimumHeight(0)
     widget.setFocusPolicy(Qt.StrongFocus)
     if isinstance(widget, QAbstractItemView):
         widget.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
@@ -488,6 +492,8 @@ class SummaryCard(QFrame):
     def __init__(self, title: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("summaryCard")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setMinimumHeight(132)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 16)
         layout.setSpacing(8)
@@ -496,8 +502,10 @@ class SummaryCard(QFrame):
         accent.setFixedHeight(3)
         self.title_label = QLabel(title)
         self.title_label.setObjectName("summaryCardTitle")
+        self.title_label.setWordWrap(True)
         self.value_label = QLabel("0")
         self.value_label.setObjectName("summaryCardValue")
+        self.value_label.setMinimumHeight(44)
         self.hint_label = QLabel("")
         self.hint_label.setObjectName("summaryCardHint")
         self.hint_label.setWordWrap(True)
