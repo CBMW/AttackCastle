@@ -44,6 +44,7 @@ from attackcastle.gui.common import (
     MappingTableModel,
     PAGE_CARD_SPACING,
     PAGE_SECTION_SPACING,
+    PANEL_CONTENT_PADDING,
     PANEL_COMPACT_PADDING,
     PersistentSplitterController,
     RUN_STATE_ORDER,
