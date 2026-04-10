@@ -1715,6 +1715,9 @@ class MainWindow(QMainWindow):
     def _can_resume_snapshot(self, snapshot: RunSnapshot) -> bool:
         return snapshot.state == "paused" or snapshot.resume_required
 
+    def _can_stop_snapshot(self, snapshot: RunSnapshot) -> bool:
+        return snapshot.state in {"running", "paused"} or snapshot.resume_required
+
     def _has_debug_data(self, snapshot: RunSnapshot) -> bool:
         if any(
             (
@@ -1774,19 +1777,21 @@ class MainWindow(QMainWindow):
         self,
         parent: QWidget,
         snapshot: RunSnapshot,
-    ) -> tuple[QMenu, Any, Any, Any, Any]:
+    ) -> tuple[QMenu, Any, Any, Any, Any, Any]:
         menu = QMenu(parent)
         pause_action = menu.addAction("Pause Scan")
         pause_action.setEnabled(self._can_pause_snapshot(snapshot))
         resume_action = menu.addAction("Resume")
         resume_action.setEnabled(self._can_resume_snapshot(snapshot))
+        stop_action = menu.addAction("Stop")
+        stop_action.setEnabled(self._can_stop_snapshot(snapshot))
         menu.addSeparator()
         debug_action = menu.addAction("View Debug Log")
         current_task_action = menu.addAction("View Current Task Debug Log")
         has_debug_data = self._has_debug_data(snapshot)
         debug_action.setEnabled(has_debug_data)
         current_task_action.setEnabled(has_debug_data)
-        return menu, pause_action, resume_action, debug_action, current_task_action
+        return menu, pause_action, resume_action, stop_action, debug_action, current_task_action
 
     def _open_run_context_menu(self, table: QTableView, point: QPoint) -> None:
         index = table.indexAt(point)
@@ -1810,13 +1815,15 @@ class MainWindow(QMainWindow):
             return
         self._select_run_by_id(snapshot.run_id)
         self._set_run_table_current_row(table, snapshot.run_id, index)
-        menu, pause_action, resume_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
+        menu, pause_action, resume_action, stop_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
         action = self._exec_menu(menu, table.viewport().mapToGlobal(point))
         self._set_run_table_current_row(table, snapshot.run_id, index)
         if action is pause_action:
             self._send_control_action("pause")
         elif action is resume_action:
             self._send_control_action("resume")
+        elif action is stop_action:
+            self._send_control_action("stop")
         elif action is debug_action:
             self._show_debug_log_dialog(snapshot, initial_tab=1)
         elif action is current_task_action:
@@ -1832,12 +1839,14 @@ class MainWindow(QMainWindow):
         snapshot = self._selected_snapshot()
         if snapshot is None:
             return
-        menu, pause_action, resume_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
+        menu, pause_action, resume_action, stop_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
         action = self._exec_menu(menu, table.viewport().mapToGlobal(point))
         if action is pause_action:
             self._send_control_action("pause")
         elif action is resume_action:
             self._send_control_action("resume")
+        elif action is stop_action:
+            self._send_control_action("stop")
         elif action is debug_action:
             self._show_debug_log_dialog(snapshot, initial_tab=1)
         elif action is current_task_action:
@@ -2619,7 +2628,7 @@ class MainWindow(QMainWindow):
         )
         self.pause_button.setEnabled(self._can_pause_snapshot(snapshot))
         self.resume_button.setEnabled(self._can_resume_snapshot(snapshot))
-        self.stop_button.setEnabled(snapshot.state in {"running", "paused"} or snapshot.resume_required)
+        self.stop_button.setEnabled(self._can_stop_snapshot(snapshot))
         self.skip_button.setEnabled(snapshot.state == "running" and not snapshot.pause_requested and not snapshot.resume_required)
         self.retry_button.setEnabled(bool(str(snapshot.run_dir or "").strip()))
         issue_count = int(snapshot.execution_issues_summary.get("total_count", 0) or 0)

@@ -909,9 +909,11 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     started_at = None
     ended_at = None
     tasks: list[dict[str, Any]] = []
+    scope: list[dict[str, Any]] = []
     assets: list[dict[str, Any]] = []
     web_apps: list[dict[str, Any]] = []
     technologies: list[dict[str, Any]] = []
+    tls_assets: list[dict[str, Any]] = []
     site_map: list[dict[str, Any]] = []
     endpoints: list[dict[str, Any]] = []
     parameters: list[dict[str, Any]] = []
@@ -928,10 +930,12 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     validation_tasks: list[dict[str, Any]] = []
     coverage_gaps: list[dict[str, Any]] = []
     evidence: list[dict[str, Any]] = []
+    evidence_bundles: list[dict[str, Any]] = []
     artifacts: list[dict[str, Any]] = []
     screenshots: list[dict[str, Any]] = []
     services: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
     task_results: list[dict[str, Any]] = []
     tool_executions: list[dict[str, Any]] = []
     evidence_artifacts: list[dict[str, Any]] = []
@@ -954,9 +958,11 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         ended_at = run_data.metadata.ended_at
         state = run_data.metadata.state.value if hasattr(run_data.metadata.state, "value") else str(run_data.metadata.state)
         tasks = list(run_data.task_states or [])
+        scope = to_serializable(run_data.scope)
         assets = to_serializable(run_data.assets)
         web_apps = to_serializable(run_data.web_apps)
         technologies = to_serializable(run_data.technologies)
+        tls_assets = to_serializable(run_data.tls_assets)
         evidence = to_serializable(run_data.evidence)
         site_map = _build_site_map(run_data)
         endpoints = to_serializable(run_data.endpoints)
@@ -973,6 +979,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         hypotheses = to_serializable(run_data.hypotheses)
         validation_tasks = to_serializable(run_data.validation_tasks)
         coverage_gaps = to_serializable(run_data.coverage_gaps)
+        evidence_bundles = to_serializable(run_data.evidence_bundles)
         artifacts = _build_artifacts(run_data)
         screenshots = [
             {
@@ -985,6 +992,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         ]
         services = to_serializable(run_data.services)
         findings = to_serializable(run_data.findings)
+        relationships = to_serializable(run_data.relationships)
         task_results = to_serializable(run_data.task_results)
         tool_executions = to_serializable(run_data.tool_executions)
         evidence_artifacts = to_serializable(run_data.evidence_artifacts)
@@ -1053,9 +1061,11 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         target_input=target_input,
         profile_name=profile_name,
         tasks=tasks,
+        scope=scope,
         assets=assets,
         web_apps=web_apps,
         technologies=technologies,
+        tls_assets=tls_assets,
         site_map=site_map,
         endpoints=endpoints,
         parameters=parameters,
@@ -1072,10 +1082,12 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         validation_tasks=validation_tasks,
         coverage_gaps=coverage_gaps,
         evidence=evidence,
+        evidence_bundles=evidence_bundles,
         artifacts=artifacts,
         screenshots=screenshots,
         services=services,
         findings=findings,
+        relationships=relationships,
         task_results=task_results,
         tool_executions=tool_executions,
         evidence_artifacts=evidence_artifacts,

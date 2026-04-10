@@ -179,11 +179,12 @@ def test_runs_page_actions_update_for_selected_run(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("state", "pause_requested", "resume_required", "pause_enabled", "resume_enabled"),
+    ("state", "pause_requested", "resume_required", "pause_enabled", "resume_enabled", "stop_enabled"),
     [
-        ("running", False, False, True, False),
-        ("paused", False, False, False, True),
-        ("running", True, True, False, True),
+        ("running", False, False, True, False, True),
+        ("paused", False, False, False, True, True),
+        ("running", True, True, False, True, True),
+        ("completed", False, False, False, False, False),
     ],
 )
 def test_run_context_menu_actions_reflect_pause_resume_state(
@@ -193,6 +194,7 @@ def test_run_context_menu_actions_reflect_pause_resume_state(
     resume_required: bool,
     pause_enabled: bool,
     resume_enabled: bool,
+    stop_enabled: bool,
 ) -> None:
     window = _make_window(tmp_path)
     run_dir = tmp_path / f"run-{state}"
@@ -214,7 +216,7 @@ def test_run_context_menu_actions_reflect_pause_resume_state(
             tasks=[{"key": "probe", "label": "Probe", "status": state}],
         )
 
-        menu, pause_action, resume_action, debug_action, current_task_action = window._build_run_context_menu(
+        menu, pause_action, resume_action, stop_action, debug_action, current_task_action = window._build_run_context_menu(
             window.run_table,
             snapshot,
         )
@@ -222,11 +224,13 @@ def test_run_context_menu_actions_reflect_pause_resume_state(
         assert [action.text() for action in menu.actions() if action.text()] == [
             "Pause Scan",
             "Resume",
+            "Stop",
             "View Debug Log",
             "View Current Task Debug Log",
         ]
         assert pause_action.isEnabled() is pause_enabled
         assert resume_action.isEnabled() is resume_enabled
+        assert stop_action.isEnabled() is stop_enabled
         assert debug_action.isEnabled() is True
         assert current_task_action.isEnabled() is True
     finally:

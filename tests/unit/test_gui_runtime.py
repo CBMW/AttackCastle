@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from attackcastle.core.enums import RunState, Severity, TaskStatus
+from attackcastle.core.enums import RunState, Severity, TargetType, TaskStatus
 from attackcastle.core.models import (
     Evidence,
     EvidenceArtifact,
+    EvidenceBundle,
+    EntityRelationship,
     Finding,
     Observation,
     RunData,
     RunMetadata,
+    ScanTarget,
     Service,
+    TLSAsset,
     TaskArtifactRef,
     TaskResult,
     ToolExecution,
@@ -48,6 +52,14 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
             started_at=started_at,
             state=RunState.RUNNING,
         ),
+        scope=[
+            ScanTarget(
+                target_id="target_1",
+                raw="example.com",
+                target_type=TargetType.DOMAIN,
+                value="example.com",
+            )
+        ],
         services=[
             Service(
                 service_id="service_1",
@@ -67,6 +79,16 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
                 status_code=200,
                 title="Example Domain",
                 source_tool="web_probe",
+            )
+        ],
+        tls_assets=[
+            TLSAsset(
+                tls_id="tls_1",
+                asset_id="asset_1",
+                host="example.com",
+                port=443,
+                service_id="service_1",
+                protocol="tls1.3",
             )
         ],
         observations=[
@@ -151,6 +173,27 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
                 source_execution_id="exec_1",
             )
         ],
+        evidence_bundles=[
+            EvidenceBundle(
+                bundle_id="bundle_1",
+                label="Homepage bundle",
+                entity_type="web_app",
+                entity_id="webapp_1",
+                asset_id="asset_1",
+                screenshot_paths=[str(screenshot_path)],
+            )
+        ],
+        relationships=[
+            EntityRelationship(
+                relationship_id="rel_1",
+                source_entity_type="asset",
+                source_entity_id="asset_1",
+                target_entity_type="web_app",
+                target_entity_id="webapp_1",
+                relationship_type="discovered_by",
+                source_tool="web_probe",
+            )
+        ],
         task_states=[
             {
                 "key": "run-nmap",
@@ -201,6 +244,8 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     assert len(snapshot.services) == 1
     assert len(snapshot.web_apps) == 1
     assert snapshot.web_apps[0]["url"] == "https://example.com"
+    assert snapshot.scope[0]["value"] == "example.com"
+    assert snapshot.tls_assets[0]["host"] == "example.com"
     assert len(snapshot.site_map) == 2
     assert {row["url"] for row in snapshot.site_map} == {
         "https://example.com",
@@ -217,6 +262,8 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     assert len(snapshot.findings) == 1
     assert snapshot.task_results[0]["task_type"] == "run-nmap"
     assert snapshot.evidence_artifacts[0]["path"] == str(response_path)
+    assert snapshot.evidence_bundles[0]["label"] == "Homepage bundle"
+    assert snapshot.relationships[0]["relationship_type"] == "discovered_by"
     assert snapshot.extensions[0]["extension_id"] == "custom-tool"
     assert snapshot.execution_issues
     assert snapshot.execution_issues_summary["total_count"] >= 3

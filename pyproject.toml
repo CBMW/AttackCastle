@@ -38,6 +38,7 @@ include = [
   "src/attackcastle/config/**/*.yaml",
   "src/attackcastle/orchestration/rules/**/*.yaml",
   "src/attackcastle/findings/templates/**/*.json",
+  "src/attackcastle/gui/web/**/*.*",
   "src/attackcastle/reporting/templates/**/*.j2",
   "src/attackcastle/reporting/assets/**/*.*",
 ]

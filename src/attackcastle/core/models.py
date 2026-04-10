@@ -338,6 +338,24 @@ class EvidenceBundle:
 
 
 @dataclass
+class EntityRelationship:
+    relationship_id: str
+    source_entity_type: str
+    source_entity_id: str
+    target_entity_type: str
+    target_entity_id: str
+    relationship_type: str
+    source_tool: str = "internal"
+    source_execution_id: str | None = None
+    discovered_from_entity_type: str | None = None
+    discovered_from_entity_id: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    confidence: float = 1.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Endpoint:
     endpoint_id: str
     webapp_id: str
@@ -769,6 +787,7 @@ class RunData:
     findings: list[Finding] = field(default_factory=list)
     leads: list[Lead] = field(default_factory=list)
     evidence_bundles: list[EvidenceBundle] = field(default_factory=list)
+    relationships: list[EntityRelationship] = field(default_factory=list)
     hypotheses: list[Hypothesis] = field(default_factory=list)
     validation_tasks: list[ValidationTask] = field(default_factory=list)
     approval_decisions: list[ApprovalDecision] = field(default_factory=list)
@@ -1106,6 +1125,25 @@ def _evidence_bundle_from_dict(data: dict[str, Any]) -> EvidenceBundle:
         screenshot_paths=list(data.get("screenshot_paths", [])),
         raw_output_paths=list(data.get("raw_output_paths", [])),
         source_tools=list(data.get("source_tools", [])),
+    )
+
+
+def _relationship_from_dict(data: dict[str, Any]) -> EntityRelationship:
+    return EntityRelationship(
+        relationship_id=data["relationship_id"],
+        source_entity_type=data.get("source_entity_type", ""),
+        source_entity_id=data.get("source_entity_id", ""),
+        target_entity_type=data.get("target_entity_type", ""),
+        target_entity_id=data.get("target_entity_id", ""),
+        relationship_type=data.get("relationship_type", "related_to"),
+        source_tool=data.get("source_tool", "internal"),
+        source_execution_id=data.get("source_execution_id"),
+        discovered_from_entity_type=data.get("discovered_from_entity_type"),
+        discovered_from_entity_id=data.get("discovered_from_entity_id"),
+        first_seen_at=parse_datetime(data.get("first_seen_at")),
+        last_seen_at=parse_datetime(data.get("last_seen_at")),
+        confidence=normalize_confidence(data.get("confidence"), default=1.0),
+        metadata=dict(data.get("metadata", {})),
     )
 
 
@@ -1572,6 +1610,9 @@ def run_data_from_dict(payload: dict[str, Any]) -> RunData:
         leads=[_lead_from_dict(item) for item in payload.get("leads", [])],
         evidence_bundles=[
             _evidence_bundle_from_dict(item) for item in payload.get("evidence_bundles", [])
+        ],
+        relationships=[
+            _relationship_from_dict(item) for item in payload.get("relationships", [])
         ],
         hypotheses=[_hypothesis_from_dict(item) for item in payload.get("hypotheses", [])],
         validation_tasks=[

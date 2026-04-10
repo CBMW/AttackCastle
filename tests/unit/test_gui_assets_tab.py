@@ -9,6 +9,8 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from attackcastle.gui.asset_graph_builder import AssetGraphBuilder
+from attackcastle.gui.asset_graph_models import GraphBuildOptions
 from attackcastle.gui.asset_inventory import build_entity_note, build_workspace_inventory_snapshot
 from attackcastle.gui.assets_tab import AssetsTab
 from attackcastle.gui.models import Engagement, RunSnapshot
@@ -97,6 +99,7 @@ def test_assets_tab_populates_grouped_inventory_tables(tmp_path: Path) -> None:
         assert tab.endpoints_model.rowCount() == 1
         assert tab.technologies_model.rowCount() == 1
         assert tab.main_split.count() == 2
+        assert [tab.asset_views.tabText(index) for index in range(tab.asset_views.count())] == ["Inventory", "Graph View"]
         row = tab.services_model.index(0, 0).data(Qt.UserRole)
         assert row["__target"] == "203.0.113.10:443"
     finally:
@@ -141,11 +144,31 @@ def test_assets_tab_context_menu_exposes_scan_and_notes_actions(tmp_path: Path) 
         tab.set_snapshot(_make_snapshot(tmp_path))
         app.processEvents()
         row = tab.assets_model.index(0, 0).data(Qt.UserRole)
-        menu, scan_action, notes_action = tab._build_context_menu(tab.assets_view, "asset", row)
+        menu, scan_action, notes_action, graph_action = tab._build_context_menu(tab.assets_view, "asset", row)
 
-        assert [action.text() for action in menu.actions()] == ["Scan Asset", "Add Notes"]
+        assert [action.text() for action in menu.actions()] == ["Scan Asset", "Add Notes", "Focus in Graph"]
         assert scan_action.isEnabled() is True
         assert notes_action.isEnabled() is True
+        assert graph_action.isEnabled() is True
+    finally:
+        tab.close()
+
+
+def test_assets_tab_can_focus_inventory_row_in_graph_view(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _launched, _notes = _make_tab()
+
+    try:
+        tab.set_snapshot(_make_snapshot(tmp_path))
+        app.processEvents()
+        row = tab.assets_model.index(0, 0).data(Qt.UserRole)
+
+        tab._focus_row_in_graph("asset", row)
+        app.processEvents()
+
+        assert tab.asset_views.currentWidget() is tab.graph_view
+        assert "centered" in tab.detail_text.toPlainText().lower()
     finally:
         tab.close()
 
@@ -281,3 +304,55 @@ def test_workspace_inventory_snapshot_merges_all_runs_and_deduplicates_relations
 
     example_web_app = next(row for row in aggregate.web_apps if row.get("url") == "https://example.com")
     assert example_web_app.get("service_id") == example_service.get("service_id")
+
+
+def test_asset_graph_builder_creates_workspace_topology_and_finding_edges(tmp_path: Path) -> None:
+    snapshot = _make_snapshot(tmp_path)
+    snapshot.findings = [
+        {
+            "finding_id": "finding-1",
+            "title": "Public Login Portal",
+            "severity": "medium",
+            "affected_entities": [{"entity_type": "web_app", "entity_id": "web-1"}],
+        }
+    ]
+    snapshot.evidence_bundles = [
+        {
+            "bundle_id": "bundle-1",
+            "label": "Homepage Proof",
+            "entity_type": "web_app",
+            "entity_id": "web-1",
+            "asset_id": "asset-1",
+            "summary": "Screenshot evidence",
+            "screenshot_paths": [str(tmp_path / "proof.png")],
+        }
+    ]
+    snapshot.relationships = [
+        {
+            "relationship_id": "rel-1",
+            "source_entity_type": "asset",
+            "source_entity_id": "asset-1",
+            "target_entity_type": "web_app",
+            "target_entity_id": "web-1",
+            "relationship_type": "discovered_by",
+            "source_tool": "httpx",
+        }
+    ]
+    builder = AssetGraphBuilder()
+
+    graph = builder.build(
+        snapshot,
+        options=GraphBuildOptions(
+            root_node_id="asset::asset-1",
+            include_provenance=True,
+            include_findings=True,
+            include_evidence=True,
+            direct_neighbors_only=False,
+            depth=2,
+        ),
+    )
+
+    node_types = {node.node_type for node in graph.nodes}
+    edge_types = {edge.edge_type for edge in graph.edges}
+    assert {"workspace", "domain", "port", "service", "web_app", "endpoint", "technology", "finding", "evidence_bundle"}.issubset(node_types)
+    assert {"contains", "hosts_port", "identifies_service", "serves", "has_endpoint", "uses_technology", "produces_finding", "has_evidence"}.issubset(edge_types)

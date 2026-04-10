@@ -362,6 +362,30 @@ def _merge_list_values(existing: list[Any], incoming: list[Any]) -> list[Any]:
     return merged
 
 
+def _stable_row_key(row: dict[str, Any], fallback_fields: tuple[str, ...]) -> str:
+    for field in fallback_fields:
+        value = _clean(row.get(field))
+        if value:
+            return value
+    return json.dumps(row, sort_keys=True, default=str)
+
+
+def _merge_generic_rows(
+    rows_by_key: dict[str, dict[str, Any]],
+    rows: list[dict[str, Any]],
+    *,
+    key_fields: tuple[str, ...],
+) -> None:
+    for row in rows:
+        key = _stable_row_key(row, key_fields)
+        aggregate_row = dict(row)
+        rows_by_key[key] = (
+            _merge_inventory_row(rows_by_key[key], aggregate_row)
+            if key in rows_by_key
+            else aggregate_row
+        )
+
+
 def _merge_inventory_row(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(existing)
     for key, incoming_value in incoming.items():
@@ -417,15 +441,22 @@ def build_workspace_inventory_snapshot(
         "",
     )
 
+    scope_rows: dict[str, dict[str, Any]] = {}
     asset_rows: dict[str, dict[str, Any]] = {}
     service_rows: dict[str, dict[str, Any]] = {}
     web_app_rows: dict[str, dict[str, Any]] = {}
+    tls_rows: dict[str, dict[str, Any]] = {}
     endpoint_rows: dict[str, dict[str, Any]] = {}
     parameter_rows: dict[str, dict[str, Any]] = {}
     form_rows: dict[str, dict[str, Any]] = {}
     login_surface_rows: dict[str, dict[str, Any]] = {}
     site_map_rows: dict[str, dict[str, Any]] = {}
     technology_rows: dict[str, dict[str, Any]] = {}
+    finding_rows: dict[str, dict[str, Any]] = {}
+    screenshot_rows: dict[str, dict[str, Any]] = {}
+    bundle_rows: dict[str, dict[str, Any]] = {}
+    relationship_rows: dict[str, dict[str, Any]] = {}
+    tool_execution_rows: dict[str, dict[str, Any]] = {}
 
     asset_id_map: dict[tuple[str, str], str] = {}
     service_id_map: dict[tuple[str, str], str] = {}
@@ -433,6 +464,7 @@ def build_workspace_inventory_snapshot(
     endpoint_id_map: dict[tuple[str, str], str] = {}
 
     for snapshot in ordered:
+        _merge_generic_rows(scope_rows, snapshot.scope, key_fields=("target_id", "raw", "value"))
         assets_by_id = {
             _clean(item.get("asset_id")): item
             for item in snapshot.assets
@@ -504,6 +536,23 @@ def build_workspace_inventory_snapshot(
             web_app_rows[signature] = (
                 _merge_inventory_row(web_app_rows[signature], aggregate_row)
                 if signature in web_app_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.tls_assets:
+            key = _stable_row_key(row, ("tls_id", "canonical_key", "host"))
+            service_row = services_by_id.get(_clean(row.get("service_id"))) or {}
+            aggregate_row = _copy_row(
+                row,
+                asset_id=asset_id_map.get((snapshot.run_id, _clean(row.get("asset_id"))), ""),
+                service_id=service_id_map.get(
+                    (snapshot.run_id, _clean(row.get("service_id")) or _clean(service_row.get("service_id"))),
+                    "",
+                ),
+            )
+            tls_rows[key] = (
+                _merge_inventory_row(tls_rows[key], aggregate_row)
+                if key in tls_rows
                 else aggregate_row
             )
 
@@ -660,6 +709,20 @@ def build_workspace_inventory_snapshot(
                 else aggregate_row
             )
 
+        _merge_generic_rows(finding_rows, snapshot.findings, key_fields=("finding_id", "fingerprint", "title"))
+        _merge_generic_rows(screenshot_rows, snapshot.screenshots, key_fields=("path",))
+        _merge_generic_rows(bundle_rows, snapshot.evidence_bundles, key_fields=("bundle_id", "entity_id", "label"))
+        _merge_generic_rows(
+            relationship_rows,
+            snapshot.relationships,
+            key_fields=("relationship_id", "target_entity_id", "source_entity_id"),
+        )
+        _merge_generic_rows(
+            tool_execution_rows,
+            snapshot.tool_executions,
+            key_fields=("execution_id", "tool_name", "command"),
+        )
+
     return RunSnapshot(
         run_id=f"workspace-assets::{canonical_workspace_id or 'ad-hoc'}",
         scan_name="Workspace Asset Inventory",
@@ -672,6 +735,10 @@ def build_workspace_inventory_snapshot(
         completed_tasks=0,
         workspace_id=canonical_workspace_id,
         workspace_name=canonical_workspace_name,
+        scope=sorted(
+            scope_rows.values(),
+            key=lambda item: (_lower(item.get("target_type")), _lower(item.get("raw")), _lower(item.get("value"))),
+        ),
         assets=sorted(
             asset_rows.values(),
             key=lambda item: (_lower(item.get("kind")), _lower(item.get("name")), _clean(item.get("ip"))),
@@ -684,6 +751,10 @@ def build_workspace_inventory_snapshot(
         technologies=sorted(
             technology_rows.values(),
             key=lambda item: (_lower(item.get("name")), _lower(item.get("version")), _lower(item.get("category"))),
+        ),
+        tls_assets=sorted(
+            tls_rows.values(),
+            key=lambda item: (_lower(item.get("host")), _safe_int(item.get("port")), _lower(item.get("protocol"))),
         ),
         site_map=sorted(site_map_rows.values(), key=lambda item: (_lower(item.get("source")), _normalize_url(item.get("url")))),
         endpoints=sorted(
@@ -699,4 +770,26 @@ def build_workspace_inventory_snapshot(
             key=lambda item: (_normalize_url(item.get("action_url")), _clean(item.get("method")).upper()),
         ),
         login_surfaces=sorted(login_surface_rows.values(), key=lambda item: _normalize_url(item.get("url"))),
+        findings=sorted(
+            finding_rows.values(),
+            key=lambda item: (_lower(item.get("severity")), _lower(item.get("title")), _lower(item.get("finding_id"))),
+        ),
+        screenshots=sorted(screenshot_rows.values(), key=lambda item: _lower(item.get("path"))),
+        evidence_bundles=sorted(
+            bundle_rows.values(),
+            key=lambda item: (_lower(item.get("entity_type")), _lower(item.get("entity_id")), _lower(item.get("label"))),
+        ),
+        relationships=sorted(
+            relationship_rows.values(),
+            key=lambda item: (
+                _lower(item.get("relationship_type")),
+                _lower(item.get("source_entity_type")),
+                _lower(item.get("source_entity_id")),
+                _lower(item.get("target_entity_id")),
+            ),
+        ),
+        tool_executions=sorted(
+            tool_execution_rows.values(),
+            key=lambda item: (_lower(item.get("tool_name")), _lower(item.get("started_at")), _lower(item.get("execution_id"))),
+        ),
     )
