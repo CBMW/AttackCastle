@@ -1,33 +1,30 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
     QSplitter,
+    QStyle,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from attackcastle.gui.common import (
-    FlowButtonRow,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
     configure_scroll_surface,
-    refresh_widget_style,
     set_tooltips,
     style_button,
     title_case_label,
@@ -69,8 +66,69 @@ class ExtensionsTab(QWidget):
             self,
         )
 
+        action_panel = QFrame()
+        action_panel.setObjectName("toolbarPanel")
+        action_panel.setProperty("surface", "primary")
+        self.action_panel = action_panel
+        action_layout = QVBoxLayout(action_panel)
+        action_layout.setContentsMargins(10, 16, 10, 16)
+        action_layout.setSpacing(8)
+
+        self.new_button = self._build_icon_button(
+            "New Extension",
+            QStyle.SP_FileDialogNewFolder,
+            self._create_extension,
+            "Create a new command hook extension scaffold.",
+        )
+        self.duplicate_button = self._build_icon_button(
+            "Duplicate Extension",
+            QStyle.SP_FileLinkIcon,
+            self._duplicate_selected,
+            "Duplicate the selected extension into a new manifest.",
+        )
+        self.save_button = self._build_icon_button(
+            "Save Manifest",
+            QStyle.SP_DialogSaveButton,
+            self._save_current,
+            "Save the manifest currently open in the editor.",
+            role="primary",
+        )
+        self.reload_button = self._build_icon_button(
+            "Reload Extensions",
+            QStyle.SP_BrowserReload,
+            self.reload_extensions,
+            "Rediscover extensions from disk and refresh the page.",
+        )
+        self.toggle_enabled_button = self._build_icon_button(
+            "Enable Extension",
+            QStyle.SP_MediaPlay,
+            self._toggle_enabled,
+            "Enable or disable the selected extension without deleting it.",
+        )
+        self.apply_theme_button = self._build_icon_button(
+            "Apply Theme",
+            QStyle.SP_DialogApplyButton,
+            self._apply_theme,
+            "Apply the selected theme extension to the GUI immediately.",
+        )
+        self.open_folder_button = self._build_icon_button(
+            "Open Folder",
+            QStyle.SP_DirOpenIcon,
+            self._open_folder,
+            "Open the selected extension folder in the file manager.",
+        )
+
+        for button in (self.new_button, self.duplicate_button, self.save_button, self.reload_button):
+            action_layout.addWidget(button, 0, Qt.AlignHCenter)
+        action_layout.addSpacing(6)
+        for button in (self.toggle_enabled_button, self.apply_theme_button, self.open_folder_button):
+            action_layout.addWidget(button, 0, Qt.AlignHCenter)
+        action_layout.addStretch(1)
+        splitter.addWidget(action_panel)
+
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
+        self.library_panel = rail
         rail_layout = QVBoxLayout(rail)
         rail_layout.setContentsMargins(16, 16, 16, 16)
         rail_layout.setSpacing(12)
@@ -86,54 +144,6 @@ class ExtensionsTab(QWidget):
         rail_layout.addWidget(self.search_edit)
         rail_layout.addWidget(self.extension_list, 1)
         splitter.addWidget(rail)
-
-        status_panel = QFrame()
-        status_panel.setObjectName("toolbarPanel")
-        status_panel.setProperty("surface", "primary")
-        status_layout = QVBoxLayout(status_panel)
-        status_layout.setContentsMargins(16, 16, 16, 16)
-        status_layout.setSpacing(12)
-        status_title = QLabel("Manifest Status")
-        status_title.setObjectName("sectionTitle")
-        self.meta_label = QLabel("Select an extension to inspect its manifest and state.")
-        self.meta_label.setObjectName("infoBanner")
-        self.meta_label.setWordWrap(True)
-        self.path_label = QLabel("")
-        self.path_label.setObjectName("helperText")
-        self.path_label.setWordWrap(True)
-        self.state_label = QLabel("No extension selected.")
-        self.state_label.setObjectName("attentionBanner")
-        self.state_label.setProperty("tone", "neutral")
-        self.state_label.setWordWrap(True)
-
-        primary_actions = FlowButtonRow()
-        self.new_button = QPushButton("New")
-        self.duplicate_button = QPushButton("Duplicate")
-        self.save_button = QPushButton("Save")
-        self.reload_button = QPushButton("Reload")
-        style_button(self.new_button, role="secondary")
-        style_button(self.duplicate_button, role="secondary")
-        style_button(self.save_button)
-        style_button(self.reload_button, role="secondary")
-        self.new_button.clicked.connect(self._create_extension)
-        self.duplicate_button.clicked.connect(self._duplicate_selected)
-        self.save_button.clicked.connect(self._save_current)
-        self.reload_button.clicked.connect(self.reload_extensions)
-        for button in (self.new_button, self.duplicate_button, self.save_button, self.reload_button):
-            primary_actions.addWidget(button)
-
-        secondary_actions = FlowButtonRow()
-        self.toggle_enabled_button = QPushButton("Enable")
-        self.apply_theme_button = QPushButton("Apply Theme")
-        self.open_folder_button = QPushButton("Open Folder")
-        style_button(self.toggle_enabled_button, role="secondary")
-        style_button(self.apply_theme_button, role="secondary")
-        style_button(self.open_folder_button, role="secondary")
-        self.toggle_enabled_button.clicked.connect(self._toggle_enabled)
-        self.apply_theme_button.clicked.connect(self._apply_theme)
-        self.open_folder_button.clicked.connect(self._open_folder)
-        for button in (self.toggle_enabled_button, self.apply_theme_button, self.open_folder_button):
-            secondary_actions.addWidget(button)
         set_tooltips(
             (
                 (self.search_edit, "Filter the extension list by name, ID, or capability."),
@@ -147,15 +157,6 @@ class ExtensionsTab(QWidget):
                 (self.open_folder_button, "Open the selected extension folder in the file manager."),
             )
         )
-
-        status_layout.addWidget(status_title)
-        status_layout.addWidget(self.meta_label)
-        status_layout.addWidget(self.path_label)
-        status_layout.addWidget(self.state_label)
-        status_layout.addWidget(primary_actions)
-        status_layout.addWidget(secondary_actions)
-        status_layout.addStretch(1)
-        splitter.addWidget(status_panel)
 
         editor_panel = QFrame()
         editor_panel.setObjectName("toolbarPanel")
@@ -174,9 +175,6 @@ class ExtensionsTab(QWidget):
         set_tooltips(
             (
                 (self.editor, "Edit the raw JSON manifest for the selected extension. Use Ctrl+S to save."),
-                (self.meta_label, "Shows the selected extension ID, capabilities, and enabled state."),
-                (self.path_label, "Shows the manifest path for the selected extension."),
-                (self.state_label, "Shows validation results and save state for the selected manifest."),
             )
         )
         editor_layout.addWidget(editor_title)
@@ -184,7 +182,7 @@ class ExtensionsTab(QWidget):
         editor_layout.addWidget(self.editor, 1)
         splitter.addWidget(editor_panel)
 
-        splitter.setSizes([280, 360, 920])
+        splitter.setSizes([88, 320, 960])
         root.addWidget(splitter, 1)
 
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_current)
@@ -195,14 +193,36 @@ class ExtensionsTab(QWidget):
     def sync_responsive_mode(self, width: int) -> None:
         if width >= 1400:
             self.splitter.setOrientation(Qt.Horizontal)
-            self._splitter_controller.apply([280, 340, max(width - 620, 860)])
+            self._splitter_controller.apply([88, 360, max(width - 448, 860)])
             return
         if width >= 1120:
             self.splitter.setOrientation(Qt.Horizontal)
-            self._splitter_controller.apply([240, 300, max(width - 540, 660)])
+            self._splitter_controller.apply([80, 320, max(width - 400, 660)])
             return
         self.splitter.setOrientation(Qt.Vertical)
-        self._splitter_controller.apply([220, 240, max(self.height() - 460, 360)])
+        self._splitter_controller.apply([96, 240, max(self.height() - 336, 360)])
+
+    def _build_icon_button(
+        self,
+        label: str,
+        icon: QStyle.StandardPixmap,
+        handler: Callable[[], None],
+        tooltip: str,
+        *,
+        role: str = "secondary",
+    ) -> QToolButton:
+        button = QToolButton()
+        button.setText(label)
+        button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        button.setIcon(self.style().standardIcon(icon))
+        button.setIconSize(QSize(18, 18))
+        button.setFixedSize(44, 44)
+        style_button(button, role=role, min_height=44)
+        button.clicked.connect(handler)
+        button.setToolTip(tooltip)
+        button.setStatusTip(tooltip)
+        button.setWhatsThis(tooltip)
+        return button
 
     def reload_extensions(self) -> None:
         self._records = self.store.discover()
@@ -270,30 +290,40 @@ class ExtensionsTab(QWidget):
 
     def _refresh_record_status(self, record) -> None:
         capabilities = ", ".join(title_case_label(item) for item in record.capabilities) or "Unknown"
-        self.meta_label.setText(
-            f"{record.display_name} | ID: {record.extension_id} | Capabilities: {capabilities} | Enabled: {'Yes' if record.enabled else 'No'}"
-        )
-        self.path_label.setText(str(record.manifest_path))
         if record.is_valid:
-            tone = "ok" if not self._dirty else "warning"
             state = "Dirty changes pending save." if self._dirty else "Manifest is valid and ready."
             if record.active_theme:
                 state += " This is the active GUI theme."
         else:
-            tone = "alert"
             state = f"Manifest diagnostics: {record.load_error}"
-        self.state_label.setText(state)
-        self.state_label.setProperty("tone", tone)
-        refresh_widget_style(self.state_label)
         self.editor_status_label.setText(
-            "Ctrl+S saves the current manifest. Use Format JSON before saving if you want canonical ordering."
+            f"{record.display_name} | ID: {record.extension_id} | Capabilities: {capabilities} | Enabled: {'Yes' if record.enabled else 'No'}\n"
+            f"{state} Ctrl+S saves the current manifest."
         )
         self.toggle_enabled_button.setText("Disable" if record.enabled else "Enable")
+        self.toggle_enabled_button.setIcon(
+            self.style().standardIcon(QStyle.SP_MediaPause if record.enabled else QStyle.SP_MediaPlay)
+        )
+        self.toggle_enabled_button.setToolTip(
+            "Disable the selected extension without deleting it."
+            if record.enabled
+            else "Enable the selected extension without deleting it."
+        )
+        self.toggle_enabled_button.setStatusTip(self.toggle_enabled_button.toolTip())
+        self.toggle_enabled_button.setWhatsThis(self.toggle_enabled_button.toolTip())
         self.apply_theme_button.setEnabled(bool(record.manifest and record.manifest.is_theme))
         self.toggle_enabled_button.setEnabled(True)
         self.duplicate_button.setEnabled(record.manifest is not None)
         self.save_button.setEnabled(True)
         self.open_folder_button.setEnabled(True)
+        self.open_folder_button.setToolTip(
+            f"Open the selected extension folder in the file manager.\n{record.directory}"
+        )
+        self.open_folder_button.setStatusTip(self.open_folder_button.toolTip())
+        self.open_folder_button.setWhatsThis(self.open_folder_button.toolTip())
+        self.action_panel.setToolTip(
+            f"{record.display_name}\nID: {record.extension_id}\nEnabled: {'Yes' if record.enabled else 'No'}\n{state}"
+        )
 
     def _clear_editor_state(self) -> None:
         self._selected_extension_id = ""
@@ -302,12 +332,18 @@ class ExtensionsTab(QWidget):
         self.editor.blockSignals(True)
         self.editor.clear()
         self.editor.blockSignals(False)
-        self.meta_label.setText("Select an extension to inspect its manifest and state.")
-        self.path_label.setText("")
-        self.state_label.setText("No extension selected.")
-        self.state_label.setProperty("tone", "neutral")
-        refresh_widget_style(self.state_label)
         self.editor_status_label.setText("JSON editor ready.")
+        self.toggle_enabled_button.setText("Enable")
+        self.toggle_enabled_button.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self.toggle_enabled_button.setEnabled(False)
+        self.apply_theme_button.setEnabled(False)
+        self.duplicate_button.setEnabled(False)
+        self.save_button.setEnabled(False)
+        self.open_folder_button.setEnabled(False)
+        self.open_folder_button.setToolTip("Open the selected extension folder in the file manager.")
+        self.open_folder_button.setStatusTip(self.open_folder_button.toolTip())
+        self.open_folder_button.setWhatsThis(self.open_folder_button.toolTip())
+        self.action_panel.setToolTip("Extension actions")
 
     def _editor_text_changed(self) -> None:
         current = self.editor.toPlainText()
@@ -347,9 +383,7 @@ class ExtensionsTab(QWidget):
             manifest = self.store.save_raw_text(text, preferred_directory_name=preferred_directory)
         except ExtensionValidationError as exc:
             self.editor_status_label.setText(str(exc))
-            self.state_label.setText(str(exc))
-            self.state_label.setProperty("tone", "alert")
-            refresh_widget_style(self.state_label)
+            self.action_panel.setToolTip(str(exc))
             return
         self._selected_extension_id = manifest.extension_id
         self.reload_extensions()

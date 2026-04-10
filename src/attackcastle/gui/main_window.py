@@ -53,7 +53,7 @@ from attackcastle.gui.common import (
     SURFACE_SECONDARY,
     apply_responsive_splitter,
     build_inspector_panel,
-    build_page_header,
+    build_section_header,
     build_surface_frame,
     build_table_section,
     build_workstation_stylesheet,
@@ -70,6 +70,7 @@ from attackcastle.gui.common import (
     table_height_for_rows,
     title_case_label,
 )
+from attackcastle.gui.asset_inventory import build_workspace_inventory_snapshot
 from attackcastle.gui.assets_tab import AssetsTab
 from attackcastle.gui.configuration_tab import ConfigurationTab
 from attackcastle.gui.dialogs import (
@@ -249,11 +250,18 @@ class MainWindow(QMainWindow):
                     [max(int(self.height() * 0.42), 300), max(int(self.height() * 0.42), 320)],
                 )
         if hasattr(self, "settings_split"):
-            self.settings_split.setOrientation(Qt.Vertical)
-            self._apply_splitter_layout(
-                "settings_split",
-                [max(int(self.height() * 0.28), 220), max(int(self.height() * 0.42), 320)],
-            )
+            if width >= 1260:
+                self.settings_split.setOrientation(Qt.Horizontal)
+                self._apply_splitter_layout(
+                    "settings_split",
+                    [max(int(width * 0.46), 420), max(int(width * 0.54), 500)],
+                )
+            else:
+                self.settings_split.setOrientation(Qt.Vertical)
+                self._apply_splitter_layout(
+                    "settings_split",
+                    [max(int(self.height() * 0.28), 220), max(int(self.height() * 0.42), 320)],
+                )
         self.output_tab.sync_responsive_mode(width)
         self.scanner_panel.sync_responsive_mode(width)
         self.configuration_tab.sync_profile_form_width(width)
@@ -825,18 +833,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
-        header_panel, _header_title, _header_summary, self.settings_page_meta_label, _header_status = build_page_header(
-            "Settings",
-            "Keep the current session workspace, storage paths, and utility actions in one compact operator settings page.",
-            meta_text="Settings stay focused on session context and useful local paths instead of acting like a miscellaneous dump.",
-        )
-        layout.addWidget(header_panel)
-        self.settings_summary_label = QLabel("Operator settings and storage paths.")
-        self.settings_summary_label.setObjectName("infoBanner")
-        self.settings_summary_label.setWordWrap(True)
-        layout.addWidget(self.settings_summary_label)
 
         session_panel, session_layout = build_surface_frame(spacing=12)
+        session_header, _session_title, _session_summary = build_section_header("Session")
+        session_layout.addWidget(session_header)
         self.active_workspace_status_label = QLabel("Session workspace: Ad-Hoc")
         self.active_workspace_status_label.setObjectName("infoBanner")
         self.active_workspace_status_label.setWordWrap(True)
@@ -869,6 +869,8 @@ class MainWindow(QMainWindow):
         self.settings_split.addWidget(session_panel)
 
         store_panel, store_layout = build_surface_frame(spacing=12)
+        store_header, _store_title, _store_summary = build_section_header("Storage & Utilities")
+        store_layout.addWidget(store_header)
         self.profile_store_path_label = QLabel("")
         self.profile_store_path_label.setObjectName("monoLabel")
         self.profile_store_path_label.setWordWrap(True)
@@ -891,9 +893,11 @@ class MainWindow(QMainWindow):
                 (about_button, "Show a short description of the GUI."),
             )
         )
-        shortcuts_label = QLabel("Shortcuts: Ctrl+1..7 navigate sections, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder.")
-        shortcuts_label.setObjectName("helperText")
-        shortcuts_label.setWordWrap(True)
+        self.shortcut_summary_label = QLabel(
+            "Shortcuts: Ctrl+1..7 navigate sections, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder."
+        )
+        self.shortcut_summary_label.setObjectName("infoBanner")
+        self.shortcut_summary_label.setWordWrap(True)
         store_layout.addWidget(QLabel("Profile store path"))
         store_layout.addWidget(self.profile_store_path_label)
         store_layout.addWidget(open_profiles, 0, Qt.AlignLeft)
@@ -901,16 +905,12 @@ class MainWindow(QMainWindow):
         store_layout.addWidget(self.workspace_store_path_label)
         store_layout.addWidget(open_workspace, 0, Qt.AlignLeft)
         store_layout.addWidget(about_button, 0, Qt.AlignLeft)
-        store_layout.addWidget(shortcuts_label)
+        store_layout.addWidget(self.shortcut_summary_label)
         self.settings_split.addWidget(store_panel)
         layout.addWidget(self.settings_split, 1)
 
         danger_panel, danger_layout = build_surface_frame(spacing=10)
-        danger_title = QLabel("Danger Zone")
-        danger_title.setObjectName("sectionTitle")
-        danger_summary = QLabel("Irreversible workspace deletion controls. Profiles and extensions are preserved.")
-        danger_summary.setObjectName("helperText")
-        danger_summary.setWordWrap(True)
+        danger_header, _danger_title, _danger_summary = build_section_header("Danger Zone")
         self.danger_zone_status_label = QLabel("No workspace deletion is currently armed.")
         self.danger_zone_status_label.setObjectName("attentionBanner")
         self.danger_zone_status_label.setProperty("tone", "alert")
@@ -936,8 +936,7 @@ class MainWindow(QMainWindow):
         danger_actions = FlowButtonRow()
         danger_actions.addWidget(self.delete_active_workspace_data_button)
         danger_actions.addWidget(self.delete_all_workspaces_data_button)
-        danger_layout.addWidget(danger_title)
-        danger_layout.addWidget(danger_summary)
+        danger_layout.addWidget(danger_header)
         danger_layout.addWidget(self.danger_zone_status_label)
         danger_layout.addWidget(danger_actions)
         layout.addWidget(danger_panel)
@@ -1106,9 +1105,6 @@ class MainWindow(QMainWindow):
         self.profile_store_path_label.setText(str(self.store.path))
         self.workspace_store_path_label.setText(str(self.workspace_store.path))
         self._sync_settings_workspace_switcher()
-        self.settings_summary_label.setText(
-            f"Profiles: {len(self._profiles)} stored | Workspaces: {len(self._workspaces)} tracked | Active runs: {len(self._run_snapshots)}"
-        )
         self._update_danger_zone_state()
 
     def _sync_settings_workspace_switcher(self) -> None:
@@ -1630,19 +1626,39 @@ class MainWindow(QMainWindow):
         self.output_tab.focus_findings()
 
     def _update_output_snapshot(self, run_id: str | None) -> None:
+        self.assets_tab.set_snapshot(self._workspace_inventory_snapshot(preferred_run_id=run_id))
         if not run_id or run_id not in self._run_snapshots:
-            self.assets_tab.set_snapshot(None)
             self.output_tab.set_snapshot(None)
             self.scanner_panel.set_snapshot(None)
             return
         snapshot = self._run_snapshots[run_id]
-        self.assets_tab.set_snapshot(snapshot)
         self.output_tab.set_snapshot(snapshot, self._finding_states_by_run.get(run_id, {}))
         self.scanner_panel.set_snapshot(snapshot)
         self.output_tab.set_compare_options(list(self._run_snapshots.values()), run_id)
 
     def _resolve_snapshot(self, run_id: str) -> RunSnapshot | None:
         return self._run_snapshots.get(run_id)
+
+    def _workspace_inventory_snapshot(self, preferred_run_id: str | None = None) -> RunSnapshot | None:
+        if not self._run_snapshots:
+            return None
+        ordered: list[RunSnapshot] = []
+        if preferred_run_id and preferred_run_id in self._run_snapshots:
+            ordered.append(self._run_snapshots[preferred_run_id])
+        ordered.extend(
+            snapshot
+            for run_id, snapshot in sorted(
+                self._run_snapshots.items(),
+                key=lambda item: (item[1].scan_name.lower(), item[0]),
+            )
+            if run_id != preferred_run_id
+        )
+        active_workspace = self._active_workspace()
+        return build_workspace_inventory_snapshot(
+            ordered,
+            workspace_id=active_workspace.workspace_id if active_workspace is not None else self._active_workspace_id,
+            workspace_name=active_workspace.name if active_workspace is not None else "",
+        )
 
     def _select_run_by_id(self, run_id: str, *, status_prefix: str = "Selected") -> None:
         snapshot = self._resolve_snapshot(run_id)

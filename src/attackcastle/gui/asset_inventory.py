@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -333,3 +334,369 @@ def build_detail_payload(
     if webapp_id in webapps_by_id:
         payload["web_app"] = webapps_by_id[webapp_id]
     return payload
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return True
+
+
+def _merge_list_values(existing: list[Any], incoming: list[Any]) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for item in [*existing, *incoming]:
+        key = json.dumps(item, sort_keys=True, default=str)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(item)
+    return merged
+
+
+def _merge_inventory_row(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(existing)
+    for key, incoming_value in incoming.items():
+        if key not in merged:
+            merged[key] = incoming_value
+            continue
+        current_value = merged[key]
+        if isinstance(current_value, list) and isinstance(incoming_value, list):
+            merged[key] = _merge_list_values(current_value, incoming_value)
+            continue
+        if isinstance(current_value, dict) and isinstance(incoming_value, dict):
+            nested = dict(current_value)
+            nested.update({nested_key: nested_value for nested_key, nested_value in incoming_value.items() if _has_value(nested_value)})
+            merged[key] = nested
+            continue
+        if isinstance(current_value, bool) and isinstance(incoming_value, bool):
+            merged[key] = current_value or incoming_value
+            continue
+        if not _has_value(current_value) and _has_value(incoming_value):
+            merged[key] = incoming_value
+    return merged
+
+
+def _copy_row(row: dict[str, Any], **updates: Any) -> dict[str, Any]:
+    copied = dict(row)
+    copied.update({key: value for key, value in updates.items() if value is not None})
+    return copied
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def build_workspace_inventory_snapshot(
+    snapshots: list[RunSnapshot],
+    *,
+    workspace_id: str = "",
+    workspace_name: str = "",
+) -> RunSnapshot | None:
+    ordered = [snapshot for snapshot in snapshots if snapshot is not None]
+    if not ordered:
+        return None
+
+    canonical_workspace_id = workspace_id or next(
+        (snapshot.workspace_id for snapshot in ordered if snapshot.workspace_id),
+        "",
+    )
+    canonical_workspace_name = workspace_name or next(
+        (snapshot.workspace_name for snapshot in ordered if snapshot.workspace_name),
+        "",
+    )
+
+    asset_rows: dict[str, dict[str, Any]] = {}
+    service_rows: dict[str, dict[str, Any]] = {}
+    web_app_rows: dict[str, dict[str, Any]] = {}
+    endpoint_rows: dict[str, dict[str, Any]] = {}
+    parameter_rows: dict[str, dict[str, Any]] = {}
+    form_rows: dict[str, dict[str, Any]] = {}
+    login_surface_rows: dict[str, dict[str, Any]] = {}
+    site_map_rows: dict[str, dict[str, Any]] = {}
+    technology_rows: dict[str, dict[str, Any]] = {}
+
+    asset_id_map: dict[tuple[str, str], str] = {}
+    service_id_map: dict[tuple[str, str], str] = {}
+    webapp_id_map: dict[tuple[str, str], str] = {}
+    endpoint_id_map: dict[tuple[str, str], str] = {}
+
+    for snapshot in ordered:
+        assets_by_id = {
+            _clean(item.get("asset_id")): item
+            for item in snapshot.assets
+            if _clean(item.get("asset_id"))
+        }
+        services_by_id = {
+            _clean(item.get("service_id")): item
+            for item in snapshot.services
+            if _clean(item.get("service_id"))
+        }
+        webapps_by_id = {
+            _clean(item.get("webapp_id")): item
+            for item in snapshot.web_apps
+            if _clean(item.get("webapp_id"))
+        }
+        endpoints_by_id = {
+            _clean(item.get("endpoint_id")): item
+            for item in snapshot.endpoints
+            if _clean(item.get("endpoint_id"))
+        }
+
+        for row in snapshot.assets:
+            signature = entity_signature("asset", row, snapshot)
+            if not signature:
+                continue
+            old_asset_id = _clean(row.get("asset_id"))
+            if old_asset_id:
+                asset_id_map[(snapshot.run_id, old_asset_id)] = signature
+            parent_row = assets_by_id.get(_clean(row.get("parent_asset_id")))
+            parent_signature = entity_signature("asset", parent_row, snapshot) if parent_row is not None else ""
+            aggregate_row = _copy_row(row, asset_id=signature, parent_asset_id=parent_signature)
+            asset_rows[signature] = (
+                _merge_inventory_row(asset_rows[signature], aggregate_row)
+                if signature in asset_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.services:
+            signature = entity_signature("service", row, snapshot)
+            if not signature:
+                continue
+            old_service_id = _clean(row.get("service_id"))
+            if old_service_id:
+                service_id_map[(snapshot.run_id, old_service_id)] = signature
+            aggregate_row = _copy_row(
+                row,
+                service_id=signature,
+                asset_id=asset_id_map.get((snapshot.run_id, _clean(row.get("asset_id"))), ""),
+            )
+            service_rows[signature] = (
+                _merge_inventory_row(service_rows[signature], aggregate_row)
+                if signature in service_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.web_apps:
+            signature = entity_signature("web_app", row, snapshot)
+            if not signature:
+                continue
+            old_webapp_id = _clean(row.get("webapp_id"))
+            if old_webapp_id:
+                webapp_id_map[(snapshot.run_id, old_webapp_id)] = signature
+            aggregate_row = _copy_row(
+                row,
+                webapp_id=signature,
+                asset_id=asset_id_map.get((snapshot.run_id, _clean(row.get("asset_id"))), ""),
+                service_id=service_id_map.get((snapshot.run_id, _clean(row.get("service_id"))), ""),
+            )
+            web_app_rows[signature] = (
+                _merge_inventory_row(web_app_rows[signature], aggregate_row)
+                if signature in web_app_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.endpoints:
+            signature = entity_signature("endpoint", row, snapshot)
+            if not signature:
+                continue
+            old_endpoint_id = _clean(row.get("endpoint_id"))
+            if old_endpoint_id:
+                endpoint_id_map[(snapshot.run_id, old_endpoint_id)] = signature
+            service_row = services_by_id.get(_clean(row.get("service_id"))) or {}
+            aggregate_row = _copy_row(
+                row,
+                endpoint_id=signature,
+                asset_id=asset_id_map.get(
+                    (snapshot.run_id, _clean(row.get("asset_id")) or _clean(service_row.get("asset_id"))),
+                    "",
+                ),
+                service_id=service_id_map.get((snapshot.run_id, _clean(row.get("service_id"))), ""),
+                webapp_id=webapp_id_map.get((snapshot.run_id, _clean(row.get("webapp_id"))), ""),
+            )
+            endpoint_rows[signature] = (
+                _merge_inventory_row(endpoint_rows[signature], aggregate_row)
+                if signature in endpoint_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.parameters:
+            signature = entity_signature("parameter", row, snapshot)
+            if not signature:
+                continue
+            endpoint_row = endpoints_by_id.get(_clean(row.get("endpoint_id"))) or {}
+            service_row = services_by_id.get(_clean(row.get("service_id")) or _clean(endpoint_row.get("service_id"))) or {}
+            aggregate_row = _copy_row(
+                row,
+                parameter_id=signature,
+                endpoint_id=endpoint_id_map.get((snapshot.run_id, _clean(row.get("endpoint_id"))), ""),
+                webapp_id=webapp_id_map.get((snapshot.run_id, _clean(row.get("webapp_id"))), ""),
+                service_id=service_id_map.get(
+                    (snapshot.run_id, _clean(row.get("service_id")) or _clean(endpoint_row.get("service_id"))),
+                    "",
+                ),
+                asset_id=asset_id_map.get(
+                    (
+                        snapshot.run_id,
+                        _clean(row.get("asset_id"))
+                        or _clean(endpoint_row.get("asset_id"))
+                        or _clean(service_row.get("asset_id")),
+                    ),
+                    "",
+                ),
+            )
+            parameter_rows[signature] = (
+                _merge_inventory_row(parameter_rows[signature], aggregate_row)
+                if signature in parameter_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.forms:
+            signature = entity_signature("form", row, snapshot)
+            if not signature:
+                continue
+            service_row = services_by_id.get(_clean(row.get("service_id"))) or {}
+            aggregate_row = _copy_row(
+                row,
+                form_id=signature,
+                webapp_id=webapp_id_map.get((snapshot.run_id, _clean(row.get("webapp_id"))), ""),
+                service_id=service_id_map.get((snapshot.run_id, _clean(row.get("service_id"))), ""),
+                asset_id=asset_id_map.get(
+                    (snapshot.run_id, _clean(row.get("asset_id")) or _clean(service_row.get("asset_id"))),
+                    "",
+                ),
+            )
+            form_rows[signature] = (
+                _merge_inventory_row(form_rows[signature], aggregate_row)
+                if signature in form_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.login_surfaces:
+            signature = entity_signature("login_surface", row, snapshot)
+            if not signature:
+                continue
+            webapp_row = webapps_by_id.get(_clean(row.get("webapp_id"))) or {}
+            service_row = services_by_id.get(_clean(row.get("service_id")) or _clean(webapp_row.get("service_id"))) or {}
+            aggregate_row = _copy_row(
+                row,
+                login_surface_id=signature,
+                webapp_id=webapp_id_map.get((snapshot.run_id, _clean(row.get("webapp_id"))), ""),
+                service_id=service_id_map.get(
+                    (snapshot.run_id, _clean(row.get("service_id")) or _clean(webapp_row.get("service_id"))),
+                    "",
+                ),
+                asset_id=asset_id_map.get(
+                    (
+                        snapshot.run_id,
+                        _clean(row.get("asset_id"))
+                        or _clean(webapp_row.get("asset_id"))
+                        or _clean(service_row.get("asset_id")),
+                    ),
+                    "",
+                ),
+            )
+            login_surface_rows[signature] = (
+                _merge_inventory_row(login_surface_rows[signature], aggregate_row)
+                if signature in login_surface_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.site_map:
+            signature = entity_signature("site_map", row, snapshot)
+            if not signature:
+                continue
+            aggregate_row = _copy_row(
+                row,
+                entity_id=webapp_id_map.get((snapshot.run_id, _clean(row.get("entity_id"))), ""),
+            )
+            site_map_rows[signature] = (
+                _merge_inventory_row(site_map_rows[signature], aggregate_row)
+                if signature in site_map_rows
+                else aggregate_row
+            )
+
+        for row in snapshot.technologies:
+            signature = entity_signature("technology", row, snapshot)
+            if not signature:
+                continue
+            webapp_row = webapps_by_id.get(_clean(row.get("webapp_id"))) or {}
+            service_row = services_by_id.get(_clean(row.get("service_id")) or _clean(webapp_row.get("service_id"))) or {}
+            aggregate_row = _copy_row(
+                row,
+                tech_id=signature,
+                asset_id=asset_id_map.get(
+                    (
+                        snapshot.run_id,
+                        _clean(row.get("asset_id"))
+                        or _clean(webapp_row.get("asset_id"))
+                        or _clean(service_row.get("asset_id")),
+                    ),
+                    "",
+                ),
+                service_id=service_id_map.get(
+                    (snapshot.run_id, _clean(row.get("service_id")) or _clean(webapp_row.get("service_id"))),
+                    "",
+                ),
+                webapp_id=webapp_id_map.get(
+                    (snapshot.run_id, _clean(row.get("webapp_id")) or _clean(row.get("entity_id"))),
+                    "",
+                ),
+            )
+            technology_rows[signature] = (
+                _merge_inventory_row(technology_rows[signature], aggregate_row)
+                if signature in technology_rows
+                else aggregate_row
+            )
+
+    return RunSnapshot(
+        run_id=f"workspace-assets::{canonical_workspace_id or 'ad-hoc'}",
+        scan_name="Workspace Asset Inventory",
+        run_dir="",
+        state="completed",
+        elapsed_seconds=0.0,
+        eta_seconds=0.0,
+        current_task="Compiled inventory",
+        total_tasks=0,
+        completed_tasks=0,
+        workspace_id=canonical_workspace_id,
+        workspace_name=canonical_workspace_name,
+        assets=sorted(
+            asset_rows.values(),
+            key=lambda item: (_lower(item.get("kind")), _lower(item.get("name")), _clean(item.get("ip"))),
+        ),
+        services=sorted(
+            service_rows.values(),
+            key=lambda item: (_clean(item.get("asset_id")), _safe_int(item.get("port")), _lower(item.get("protocol"))),
+        ),
+        web_apps=sorted(web_app_rows.values(), key=lambda item: _normalize_url(item.get("url"))),
+        technologies=sorted(
+            technology_rows.values(),
+            key=lambda item: (_lower(item.get("name")), _lower(item.get("version")), _lower(item.get("category"))),
+        ),
+        site_map=sorted(site_map_rows.values(), key=lambda item: (_lower(item.get("source")), _normalize_url(item.get("url")))),
+        endpoints=sorted(
+            endpoint_rows.values(),
+            key=lambda item: (_normalize_url(item.get("url")), _clean(item.get("method")).upper(), _lower(item.get("kind"))),
+        ),
+        parameters=sorted(
+            parameter_rows.values(),
+            key=lambda item: (_lower(item.get("name")), _lower(item.get("location")), _clean(item.get("endpoint_id"))),
+        ),
+        forms=sorted(
+            form_rows.values(),
+            key=lambda item: (_normalize_url(item.get("action_url")), _clean(item.get("method")).upper()),
+        ),
+        login_surfaces=sorted(login_surface_rows.values(), key=lambda item: _normalize_url(item.get("url"))),
+    )

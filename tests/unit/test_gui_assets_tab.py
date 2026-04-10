@@ -9,7 +9,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from attackcastle.gui.asset_inventory import build_entity_note
+from attackcastle.gui.asset_inventory import build_entity_note, build_workspace_inventory_snapshot
 from attackcastle.gui.assets_tab import AssetsTab
 from attackcastle.gui.models import Engagement, RunSnapshot
 from attackcastle.gui.workspace_store import WorkspaceStore
@@ -96,7 +96,7 @@ def test_assets_tab_populates_grouped_inventory_tables(tmp_path: Path) -> None:
         assert tab.web_apps_model.rowCount() == 1
         assert tab.endpoints_model.rowCount() == 1
         assert tab.technologies_model.rowCount() == 1
-        assert tab.content_split.count() == 2
+        assert tab.main_split.count() == 2
         row = tab.services_model.index(0, 0).data(Qt.UserRole)
         assert row["__target"] == "203.0.113.10:443"
     finally:
@@ -219,3 +219,65 @@ def test_assets_tab_loads_workspace_notes_for_matching_entity_signatures(tmp_pat
         assert row["__note_preview"] == "Priority host"
     finally:
         tab.close()
+
+
+def test_workspace_inventory_snapshot_merges_all_runs_and_deduplicates_relations(tmp_path: Path) -> None:
+    first = _make_snapshot(tmp_path)
+    second = RunSnapshot(
+        run_id="run-assets-2",
+        scan_name="Asset Workspace Run 2",
+        run_dir=str(tmp_path / "run-assets-2"),
+        state="completed",
+        elapsed_seconds=30.0,
+        eta_seconds=0.0,
+        current_task="Idle",
+        total_tasks=2,
+        completed_tasks=2,
+        workspace_id=first.workspace_id,
+        workspace_name=first.workspace_name,
+        target_input="api.example.com",
+        assets=[
+            {"asset_id": "asset-2", "kind": "host", "name": "example.com", "ip": "203.0.113.10", "aliases": ["api.example.com"]},
+            {"asset_id": "asset-3", "kind": "host", "name": "admin.example.com", "ip": "203.0.113.11"},
+        ],
+        services=[
+            {"service_id": "svc-2", "asset_id": "asset-2", "port": 443, "protocol": "tcp", "state": "open", "name": "https"},
+            {"service_id": "svc-3", "asset_id": "asset-3", "port": 8443, "protocol": "tcp", "state": "open", "name": "https-alt"},
+        ],
+        web_apps=[
+            {"webapp_id": "web-2", "asset_id": "asset-2", "service_id": "svc-2", "url": "https://example.com", "status_code": 200, "title": "Example API"},
+            {"webapp_id": "web-3", "asset_id": "asset-3", "service_id": "svc-3", "url": "https://admin.example.com:8443", "status_code": 200, "title": "Admin"},
+        ],
+        endpoints=[
+            {"endpoint_id": "ep-2", "webapp_id": "web-2", "asset_id": "asset-2", "service_id": "svc-2", "kind": "rest", "method": "GET", "url": "https://example.com/api/users"},
+            {"endpoint_id": "ep-3", "webapp_id": "web-3", "asset_id": "asset-3", "service_id": "svc-3", "kind": "rest", "method": "POST", "url": "https://admin.example.com:8443/api/login"},
+        ],
+        parameters=[],
+        forms=[],
+        login_surfaces=[],
+        site_map=[
+            {"source": "web.discovery.urls", "url": "https://admin.example.com:8443/api/login", "entity_id": "web-3"},
+        ],
+        technologies=[
+            {"tech_id": "tech-2", "asset_id": "asset-2", "webapp_id": "web-2", "name": "nginx", "version": "1.25", "category": "server", "source_tool": "httpx"},
+            {"tech_id": "tech-3", "asset_id": "asset-3", "webapp_id": "web-3", "name": "gunicorn", "version": "22.0", "category": "server", "source_tool": "whatweb"},
+        ],
+    )
+
+    aggregate = build_workspace_inventory_snapshot([first, second], workspace_id=first.workspace_id, workspace_name=first.workspace_name)
+
+    assert aggregate is not None
+    assert len(aggregate.assets) == 2
+    assert len(aggregate.services) == 2
+    assert len(aggregate.web_apps) == 2
+    assert len(aggregate.endpoints) == 2
+    assert len(aggregate.technologies) == 2
+
+    example_asset = next(row for row in aggregate.assets if row.get("name") == "example.com")
+    assert sorted(example_asset.get("aliases") or []) == ["api.example.com", "www.example.com"]
+
+    example_service = next(row for row in aggregate.services if row.get("port") == 443)
+    assert example_service.get("asset_id") == example_asset.get("asset_id")
+
+    example_web_app = next(row for row in aggregate.web_apps if row.get("url") == "https://example.com")
+    assert example_web_app.get("service_id") == example_service.get("service_id")

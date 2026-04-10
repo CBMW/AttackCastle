@@ -503,21 +503,51 @@ def test_assets_workspace_is_available_in_navigation_and_tracks_selected_run(tmp
             current_task="Idle",
             total_tasks=2,
             completed_tasks=2,
+            workspace_id="ws-1",
             workspace_name="Client Alpha",
             target_input="example.com",
             assets=[{"asset_id": "asset-1", "kind": "host", "name": "example.com", "ip": "203.0.113.10"}],
             services=[{"service_id": "svc-1", "asset_id": "asset-1", "port": 443, "protocol": "tcp", "state": "open", "name": "https"}],
             web_apps=[{"webapp_id": "web-1", "asset_id": "asset-1", "service_id": "svc-1", "url": "https://example.com", "status_code": 200}],
         )
+        second_snapshot = RunSnapshot(
+            run_id="run-assets-2",
+            scan_name="Asset Heavy Run 2",
+            run_dir=str(tmp_path / "run-assets-2"),
+            state="completed",
+            elapsed_seconds=12.0,
+            eta_seconds=0.0,
+            current_task="Idle",
+            total_tasks=1,
+            completed_tasks=1,
+            workspace_id="ws-1",
+            workspace_name="Client Alpha",
+            target_input="admin.example.com",
+            assets=[
+                {"asset_id": "asset-2", "kind": "host", "name": "example.com", "ip": "203.0.113.10"},
+                {"asset_id": "asset-3", "kind": "host", "name": "admin.example.com", "ip": "203.0.113.11"},
+            ],
+            services=[
+                {"service_id": "svc-2", "asset_id": "asset-2", "port": 443, "protocol": "tcp", "state": "open", "name": "https"},
+                {"service_id": "svc-3", "asset_id": "asset-3", "port": 8443, "protocol": "tcp", "state": "open", "name": "https-alt"},
+            ],
+            web_apps=[
+                {"webapp_id": "web-2", "asset_id": "asset-3", "service_id": "svc-3", "url": "https://admin.example.com:8443", "status_code": 200},
+            ],
+        )
         window._run_snapshots[snapshot.run_id] = snapshot
+        window._run_snapshots[second_snapshot.run_id] = second_snapshot
 
         window._update_output_snapshot(snapshot.run_id)
         window._navigate_to("assets")
 
         assert window.section_stack.currentWidget() is window.assets_tab
-        assert window.assets_tab.title_label.text() == "Asset Heavy Run"
-        assert window.assets_tab.assets_model.rowCount() == 1
-        assert window.assets_tab.services_model.rowCount() == 1
+        assert window.assets_tab._snapshot is not None
+        assert window.assets_tab._snapshot.scan_name == "Workspace Asset Inventory"
+        assert window.assets_tab.assets_model.rowCount() == 2
+        assert window.assets_tab.services_model.rowCount() == 2
+        assert window.output_tab._snapshot is snapshot
+        assert window.scanner_panel._snapshot is snapshot
     finally:
         window._refresh_timer.stop()
         window.close()
