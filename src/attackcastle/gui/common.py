@@ -696,7 +696,7 @@ def apply_responsive_splitter(
     splitter: QSplitter,
     stretches: tuple[int, ...],
     *,
-    handle_width: int = 4,
+    handle_width: int = 3,
     children_collapsible: bool = True,
 ) -> QSplitter:
     splitter.setOpaqueResize(False)

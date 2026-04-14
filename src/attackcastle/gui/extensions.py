@@ -564,15 +564,15 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 0;
     }}
     QSplitter::handle:horizontal {{
-        margin: 10px 1px;
-        border-radius: 2px;
+        margin: 8px 1px;
+        border-radius: 1px;
         background: rgba(54, 67, 84, 0.14);
     }}
     QSplitter::handle:horizontal:hover {{ background: rgba(98, 125, 159, 0.22); }}
     QSplitter::handle:horizontal:pressed {{ background: rgba(116, 150, 194, 0.3); }}
     QSplitter::handle:vertical {{
-        margin: 1px 10px;
-        border-radius: 2px;
+        margin: 1px 8px;
+        border-radius: 1px;
         background: rgba(54, 67, 84, 0.14);
     }}
     QSplitter::handle:vertical:hover {{ background: rgba(98, 125, 159, 0.22); }}

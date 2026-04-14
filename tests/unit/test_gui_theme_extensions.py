@@ -25,8 +25,8 @@ def test_default_theme_uses_compact_density_and_clearer_panel_contrast() -> None
     assert "QWidget#appRoot" in stylesheet
     assert "qlineargradient" in stylesheet
     assert "padding: 6px 10px;" in stylesheet
-    assert "margin: 10px 1px;" in stylesheet
-    assert "margin: 1px 10px;" in stylesheet
+    assert "margin: 8px 1px;" in stylesheet
+    assert "margin: 1px 8px;" in stylesheet
 
 
 def test_default_splitter_handles_are_slim() -> None:
@@ -40,7 +40,7 @@ def test_default_splitter_handles_are_slim() -> None:
     _ = app
     splitter = apply_responsive_splitter(QSplitter(Qt.Horizontal), (1, 1))
 
-    assert splitter.handleWidth() == 4
+    assert splitter.handleWidth() == 3
 
 
 def test_invalid_theme_save_does_not_replace_last_good_active_theme(tmp_path) -> None:

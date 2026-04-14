@@ -439,10 +439,10 @@ def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path)
         scanner_titles = {group.title() for group in window.runs_page.findChildren(QGroupBox)}
 
         assert "Start New Scan" not in workspace_titles
-        assert "" in scanner_titles
         assert "Active Run" in scanner_titles
         assert window.start_scan_button.parentWidget() is not None
         assert window.runs_page.isAncestorOf(window.start_scan_button)
+        assert window.start_scan_button.isEnabled()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -453,13 +453,30 @@ def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: 
 
     try:
         assert window.body_split.count() == 2
-        assert window.workspace_primary_split.count() == 2
+        assert window.workspace_content_split.count() == 3
         assert window.runs_page_split.count() == 2
-        assert window.runs_top_split.count() == 2
         assert window.runs_body_split.count() == 2
         assert window.output_tab.main_split.count() == 2
         assert window.assets_tab.main_split.count() == 2
         assert window.settings_split.count() == 2
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_overview_arranges_details_runs_and_checklist_notes_left_to_right(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        window.resize(1560, 980)
+        window._sync_responsive_layouts()
+
+        assert window.workspace_content_split.orientation() == Qt.Horizontal
+        assert window.workspace_content_split.count() == 3
+        assert window.workspace_content_split.widget(0).isAncestorOf(window.workspace_summary)
+        assert window.workspace_content_split.widget(1).isAncestorOf(window.workspace_run_table)
+        assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_checklist_panel)
+        assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_notes_edit)
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -590,8 +607,12 @@ def test_responsive_layout_switches_to_stacked_mode_on_narrow_width(tmp_path: Pa
         window._sync_responsive_layouts()
 
         assert window.workspace_content_split.orientation() == Qt.Vertical
-        assert window.runs_top_split.orientation() == Qt.Vertical
+        assert window.workspace_content_split.count() == 3
         assert window.output_tab.main_split.orientation() == Qt.Vertical
+        assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_checklist_panel)
+        assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_notes_edit)
+        assert not window.overview_checklist_panel.isHidden()
+        assert not window.overview_notes_edit.isHidden()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -608,9 +629,30 @@ def test_responsive_layout_uses_horizontal_splits_on_wide_width(tmp_path: Path) 
 
         assert window.workspace_content_split.orientation() == Qt.Horizontal
         assert window.runs_page_split.orientation() == Qt.Horizontal
-        assert window.runs_top_split.orientation() == Qt.Vertical
         assert window.runs_body_split.orientation() == Qt.Horizontal
         assert window.output_tab.main_split.orientation() == Qt.Horizontal
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_scanner_launch_action_stays_visible_across_responsive_widths(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        window.show()
+        window._navigate_to("runs")
+        for width in (1560, 1280, 1100):
+            window.resize(width, 820)
+            window._sync_responsive_layouts()
+            QApplication.processEvents()
+
+            assert window.section_stack.currentWidget() is window.runs_page
+            assert window.runs_page.isAncestorOf(window.start_scan_button)
+            assert window.start_scan_button.isVisible()
+            assert window.start_scan_button.isEnabled()
+            assert window.start_scan_button.geometry().width() > 0
+            assert window.start_scan_button.geometry().height() > 0
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -637,7 +679,9 @@ def test_responsive_layout_keeps_navigation_and_inspectors_compact(tmp_path: Pat
         assert TABLE_ROW_HEIGHT == 30
         assert body_sizes[0] <= 220
         assert body_sizes[1] > body_sizes[0] * 2
-        assert workspace_sizes[1] < workspace_sizes[0]
+        assert len(workspace_sizes) == 3
+        assert workspace_sizes[1] >= workspace_sizes[0]
+        assert workspace_sizes[1] >= workspace_sizes[2]
         assert runs_sizes[0] < runs_sizes[1]
         assert findings_sizes[1] < findings_sizes[0]
         assert assets_sizes[1] < assets_sizes[0]

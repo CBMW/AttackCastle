@@ -188,25 +188,19 @@ class MainWindow(QMainWindow):
         self.nav_hint.setVisible(mode != "compact")
         if mode == "stacked":
             self.workspace_content_split.setOrientation(Qt.Vertical)
-            self.workspace_primary_split.setOrientation(Qt.Vertical if width < 980 else Qt.Horizontal)
             self._apply_splitter_layout(
-                "workspace_content_split",
-                [max(int(self.height() * 0.56), 420), max(int(self.height() * 0.44), 280)],
-            )
-            self._apply_splitter_layout(
-                "workspace_primary_split",
-                [max(int(width * 0.34), 280), max(int(self.height() * 0.48), 320)],
+                "workspace_overview_split",
+                [
+                    max(int(self.height() * 0.26), 220),
+                    max(int(self.height() * 0.42), 320),
+                    max(int(self.height() * 0.32), 260),
+                ],
             )
         else:
             self.workspace_content_split.setOrientation(Qt.Horizontal)
-            self.workspace_primary_split.setOrientation(Qt.Horizontal)
             self._apply_splitter_layout(
-                "workspace_content_split",
-                [max(int(width * 0.78), 820), max(int(width * 0.22), 260)],
-            )
-            self._apply_splitter_layout(
-                "workspace_primary_split",
-                [max(int(width * 0.24), 220), max(int(width * 0.54), 520)],
+                "workspace_overview_split",
+                [max(int(width * 0.25), 260), max(int(width * 0.50), 520), max(int(width * 0.25), 280)],
             )
         if mode == "stacked":
             self._apply_splitter_layout("body_split", [170, max(width - 170, 680)])
@@ -229,12 +223,6 @@ class MainWindow(QMainWindow):
                     "runs_page_split",
                     [max(int(self.height() * 0.34), 280), max(int(self.height() * 0.66), 480)],
                 )
-        if hasattr(self, "runs_top_split"):
-            self.runs_top_split.setOrientation(Qt.Vertical)
-            self._apply_splitter_layout(
-                "runs_top_split",
-                [max(int(self.height() * 0.18), 170), max(int(self.height() * 0.42), 380)],
-            )
         if hasattr(self, "runs_body_split"):
             if width >= 1240:
                 self.runs_body_split.setOrientation(Qt.Horizontal)
@@ -395,11 +383,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        content_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
+        content_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (1, 2, 1))
         self.workspace_content_split = content_split
-        self._register_splitter(self.workspace_content_split, "workspace_content_split")
-        self.workspace_primary_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 3))
-        self._register_splitter(self.workspace_primary_split, "workspace_primary_split")
+        self.workspace_overview_split = content_split
+        self._register_splitter(self.workspace_content_split, "workspace_overview_split")
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -469,7 +456,7 @@ class MainWindow(QMainWindow):
         )
         left_layout.addWidget(left_top_panel)
         left_layout.addWidget(workspace_summary_panel, 1)
-        self.workspace_primary_split.addWidget(left_panel)
+        content_split.addWidget(left_panel)
 
         center_panel = QWidget()
         center_layout = QVBoxLayout(center_panel)
@@ -531,7 +518,7 @@ class MainWindow(QMainWindow):
             status_label=self.workspace_run_results_label,
         )
         center_layout.addWidget(runs_panel, 1)
-        self.workspace_primary_split.addWidget(center_panel)
+        content_split.addWidget(center_panel)
 
         inspector_body = QWidget()
         inspector_layout = QVBoxLayout(inspector_body)
@@ -568,7 +555,6 @@ class MainWindow(QMainWindow):
         )
         inspector_panel_layout.addWidget(inspector_body, 1)
 
-        content_split.addWidget(self.workspace_primary_split)
         content_split.addWidget(inspector_panel)
         layout.addWidget(content_split, 1)
         return page
@@ -580,12 +566,15 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        # Keep the left rail aligned to the operator workflow: launch a scan, then act on the selected run.
-        self.runs_top_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 5))
-        self._register_splitter(self.runs_top_split, "runs_top_split")
-        self.runs_top_split.setChildrenCollapsible(False)
-        self.runs_top_split.addWidget(self._wrap_group("", self._build_scanner_launch_card()))
-        self.runs_top_split.addWidget(self._wrap_group("Active Run", self._build_selected_run_control_card()))
+        launch_strip, launch_strip_layout = build_surface_frame(
+            object_name="scannerLaunchStrip",
+            surface=SURFACE_PRIMARY,
+            spacing=PAGE_CARD_SPACING,
+        )
+        launch_strip_layout.addWidget(self._build_scanner_launch_card())
+        layout.addWidget(launch_strip, 0)
+
+        # Keep selected-run actions in the control area, independent from the launch strip.
         runs_control_panel = QFrame()
         runs_control_panel.setObjectName("scannerConsoleLeftColumn")
         runs_control_panel.setProperty("surface", SURFACE_PRIMARY)
@@ -593,7 +582,7 @@ class MainWindow(QMainWindow):
         runs_control_layout = QVBoxLayout(runs_control_panel)
         runs_control_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
         runs_control_layout.setSpacing(PAGE_SECTION_SPACING)
-        runs_control_layout.addWidget(self.runs_top_split, 1)
+        runs_control_layout.addWidget(self._wrap_group("Active Run", self._build_selected_run_control_card()), 1)
 
         self.run_filter_grid = QGridLayout()
         self.run_filter_grid.setHorizontalSpacing(10)
@@ -691,7 +680,7 @@ class MainWindow(QMainWindow):
         card.setObjectName("scannerLaunchCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(PAGE_CARD_SPACING)
 
         self.start_scan_button = QPushButton("Launch New Scan")
         self.start_scan_button.setObjectName("scannerStartButton")
@@ -702,9 +691,7 @@ class MainWindow(QMainWindow):
         self.start_scan_button.setMaximumWidth(280)
         self.start_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        layout.addStretch(1)
-        layout.addWidget(self.start_scan_button, 0, Qt.AlignCenter)
-        layout.addStretch(1)
+        layout.addWidget(self.start_scan_button, 0, Qt.AlignLeft)
         return card
 
     def _build_selected_run_control_card(self) -> QWidget:
