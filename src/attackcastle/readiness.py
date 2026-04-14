@@ -102,7 +102,7 @@ CAPABILITY_TOOL_MAPPING: dict[str, tuple[str, str, str]] = {
     "subdomain_enumeration": ("subfinder", "subfinder", "Enumerating subdomains"),
     "network_port_scan": ("nmap", "nmap", "Running Nmap"),
     "dns_resolution": ("dig", "dig", "Resolving hosts"),
-    "web_probe": ("httpx", "httpx", "Probing web services"),
+    "web_probe": ("httpx", "httpx", "Checking if assets are websites"),
     "vhost_discovery": ("ffuf", "ffuf", "Discovering virtual hosts"),
     "web_discovery": ("katana", "katana", "Discovering web endpoints"),
     "request_capture": ("python_stdlib", "python", "Capturing replayable requests"),

@@ -62,14 +62,14 @@ and AttackCastle will automatically choose task paths based on discovered facts 
 
 The default task chain is:
 
-`subdomain-enum -> resolve-hosts -> run-nmap -> probe-web -> discover-web -> detect-tls/analyze-services -> fingerprint-web -> assess-web/run-nuclei/run-framework-checks/run-sqlmap/run-wpscan -> enrich-cve -> generate-findings -> build-report`
+`subdomain-enum -> resolve-hosts -> check-websites -> run-nmap -> discover-web -> detect-tls/analyze-services -> fingerprint-web -> assess-web/run-nuclei/run-framework-checks/run-sqlmap/run-wpscan -> enrich-cve -> generate-findings -> build-report`
 
 ### Example: IP Or CIDR Input
 
 For input like `203.0.113.10` or `203.0.113.0/24`, the workflow reacts like this:
 
 1. `run-nmap` performs scoped port discovery plus service detection in one stage.
-2. If HTTP/S services are detected, `probe-web` runs.
+2. If HTTP/S candidates are available, `check-websites` runs.
 3. Web targets feed `fingerprint-web` (`whatweb`), `assess-web` (`nikto`), and `run-nuclei` (`nuclei`).
 4. If form/parameter signals are detected, `run-sqlmap` is scheduled.
 5. If WordPress is detected from observations/technologies, `run-wpscan` is scheduled.
@@ -175,11 +175,11 @@ Default tasks are declared in `src/attackcastle/orchestration/rules/default_rule
 | --- | --- | --- | --- | --- |
 | `resolve-hosts` | recon | `dns_resolution` | `has_domain_like_targets` | none |
 | `run-nmap` | recon | `network_port_scan` | `has_service_scan_targets` | `resolve-hosts` |
-| `probe-web` | enumeration | `web_probe` | `has_web_targets` | `run-nmap` |
+| `check-websites` | enumeration | `web_probe` | `has_web_targets` | `resolve-hosts` |
 | `detect-tls` | enumeration | `tls_probe` | `has_tls_targets` | `run-nmap` |
-| `fingerprint-web` | enumeration | `web_fingerprint` | `has_web_targets` | `probe-web` |
-| `assess-web` | enumeration | `web_vuln_scan` | `has_web_targets` | `probe-web` |
-| `run-wpscan` | enumeration | `cms_wordpress_scan` | `has_wordpress_targets` | `probe-web`, `fingerprint-web` |
+| `fingerprint-web` | enumeration | `web_fingerprint` | `has_web_targets` | `discover-web` |
+| `assess-web` | enumeration | `web_vuln_scan` | `has_web_targets` | `discover-web` |
+| `run-wpscan` | enumeration | `cms_wordpress_scan` | `has_wordpress_targets` | `discover-web`, `fingerprint-web` |
 | `enrich-cve` | analysis | `vuln_enrichment` | `has_enrichment_targets` | `run-nmap`, `fingerprint-web` |
 | `generate-findings` | analysis | `findings_engine` | `always` | scan/enrichment tasks |
 | `build-report` | output | `reporting` | `always` | `generate-findings` |

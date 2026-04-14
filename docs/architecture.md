@@ -11,7 +11,7 @@ AttackCastle is implemented as a modular monolith:
 
 Adaptive escalation path (profile/policy permitting):
 
-`subdomain_enum -> dns -> masscan -> nmap -> web_probe -> web_discovery -> tls/service_exposure -> whatweb/nikto/nuclei/framework_checks/sqlmap -> wpscan -> cve_enricher -> findings -> report`
+`subdomain_enum -> dns -> check_websites/web_probe -> masscan/nmap -> web_discovery -> tls/service_exposure -> whatweb/nikto/nuclei/framework_checks/sqlmap -> wpscan -> cve_enricher -> findings -> report`
 
 Core flow:
 

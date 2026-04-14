@@ -48,7 +48,7 @@ def test_build_task_plan_includes_deferred_tasks(tmp_path):
         preview_context=context,
     )
     keys = {task.key for task in result.tasks}
-    assert "probe-web" in keys
+    assert "check-websites" in keys
     assert "detect-tls" in keys
 
 

@@ -179,6 +179,56 @@ def test_scheduler_emits_live_result_events_and_persists_task_rows_in_checkpoint
     assert states[0].status == "completed"
 
 
+def test_scheduler_records_running_fanout_task_state_before_completion(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-running-fanout")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-running-fanout"),
+        audit=_AuditStub(),
+    )
+    observed_running_rows: list[dict[str, object]] = []
+
+    def _runner(task_context: AdapterContext, run_data: RunData) -> AdapterResult:
+        matching_rows = [
+            row
+            for row in run_data.task_states
+            if row.get("status") == "running"
+            and row.get("detail", {}).get("instance_key") == task_context.task_instance_key
+        ]
+        observed_running_rows.extend(matching_rows)
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-nmap",
+                label="Running Nmap",
+                capability="network_port_scan",
+                stage="recon",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+                can_run_many=True,
+                input_items=lambda _run_data: ["13.111.70.13", "18.65.244.102"],
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    checkpoint = run_store.load_latest_checkpoint()
+    assert checkpoint is not None
+    assert len(observed_running_rows) == 2
+    assert {row["detail"]["task_inputs"][0] for row in observed_running_rows} == {
+        "13.111.70.13",
+        "18.65.244.102",
+    }
+    assert all(state.status == "completed" for state in states)
+    assert all(row["status"] == "completed" for row in checkpoint["run_data"]["task_states"])
+
+
 def test_scheduler_marks_adapter_results_with_errors_as_failed(tmp_path: Path):
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-error-state")
     context = AdapterContext(

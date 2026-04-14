@@ -366,6 +366,81 @@ def _build_termination_dump(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _status_counts(rows: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    for row in rows:
+        status = str(row.get("status") or "unknown").strip() or "unknown"
+        counts[status] = counts.get(status, 0) + 1
+    if not counts:
+        return "none"
+    return ", ".join(f"{status}={count}" for status, count in sorted(counts.items()))
+
+
+def _tool_exit_failed(row: dict[str, Any]) -> bool:
+    status = str(row.get("status") or "").strip().lower()
+    exit_code = row.get("exit_code")
+    if status in {"failed", "error"}:
+        return True
+    if status in {"skipped", "running", "pending"}:
+        return False
+    if exit_code in {None, "", 0, "0"}:
+        return False
+    return True
+
+
+def _row_duration_seconds(row: dict[str, Any]) -> float:
+    started_at = _parse_debug_datetime(row.get("started_at"))
+    ended_at = _parse_debug_datetime(row.get("ended_at") or row.get("finished_at"))
+    if started_at is None or ended_at is None:
+        return 0.0
+    return max((ended_at - started_at).total_seconds(), 0.0)
+
+
+def _build_run_health_lines(snapshot: RunSnapshot) -> list[str]:
+    active_tasks = [
+        row
+        for row in snapshot.tasks
+        if str(row.get("status") or "").strip().lower() in ACTIVE_TASK_STATUSES
+    ]
+    failed_tools = [row for row in snapshot.tool_executions if _tool_exit_failed(row)]
+    timed_out_tools = [row for row in snapshot.tool_executions if bool(row.get("timed_out"))]
+    slow_tools = [
+        (duration, row)
+        for row in snapshot.tool_executions
+        if (duration := _row_duration_seconds(row)) > 0
+    ]
+    slow_tools.sort(key=lambda item: item[0], reverse=True)
+
+    lines = [
+        "Run Health",
+        f"- task_statuses: {_status_counts(snapshot.tasks)}",
+        f"- tool_statuses: {_status_counts(snapshot.tool_executions)}",
+        f"- active_tasks: {len(active_tasks)}",
+        f"- tool_failures: {len(failed_tools)}",
+        f"- tool_timeouts: {len(timed_out_tools)}",
+    ]
+    if active_tasks:
+        active_labels = [
+            str(row.get("label") or row.get("key") or "task")
+            for row in active_tasks[:5]
+        ]
+        lines.append(f"- active_task_labels: {', '.join(active_labels)}")
+    if failed_tools:
+        examples = []
+        for row in failed_tools[:5]:
+            tool = str(row.get("tool_name") or "tool")
+            exit_code = row.get("exit_code")
+            examples.append(f"{tool}(status={row.get('status')}, exit={exit_code})")
+        lines.append(f"- tool_failure_examples: {', '.join(examples)}")
+    if slow_tools:
+        examples = []
+        for duration, row in slow_tools[:5]:
+            tool = str(row.get("tool_name") or row.get("execution_id") or "tool")
+            examples.append(f"{tool}={duration:.1f}s")
+        lines.append(f"- longest_tools: {', '.join(examples)}")
+    return lines
+
+
 def _match_execution_for_result(
     result: dict[str, Any],
     tool_executions: list[dict[str, Any]],
@@ -474,6 +549,8 @@ def _synthesize_task_rows(
 def _merge_manifest_task_rows(
     task_rows: list[dict[str, Any]],
     manifest: list[dict[str, Any]],
+    *,
+    run_state: str = "",
 ) -> list[dict[str, Any]]:
     merged = list(task_rows)
     visible_manifest = [item for item in manifest if str(item.get("task_key") or "") not in RUNTIME_CHECKPOINT_KEYS]
@@ -481,6 +558,8 @@ def _merge_manifest_task_rows(
         task_key = str(item.get("task_key") or "").strip()
         status = str(item.get("status") or "unknown").strip()
         if not task_key:
+            continue
+        if status in ACTIVE_TASK_STATUSES and run_state in TERMINAL_TASK_STATUSES:
             continue
         matching_rows = [row for row in merged if str(row.get("key") or "").strip() == task_key]
         if any(str(row.get("status") or "").strip() == status for row in matching_rows):
@@ -790,6 +869,7 @@ def build_run_debug_bundle(
     tool_row: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     current_task_bundle = resolve_current_task_debug_bundle(snapshot, task_row=task_row, tool_row=tool_row)
+    run_health_lines = _build_run_health_lines(snapshot)
     overview_lines = [
         f"Run ID: {snapshot.run_id}",
         f"Scan Name: {snapshot.scan_name}",
@@ -819,8 +899,9 @@ def build_run_debug_bundle(
             )
     else:
         overview_lines.append("- none")
+    overview_lines.extend(["", *run_health_lines])
 
-    combined_lines = ["Task Timeline"]
+    combined_lines = [*run_health_lines, "", "Task Timeline"]
     task_rows = snapshot.tasks or _synthesize_task_rows([], snapshot.task_results, snapshot.tool_executions)
     if task_rows:
         for task in sorted(task_rows, key=_task_sort_key):
@@ -1007,7 +1088,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         profile_name = run_data.metadata.profile
 
     if tasks:
-        tasks = _merge_manifest_task_rows(tasks, manifest)
+        tasks = _merge_manifest_task_rows(tasks, manifest, run_state=state)
     else:
         tasks = _synthesize_task_rows(manifest, task_results, tool_executions)
 
@@ -1020,7 +1101,10 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     elapsed_seconds = max(((ended_at or now) - started_at).total_seconds(), 0.0)
     eta_seconds = _estimate_eta(elapsed_seconds, completed_tasks, total_tasks, state)
 
-    if tasks:
+    if state in TERMINAL_TASK_STATUSES and tasks:
+        selected_task = sorted(tasks, key=_task_sort_key)[-1]
+        current_task = str(selected_task.get("label") or selected_task.get("key") or current_task)
+    elif tasks:
         running_task_rows = [item for item in tasks if str(item.get("status")) == "running"]
         if running_task_rows:
             current_task = str(running_task_rows[0].get("label") or running_task_rows[0].get("key") or current_task)

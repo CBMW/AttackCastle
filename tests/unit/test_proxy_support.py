@@ -176,8 +176,8 @@ def test_plan_cli_passes_proxy_options(tmp_path: Path, monkeypatch) -> None:
                 "scope_compiler": {"compiled_target_count": 1},
                 "items": [
                     {
-                        "key": "probe-web",
-                        "label": "Probe Web",
+                        "key": "check-websites",
+                        "label": "Checking if assets are websites",
                         "capability": "web_probe",
                         "selected": True,
                         "noise_score": 1,

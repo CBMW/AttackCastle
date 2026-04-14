@@ -53,7 +53,7 @@ def test_policy_engine_pauses_when_error_threshold_reached():
     run_data = _run_data()
     run_data.errors.extend(["err-1", "err-2"])
     engine = PolicyEngine(profile_name="standard", policy_config={"max_errors_before_pause": 2})
-    decision = engine.evaluate_task(_task("probe-web", "web_probe", "enumeration"), run_data)
+    decision = engine.evaluate_task(_task("check-websites", "web_probe", "enumeration"), run_data)
     assert decision.allow is False
     assert decision.action == "pause"
     assert decision.rule_id == "builtin.max_errors_before_pause"
@@ -111,4 +111,3 @@ def test_policy_engine_loads_rules_from_file(tmp_path: Path):
     assert decision.allow is False
     assert decision.reason == "tls_disabled_for_this_profile"
     assert decision.rule_id == "deny_tls"
-

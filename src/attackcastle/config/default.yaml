@@ -558,7 +558,7 @@ orchestration:
       max_runs: 1
       max_runtime_seconds: 21600
     web_probe:
-      max_runs: 1
+      max_runs: 5
       max_runtime_seconds: 600
     vhost_discovery:
       max_runs: 1

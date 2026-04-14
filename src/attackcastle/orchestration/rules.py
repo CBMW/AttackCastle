@@ -207,7 +207,7 @@ CONDITION_MAP = {
 
 INPUT_SIGNATURE_MAP = {
     "run-nmap": _pending_host_signature,
-    "probe-web": lambda run_data: _pending_candidate_web_signature(run_data, "web_probe.scanned_urls"),
+    "check-websites": lambda run_data: _pending_candidate_web_signature(run_data, "web_probe.scanned_urls"),
     "discover-web": lambda run_data: _pending_confirmed_web_signature(run_data, "web_discovery.scanned_urls"),
     "fingerprint-web": lambda run_data: _pending_confirmed_web_signature(run_data, "whatweb.scanned_urls"),
     "assess-web": lambda run_data: _pending_confirmed_web_signature(run_data, "nikto.scanned_urls"),

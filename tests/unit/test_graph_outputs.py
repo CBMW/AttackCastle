@@ -101,8 +101,8 @@ def test_build_task_instance_graph_links_tasks_executions_and_targets():
     run_data = _run_data()
     run_data.task_states = [
         {
-            "key": "probe-web",
-            "label": "Probing web services",
+            "key": "check-websites",
+            "label": "Checking if assets are websites",
             "status": "completed",
             "started_at": "2026-01-01T00:00:00+00:00",
             "ended_at": "2026-01-01T00:00:01+00:00",
@@ -139,7 +139,6 @@ def test_build_task_instance_graph_links_tasks_executions_and_targets():
     assert summary["task_node_count"] == 2
     assert summary["execution_node_count"] == 1
     assert summary["target_node_count"] == 1
-    assert ("probe-web", "fingerprint-web", "execution_order") in edges
+    assert ("check-websites", "fingerprint-web", "execution_order") in edges
     assert ("fingerprint-web", "exec:exec-1", "task_execution") in edges
-    assert ("probe-web", "url:https://example.com", "task_target") in edges
-
+    assert ("check-websites", "url:https://example.com", "task_target") in edges

@@ -59,14 +59,14 @@ tasks:
     max_retries: 1
     backoff_seconds: 0.6
 
-  - key: probe-web
-    label: Probing web services
+  - key: check-websites
+    label: Checking if assets are websites
     capability: web_probe
     approval_class: safe_auto
     adapter_key: web_probe
     condition: has_web_targets
     dependencies:
-      - run-nmap
+      - resolve-hosts
     input_entity_types: [Hostname, ResolvedHost, PortService]
     produced_entity_types: [WebService]
     can_run_many: true
@@ -107,7 +107,7 @@ tasks:
     adapter_key: vhost_discovery
     condition: has_web_targets
     dependencies:
-      - probe-web
+      - check-websites
       - run-nmap
     input_entity_types: [WebService, Hostname]
     produced_entity_types: [VHost, WebService]
@@ -148,7 +148,7 @@ tasks:
     adapter_key: web_discovery
     condition: has_web_targets
     dependencies:
-      - probe-web
+      - check-websites
       - run-vhost-discovery
     input_entity_types: [WebService]
     produced_entity_types: [WebEndpoint]
@@ -191,7 +191,7 @@ tasks:
     adapter_key: request_capture
     condition: has_web_targets
     dependencies:
-      - probe-web
+      - check-websites
       - discover-web
     input_entity_types: [WebService, WebEndpoint]
     produced_entity_types: [ReplayableRequest]
@@ -382,7 +382,7 @@ tasks:
     condition: always
     dependencies:
       - run-nmap
-      - probe-web
+      - check-websites
       - run-vhost-discovery
       - discover-web
       - detect-tls

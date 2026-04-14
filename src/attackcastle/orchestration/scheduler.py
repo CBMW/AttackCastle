@@ -264,6 +264,39 @@ class WorkflowScheduler:
                     if not has_active_instances(task_key):
                         completed.add(task_key)
 
+                def upsert_task_state(state: TaskExecutionState) -> None:
+                    state_instance_key = str(state.detail.get("instance_key") or "")
+                    for index, existing in enumerate(states):
+                        existing_instance_key = str(existing.detail.get("instance_key") or "")
+                        if existing.key == state.key and existing_instance_key and existing_instance_key == state_instance_key:
+                            states[index] = state
+                            run_data.task_states = to_serializable(states)
+                            return
+                    states.append(state)
+                    run_data.task_states = to_serializable(states)
+
+                def record_running_state(item: ScheduledTask, started_at, reason: str) -> None:  # noqa: ANN001
+                    task = item.definition
+                    upsert_task_state(
+                        TaskExecutionState(
+                            key=task.key,
+                            label=task.label,
+                            status=TaskStatus.RUNNING.value,
+                            started_at=started_at,
+                            ended_at=started_at,
+                            detail={
+                                "attempt": item.attempt + 1,
+                                "capability": task.capability,
+                                "stage": task.stage,
+                                "decision_reason": reason,
+                                "last_input_signature": item.input_signature,
+                                "iteration": item.iteration,
+                                "instance_key": item.instance_key,
+                                "task_inputs": list(item.task_inputs),
+                            },
+                        )
+                    )
+
                 def expand_fanout_instances(queue_key: str, item: ScheduledTask) -> bool:
                     task = item.definition
                     if not task.can_run_many or task.input_items is None or item.task_inputs:
@@ -511,8 +544,7 @@ class WorkflowScheduler:
                                     "task_inputs": list(item.task_inputs),
                                 },
                             )
-                            states.append(state)
-                            run_data.task_states = to_serializable(states)
+                            upsert_task_state(state)
                             if progress is not None and progress_id is not None:
                                 progress.advance(progress_id, 1)
                             else:
@@ -1080,6 +1112,7 @@ class WorkflowScheduler:
                                 "task_inputs": list(item.task_inputs),
                             },
                         )
+                        record_running_state(item, started_at, reason)
                         context.run_store.save_checkpoint(task.key, "running", run_data)
                         if progress is not None and progress_id is not None:
                             progress.update(progress_id, description=f"[cyan]{task.label}")

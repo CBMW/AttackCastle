@@ -43,6 +43,16 @@ def _asset_lookup(run_data: RunData) -> dict[str, str]:
     return lookup
 
 
+def _hostname_asset_lookup(run_data: RunData) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for asset in run_data.assets:
+        for candidate in (asset.name, *list(getattr(asset, "aliases", []))):
+            normalized = _normalize_hostname(candidate)
+            if normalized and normalized not in lookup:
+                lookup[normalized] = asset.asset_id
+    return lookup
+
+
 def _asset_graph(run_data: RunData) -> tuple[dict[str, Any], dict[str, list[Any]]]:
     asset_by_id = {asset.asset_id: asset for asset in run_data.assets}
     children_by_parent: dict[str, list[Any]] = defaultdict(list)
@@ -206,6 +216,7 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
         for web_app in run_data.web_apps
         if str(web_app.url or "").strip()
     }
+    hostname_assets = _hostname_asset_lookup(run_data)
     for host in _candidate_web_hosts(run_data):
         for port in COMMON_WEB_PROMOTION_PORTS:
             scheme = "https" if port in {443, 8443} else "http"
@@ -219,6 +230,7 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
                 targets,
                 seen,
                 url=url,
+                asset_id=hostname_assets.get(host, ""),
                 candidate_source="host_promotion",
             )
 

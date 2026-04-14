@@ -4,29 +4,62 @@ import json
 import shutil
 import subprocess
 from hashlib import sha1
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from attackcastle.adapters.base import build_tool_execution
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import (
+    Asset,
     Evidence,
     EvidenceArtifact,
     NormalizedEntity,
     Observation,
     RunData,
+    Service,
     Technology,
     WebApplication,
     new_id,
+    now_utc,
 )
 from attackcastle.normalization.correlator import collect_web_targets
 from attackcastle.proxy import build_subprocess_env, chromium_proxy_args
 from attackcastle.scan_policy import build_scan_policy
+from attackcastle.scope.expansion import is_ip_literal
 
 
 def _safe_name(value: str) -> str:
     return sha1(value.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+
+
+def _normalize_url_key(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if not parsed.scheme or not host:
+        return raw
+    netloc = host
+    if parsed.port is not None:
+        netloc = f"{host}:{parsed.port}"
+    path = parsed.path or "/"
+    return f"{parsed.scheme.lower()}://{netloc}{path}" + (f"?{parsed.query}" if parsed.query else "")
+
+
+def _hostname_lookup(run_data: RunData) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for asset in run_data.assets:
+        for candidate in (asset.name, *list(getattr(asset, "aliases", []))):
+            host = str(candidate or "").strip().lower().rstrip(".")
+            if host and host not in lookup:
+                lookup[host] = asset.asset_id
+    return lookup
+
+
+def _service_name_for_url(scheme: str, port: int) -> str:
+    return "https" if scheme == "https" or port in {443, 8443} else "http"
 
 
 class WebProbeAdapter:
@@ -93,11 +126,12 @@ class WebProbeAdapter:
             )
             result.facts["web_probe.available"] = False
             return result
-        existing_scanned = set(run_data.facts.get("web_probe.scanned_urls", []))
+        existing_scanned = {str(item).strip() for item in run_data.facts.get("web_probe.scanned_urls", [])}
+        existing_scanned_keys = {_normalize_url_key(item) or item for item in existing_scanned if item}
         targets = [
             target
             for target in collect_web_targets(run_data)
-            if str(target["url"]).strip() and str(target["url"]) not in existing_scanned
+            if str(target["url"]).strip() and _normalize_url_key(str(target["url"])) not in existing_scanned_keys
         ]
         if not targets:
             return result
@@ -115,7 +149,7 @@ class WebProbeAdapter:
             CommandSpec(
                 tool_name=self.name,
                 capability=self.capability,
-                task_type="ProbeWebServices",
+                task_type="CheckWebsites",
                 command=[
                     "httpx",
                     "-silent",
@@ -140,7 +174,21 @@ class WebProbeAdapter:
             result.warnings.extend(command_result.task_result.warnings)
             return result
 
-        target_lookup = {str(item["url"]): item for item in targets}
+        target_lookup: dict[str, dict[str, str | int]] = {}
+        for item in targets:
+            raw_url = str(item.get("url") or "")
+            target_lookup[raw_url] = item
+            normalized = _normalize_url_key(raw_url)
+            if normalized:
+                target_lookup[normalized] = item
+        existing_asset_by_host = _hostname_lookup(run_data)
+        existing_service_by_asset_port = {
+            (str(service.asset_id), int(service.port)): service.service_id
+            for service in run_data.services
+            if str(service.asset_id).strip()
+        }
+        created_asset_by_host: dict[str, str] = {}
+        created_service_by_asset_port: dict[tuple[str, int], str] = {}
         parsed_entities: list[dict[str, Any]] = []
         created = 0
 
@@ -153,17 +201,68 @@ class WebProbeAdapter:
             except json.JSONDecodeError:
                 continue
             url = str(payload.get("url") or payload.get("input") or "").strip()
+            input_url = str(payload.get("input") or "").strip()
             if not url:
                 continue
-            target = target_lookup.get(url, {})
+            final_url = str(payload.get("final_url") or url)
+            target = (
+                target_lookup.get(url)
+                or target_lookup.get(_normalize_url_key(url))
+                or target_lookup.get(input_url)
+                or target_lookup.get(_normalize_url_key(input_url))
+                or target_lookup.get(final_url)
+                or target_lookup.get(_normalize_url_key(final_url))
+                or {}
+            )
             asset_id = str(target.get("asset_id") or "")
             service_id = str(target.get("service_id") or "") or None
             title = str(payload.get("title") or "").strip() or None
             status_code = int(payload["status_code"]) if payload.get("status_code") is not None else None
-            final_url = str(payload.get("final_url") or url)
             tech_stack = [str(item) for item in payload.get("tech", []) if str(item).strip()]
             resolved_ip = str(payload.get("host") or payload.get("ip") or "").strip() or None
             parsed = urlparse(final_url)
+            if not parsed.hostname:
+                parsed = urlparse(url)
+            scheme = parsed.scheme.lower() or urlparse(str(target.get("url") or "")).scheme.lower() or "https"
+            host = (parsed.hostname or urlparse(str(target.get("url") or "")).hostname or "").lower().rstrip(".")
+            port = parsed.port or (443 if scheme == "https" else 80)
+            target_host = (urlparse(str(target.get("url") or "")).hostname or "").lower().rstrip(".")
+            if asset_id and host and target_host and host != target_host:
+                asset_id = ""
+            if not asset_id and host:
+                asset_id = existing_asset_by_host.get(host, "") or created_asset_by_host.get(host, "")
+            if not asset_id and host:
+                asset = Asset(
+                    asset_id=new_id("asset"),
+                    kind="host" if is_ip_literal(host) else "domain",
+                    name=host,
+                    ip=host if is_ip_literal(host) else None,
+                    source_tool=self.name,
+                    source_execution_id=command_result.execution_id,
+                    parser_version="httpx_v1",
+                )
+                result.assets.append(asset)
+                asset_id = asset.asset_id
+                created_asset_by_host[host] = asset.asset_id
+            if not service_id and asset_id:
+                service_id = existing_service_by_asset_port.get((asset_id, port)) or created_service_by_asset_port.get(
+                    (asset_id, port)
+                )
+            if not service_id and asset_id:
+                service = Service(
+                    service_id=new_id("svc"),
+                    asset_id=asset_id,
+                    port=port,
+                    protocol="tcp",
+                    state="open",
+                    name=_service_name_for_url(scheme, port),
+                    source_tool=self.name,
+                    source_execution_id=command_result.execution_id,
+                    parser_version="httpx_v1",
+                )
+                result.services.append(service)
+                service_id = service.service_id
+                created_service_by_asset_port[(asset_id, port)] = service.service_id
             web_app = WebApplication(
                 webapp_id=new_id("web"),
                 asset_id=asset_id,
@@ -193,9 +292,9 @@ class WebProbeAdapter:
                     entity_id=new_id("entity"),
                     entity_type="WebService",
                     attributes={
-                        "scheme": parsed.scheme,
-                        "host": parsed.hostname or "",
-                        "port": parsed.port or (443 if parsed.scheme == "https" else 80),
+                        "scheme": scheme,
+                        "host": host,
+                        "port": port,
                         "url": final_url,
                         "title": title,
                         "status_code": status_code,

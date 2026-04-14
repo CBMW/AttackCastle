@@ -324,6 +324,46 @@ def test_load_run_snapshot_merges_running_manifest_tasks_into_checkpoint_timelin
     assert snapshot.current_task == "resolve-hosts"
 
 
+def test_load_run_snapshot_ignores_running_manifest_rows_for_terminal_runs(tmp_path: Path) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="gui-terminal-stale-running")
+    started_at = now_utc()
+    run_store.write_json(
+        "data/gui_session.json",
+        {
+            "scan_name": "Terminal Stale Running",
+            "started_at": started_at.isoformat(),
+            "run_id": "gui-terminal-stale-running",
+        },
+    )
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="gui-terminal-stale-running",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(run_store.run_dir),
+            started_at=started_at,
+            ended_at=started_at,
+            state=RunState.COMPLETED,
+        ),
+        task_states=[
+            {
+                "key": "run-nmap",
+                "label": "Running Nmap",
+                "status": TaskStatus.COMPLETED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {"instance_key": "run-nmap::iter1::done"},
+            }
+        ],
+    )
+    run_store.save_checkpoint("run-nmap", "running", run_data)
+
+    snapshot = load_run_snapshot(run_store.run_dir)
+
+    assert [row["status"] for row in snapshot.tasks] == ["completed"]
+    assert snapshot.current_task == "Running Nmap"
+
+
 def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Path) -> None:
     started_at = now_utc()
     snapshot = load_run_snapshot(
@@ -348,6 +388,38 @@ def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Pa
     assert "stderr contents" in bundle["combined_log"]
     assert '{"ok": true}' in bundle["combined_log"]
     assert "run log contents" in bundle["combined_log"]
+
+
+def test_build_run_debug_bundle_starts_with_run_health_summary(tmp_path: Path) -> None:
+    started_at = now_utc()
+    snapshot = load_run_snapshot(
+        _write_debug_run_fixture(
+            tmp_path,
+            "debug-health",
+            started_at,
+            transcript_text="probe transcript",
+            stdout_text="probe stdout",
+        )
+    )
+    snapshot.tool_executions.append(
+        {
+            "execution_id": "exec-failed",
+            "tool_name": "nmap",
+            "command": "nmap example.com",
+            "status": "failed",
+            "exit_code": 1,
+            "started_at": started_at.isoformat(),
+            "ended_at": started_at.isoformat(),
+            "timed_out": True,
+        }
+    )
+
+    bundle = build_run_debug_bundle(snapshot)
+
+    assert bundle["combined_log"].startswith("Run Health")
+    assert "- tool_failures: 1" in bundle["combined_log"]
+    assert "- tool_timeouts: 1" in bundle["combined_log"]
+    assert "nmap(status=failed, exit=1)" in bundle["combined_log"]
 
 
 def test_build_run_debug_bundle_surfaces_missing_files_instead_of_silently_skipping(tmp_path: Path) -> None:

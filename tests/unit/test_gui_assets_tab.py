@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
 
 from attackcastle.gui.asset_graph_builder import AssetGraphBuilder
@@ -170,6 +170,91 @@ def test_assets_tab_context_menu_exposes_scan_and_notes_actions(tmp_path: Path) 
         assert scan_action.isEnabled() is True
         assert notes_action.isEnabled() is True
         assert graph_action.isEnabled() is True
+    finally:
+        tab.close()
+
+
+def test_assets_tab_header_context_menu_exposes_copy_actions(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _launched, _notes = _make_tab()
+
+    try:
+        tab.set_snapshot(_make_snapshot(tmp_path))
+        app.processEvents()
+        (
+            menu,
+            copy_all_action,
+            copy_row_action,
+            copy_column_action,
+        ) = tab._build_header_context_menu(tab.web_apps_view, 0, 0)
+
+        assert [action.text() for action in menu.actions()] == [
+            "Copy All",
+            "Copy Row Data",
+            "Copy Column Data (URL)",
+        ]
+        assert copy_all_action.isEnabled() is True
+        assert copy_row_action.isEnabled() is True
+        assert copy_column_action.isEnabled() is True
+    finally:
+        tab.close()
+
+
+def test_assets_tab_header_copy_actions_use_displayed_table_data(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    tab, _launched, _notes = _make_tab()
+
+    try:
+        tab.set_snapshot(_make_snapshot(tmp_path))
+        app.processEvents()
+
+        tab._copy_table_column_data(tab.web_apps_view, 0)
+        assert app.clipboard().text() == "https://example.com"
+
+        tab.assets_view.setCurrentIndex(tab.assets_model.index(0, 0))
+        tab._copy_table_row_data(tab.assets_view, 0)
+        assert app.clipboard().text() == (
+            "Kind\tName\tIP\tAliases\tServices\tWeb Apps\tNote\n"
+            "host\texample.com\t203.0.113.10\twww.example.com\t1\t1\t"
+        )
+
+        tab._copy_table_all_data(tab.web_apps_view)
+        assert app.clipboard().text() == (
+            "URL\tStatus\tTitle\tForms\tNote\n"
+            "https://example.com\t200\tExample\t0\t"
+        )
+    finally:
+        tab.close()
+
+
+def test_assets_tab_header_context_menu_copies_clicked_column(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    tab, _launched, _notes = _make_tab()
+
+    def choose_column_action(menu, _global_point):
+        return next(
+            action
+            for action in menu.actions()
+            if action.text().startswith("Copy Column Data")
+        )
+
+    try:
+        tab.set_snapshot(_make_snapshot(tmp_path))
+        app.processEvents()
+        monkeypatch.setattr(tab, "_exec_header_context_menu", choose_column_action)
+
+        header = tab.web_apps_view.horizontalHeader()
+        point = QPoint(
+            header.sectionViewportPosition(0) + header.sectionSize(0) // 2,
+            header.height() // 2,
+        )
+        tab._open_header_context_menu(tab.web_apps_view, point)
+
+        assert app.clipboard().text() == "https://example.com"
     finally:
         tab.close()
 

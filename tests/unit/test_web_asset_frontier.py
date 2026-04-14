@@ -21,6 +21,7 @@ from attackcastle.core.models import (
     WebApplication,
     now_utc,
 )
+from attackcastle.normalization.correlator import collect_web_targets
 from attackcastle.normalization.mapper import merge_adapter_result
 from attackcastle.scope.expansion import collect_host_scan_targets, collect_resolved_host_scan_targets
 from attackcastle.storage.run_store import RunStore
@@ -115,6 +116,20 @@ def test_collect_resolved_host_scan_targets_excludes_unresolved_hosts(tmp_path: 
     assert "shop.example.com" not in targets
 
 
+def test_collect_web_targets_promotes_discovered_dns_hosts_with_asset_links(tmp_path: Path) -> None:
+    run_data = _run_data(tmp_path)
+    run_data.facts["subdomain_enum.discovered_hosts"] = ["api.example.com"]
+    run_data.assets.append(Asset(asset_id="asset-api", kind="domain", name="api.example.com"))
+
+    targets = collect_web_targets(run_data)
+    by_url = {str(item["url"]): item for item in targets}
+
+    assert by_url["https://api.example.com/"]["asset_id"] == "asset-api"
+    assert by_url["http://api.example.com/"]["asset_id"] == "asset-api"
+    assert by_url["https://api.example.com:8443/"]["asset_id"] == "asset-api"
+    assert by_url["http://api.example.com:8080/"]["asset_id"] == "asset-api"
+
+
 def test_web_probe_prefers_hostname_targets_and_creates_confirmed_web_app(
     tmp_path: Path,
     monkeypatch,
@@ -183,7 +198,88 @@ def test_web_probe_prefers_hostname_targets_and_creates_confirmed_web_app(
     assert "https://app.example.com/" in captured["targets"]
     assert all("203.0.113.10" not in item for item in captured["targets"])
     assert [item.url for item in result.web_apps] == ["https://app.example.com"]
+    assert result.web_apps[0].asset_id == "asset-host"
+    assert result.web_apps[0].service_id == "svc-1"
+    assert result.technologies[0].asset_id == "asset-host"
     assert result.facts["web_probe.scanned_urls"]
+
+
+def test_web_probe_skips_already_checked_candidates(tmp_path: Path, monkeypatch) -> None:
+    context = _context(
+        tmp_path,
+        "web-probe-skip-checked",
+        config={
+            "scan": {"http_timeout_seconds": 1},
+            "web_probe": {"enabled": True},
+        },
+    )
+    run_data = _run_data(tmp_path, target_input="api.example.com")
+    run_data.facts["subdomain_enum.discovered_hosts"] = ["api.example.com"]
+    run_data.assets.append(Asset(asset_id="asset-api", kind="domain", name="api.example.com"))
+    run_data.facts["web_probe.scanned_urls"] = [
+        "https://api.example.com",
+        "http://api.example.com",
+        "https://api.example.com:8443",
+        "http://api.example.com:8080",
+    ]
+
+    def _unexpected_run_command_spec(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("httpx should not run for already checked website candidates")
+
+    monkeypatch.setattr("attackcastle.adapters.web_probe.adapter.run_command_spec", _unexpected_run_command_spec)
+
+    result = WebProbeAdapter().run(context, run_data)
+
+    assert result.web_apps == []
+    assert result.tool_executions == []
+
+
+def test_web_probe_creates_service_for_confirmed_discovered_host(tmp_path: Path, monkeypatch) -> None:
+    context = _context(
+        tmp_path,
+        "web-probe-create-service",
+        config={
+            "scan": {"http_timeout_seconds": 1},
+            "web_probe": {"enabled": True},
+        },
+    )
+    run_data = _run_data(tmp_path, target_input="api.example.com")
+    run_data.facts["subdomain_enum.discovered_hosts"] = ["api.example.com"]
+    run_data.assets.append(Asset(asset_id="asset-api", kind="domain", name="api.example.com"))
+
+    def _fake_run_command_spec(context, command_spec, proxy_url=None):  # noqa: ANN001
+        stdout_path = context.run_store.artifact_path("httpx", "stdout.txt")
+        stdout_text = (
+            '{"url":"https://api.example.com","input":"https://api.example.com/",'
+            '"final_url":"https://api.example.com","title":"Forbidden","status_code":403,"tech":[]}'
+        )
+        stdout_path.write_text(stdout_text, encoding="utf-8")
+        return SimpleNamespace(
+            execution=SimpleNamespace(),
+            evidence_artifacts=[],
+            task_result=SimpleNamespace(
+                task_id="task-httpx",
+                status="completed",
+                parsed_entities=[],
+                metrics={},
+                warnings=[],
+            ),
+            stdout_text=stdout_text,
+            stdout_path=stdout_path,
+            execution_id="exec-httpx",
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.web_probe.adapter.run_command_spec", _fake_run_command_spec)
+
+    result = WebProbeAdapter().run(context, run_data)
+
+    assert len(result.services) == 1
+    assert result.services[0].asset_id == "asset-api"
+    assert result.services[0].port == 443
+    assert result.services[0].name == "https"
+    assert result.web_apps[0].asset_id == "asset-api"
+    assert result.web_apps[0].service_id == result.services[0].service_id
+    assert result.web_apps[0].status_code == 403
 
 
 def test_nikto_and_nuclei_skip_cleanly_when_disabled(tmp_path: Path) -> None:

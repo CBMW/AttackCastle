@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QModelIndex, QPoint, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -421,7 +422,16 @@ class AssetsTab(QWidget):
         table.doubleClicked.connect(lambda index, view=table: self._open_detail_for_index(view, index))
         table.setContextMenuPolicy(Qt.CustomContextMenu)
         table.customContextMenuRequested.connect(lambda point, view=table: self._open_context_menu(view, point))
-        set_tooltip(table, "Double-click for an expandable detail card. Right-click for scan and notes actions.")
+        header = table.horizontalHeader()
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(
+            lambda point, view=table: self._open_header_context_menu(view, point)
+        )
+        set_tooltip(
+            table,
+            "Double-click for an expandable detail card. Right-click rows for scan and notes actions, "
+            "or column titles to copy table data.",
+        )
         return table
 
     def focus_search(self) -> None:
@@ -572,6 +582,148 @@ class AssetsTab(QWidget):
         graph_action = menu.addAction("Focus in Graph")
         graph_action.setEnabled(self.graph_view.can_focus_entity(entity_kind, row))
         return menu, scan_action, notes_action, graph_action
+
+    def _open_header_context_menu(self, table: QTableView, point: QPoint) -> None:
+        model = table.model()
+        if model is None:
+            return
+        header = table.horizontalHeader()
+        column = header.logicalIndexAt(point)
+        if not (0 <= column < model.columnCount()):
+            return
+        row = self._current_table_row(table)
+        menu, copy_all_action, copy_row_action, copy_column_action = self._build_header_context_menu(
+            table,
+            column,
+            row,
+        )
+        action = self._exec_header_context_menu(menu, header.mapToGlobal(point))
+        if action is copy_all_action:
+            self._copy_table_all_data(table)
+        elif action is copy_row_action and row >= 0:
+            self._copy_table_row_data(table, row)
+        elif action is copy_column_action:
+            self._copy_table_column_data(table, column)
+
+    def _exec_header_context_menu(self, menu: QMenu, global_point: QPoint):
+        return menu.exec(global_point)
+
+    def _build_header_context_menu(
+        self,
+        table: QTableView,
+        column: int,
+        row: int | None = None,
+    ) -> tuple[QMenu, Any, Any, Any]:
+        model = table.model()
+        row_count = model.rowCount() if model is not None else 0
+        column_count = model.columnCount() if model is not None else 0
+        resolved_row = self._current_table_row(table) if row is None else row
+        column_label = self._table_header_label(table, column)
+        menu = QMenu(table)
+        copy_all_action = menu.addAction("Copy All")
+        copy_all_action.setEnabled(row_count > 0 and column_count > 0)
+        copy_row_action = menu.addAction("Copy Row Data")
+        copy_row_action.setEnabled(0 <= resolved_row < row_count and column_count > 0)
+        copy_column_action = menu.addAction(f"Copy Column Data ({column_label})")
+        copy_column_action.setEnabled(0 <= column < column_count and row_count > 0)
+        return menu, copy_all_action, copy_row_action, copy_column_action
+
+    def _current_table_row(self, table: QTableView) -> int:
+        selection = table.selectionModel()
+        if selection is not None:
+            current = selection.currentIndex()
+            if current.isValid():
+                return current.row()
+            selected_rows = selection.selectedRows()
+            if selected_rows:
+                return selected_rows[0].row()
+        model = table.model()
+        if model is not None and model.rowCount() > 0:
+            return 0
+        return -1
+
+    def _table_header_label(self, table: QTableView, column: int) -> str:
+        model = table.model()
+        if model is None or not (0 <= column < model.columnCount()):
+            return "Column"
+        return str(
+            model.headerData(column, Qt.Horizontal, Qt.DisplayRole)
+            or f"Column {column + 1}"
+        )
+
+    def _table_headers(self, table: QTableView) -> list[str]:
+        model = table.model()
+        if model is None:
+            return []
+        return [
+            self._table_header_label(table, column)
+            for column in range(model.columnCount())
+        ]
+
+    def _table_display_value(self, table: QTableView, row: int, column: int) -> str:
+        model = table.model()
+        if model is None:
+            return ""
+        index = model.index(row, column)
+        return str(index.data(Qt.DisplayRole) or "") if index.isValid() else ""
+
+    def _tsv_cell(self, value: str) -> str:
+        return (
+            str(value)
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .replace("\t", " ")
+            .replace("\n", " ")
+        )
+
+    def _copy_to_clipboard(self, text: str, status: str) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        app.clipboard().setText(text)
+        self.detail_summary.setText(status)
+
+    def _copy_table_all_data(self, table: QTableView) -> None:
+        model = table.model()
+        if model is None:
+            return
+        rows = ["\t".join(self._tsv_cell(header) for header in self._table_headers(table))]
+        for row in range(model.rowCount()):
+            rows.append(
+                "\t".join(
+                    self._tsv_cell(self._table_display_value(table, row, column))
+                    for column in range(model.columnCount())
+                )
+            )
+        self._copy_to_clipboard(
+            "\n".join(rows),
+            f"Copied {model.rowCount()} row(s) from this table.",
+        )
+
+    def _copy_table_row_data(self, table: QTableView, row: int) -> None:
+        model = table.model()
+        if model is None or not (0 <= row < model.rowCount()):
+            return
+        headers = "\t".join(self._tsv_cell(header) for header in self._table_headers(table))
+        values = "\t".join(
+            self._tsv_cell(self._table_display_value(table, row, column))
+            for column in range(model.columnCount())
+        )
+        self._copy_to_clipboard(f"{headers}\n{values}", "Copied the selected row.")
+
+    def _copy_table_column_data(self, table: QTableView, column: int) -> None:
+        model = table.model()
+        if model is None or not (0 <= column < model.columnCount()):
+            return
+        values = [
+            self._tsv_cell(self._table_display_value(table, row, column))
+            for row in range(model.rowCount())
+        ]
+        column_label = self._table_header_label(table, column)
+        self._copy_to_clipboard(
+            "\n".join(values),
+            f"Copied {len(values)} value(s) from {column_label}.",
+        )
 
     def _edit_note_for_row(self, entity_kind: str, row: dict[str, Any]) -> None:
         snapshot = self._snapshot
