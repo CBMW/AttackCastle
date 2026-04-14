@@ -6,6 +6,7 @@ from typing import Any, Callable
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtWidgets import (
     QLabel,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTableView,
@@ -57,7 +58,8 @@ class ScannerPanel(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("subTabs")
         self.tabs.setDocumentMode(True)
-        self.tabs.setMinimumWidth(340)
+        self.tabs.setMinimumWidth(300)
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.tasks_model = MappingTableModel(
             [
@@ -113,10 +115,13 @@ class ScannerPanel(QWidget):
         self.inspector_tabs = QTabWidget()
         self.inspector_tabs.setObjectName("subTabs")
         self.inspector_tabs.setDocumentMode(True)
-        self.inspector_tabs.setMinimumWidth(300)
+        self.inspector_tabs.setMinimumWidth(260)
+        self.inspector_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.inspector_summary = QLabel("Select a task, tool run, issue, or audit entry to inspect details.")
         self.inspector_summary.setObjectName("helperText")
         self.inspector_summary.setWordWrap(True)
+        self.inspector_summary.setMaximumWidth(240)
+        self.inspector_summary.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.inspector_tabs.setCornerWidget(self.inspector_summary, Qt.TopRightCorner)
         self.detail_text = configure_scroll_surface(QTextEdit())
         self.detail_text.setObjectName("consoleText")
@@ -168,9 +173,9 @@ class ScannerPanel(QWidget):
         return table
 
     def sync_responsive_mode(self, width: int) -> None:
-        self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
-        if width >= 1180:
-            self._main_split_controller.apply([max(int(width * 0.66), 620), max(int(width * 0.34), 320)])
+        self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
+        if width >= 1280:
+            self._main_split_controller.apply([max(int(width * 0.68), 660), max(int(width * 0.32), 300)])
         else:
             self._main_split_controller.apply([max(int(self.height() * 0.56), 280), max(int(self.height() * 0.44), 220)])
 

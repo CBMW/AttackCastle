@@ -8,6 +8,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
+    QHBoxLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -56,7 +57,7 @@ class ExtensionsTab(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(PAGE_SECTION_SPACING)
 
-        splitter = apply_responsive_splitter(QSplitter(), (2, 3, 5))
+        splitter = apply_responsive_splitter(QSplitter(), (1, 4))
         self.splitter = splitter
         self._splitter_controller = PersistentSplitterController(
             self.splitter,
@@ -70,9 +71,9 @@ class ExtensionsTab(QWidget):
         action_panel.setObjectName("toolbarPanel")
         action_panel.setProperty("surface", "primary")
         self.action_panel = action_panel
-        action_layout = QVBoxLayout(action_panel)
-        action_layout.setContentsMargins(10, 16, 10, 16)
-        action_layout.setSpacing(8)
+        action_layout = QHBoxLayout(action_panel)
+        action_layout.setContentsMargins(8, 8, 8, 8)
+        action_layout.setSpacing(6)
 
         self.new_button = self._build_icon_button(
             "New Extension",
@@ -118,20 +119,25 @@ class ExtensionsTab(QWidget):
             "Open the selected extension folder in the file manager.",
         )
 
-        for button in (self.new_button, self.duplicate_button, self.save_button, self.reload_button):
-            action_layout.addWidget(button, 0, Qt.AlignHCenter)
-        action_layout.addSpacing(6)
-        for button in (self.toggle_enabled_button, self.apply_theme_button, self.open_folder_button):
-            action_layout.addWidget(button, 0, Qt.AlignHCenter)
+        for button in (
+            self.new_button,
+            self.duplicate_button,
+            self.save_button,
+            self.reload_button,
+            self.toggle_enabled_button,
+            self.apply_theme_button,
+            self.open_folder_button,
+        ):
+            action_layout.addWidget(button, 0, Qt.AlignVCenter)
         action_layout.addStretch(1)
-        splitter.addWidget(action_panel)
+        root.addWidget(action_panel, 0)
 
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
         self.library_panel = rail
         rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(16, 16, 16, 16)
-        rail_layout.setSpacing(12)
+        rail_layout.setContentsMargins(10, 10, 10, 10)
+        rail_layout.setSpacing(8)
         rail_title = QLabel("Extension Library")
         rail_title.setObjectName("sectionTitle")
         self.search_edit = QLineEdit()
@@ -162,11 +168,12 @@ class ExtensionsTab(QWidget):
         editor_panel.setObjectName("toolbarPanel")
         editor_panel.setProperty("surface", "primary")
         editor_layout = QVBoxLayout(editor_panel)
-        editor_layout.setContentsMargins(16, 16, 16, 16)
-        editor_layout.setSpacing(10)
+        editor_layout.setContentsMargins(10, 10, 10, 10)
+        editor_layout.setSpacing(8)
         editor_title = QLabel("Raw Manifest Editor")
         editor_title.setObjectName("sectionTitle")
         self.editor_status_label = QLabel("JSON editor ready.")
+        self.meta_label = self.editor_status_label
         self.editor_status_label.setObjectName("helperText")
         self.editor_status_label.setWordWrap(True)
         self.editor = configure_scroll_surface(QPlainTextEdit())
@@ -182,7 +189,7 @@ class ExtensionsTab(QWidget):
         editor_layout.addWidget(self.editor, 1)
         splitter.addWidget(editor_panel)
 
-        splitter.setSizes([88, 320, 960])
+        splitter.setSizes([320, 960])
         root.addWidget(splitter, 1)
 
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_current)
@@ -193,14 +200,14 @@ class ExtensionsTab(QWidget):
     def sync_responsive_mode(self, width: int) -> None:
         if width >= 1400:
             self.splitter.setOrientation(Qt.Horizontal)
-            self._splitter_controller.apply([88, 360, max(width - 448, 860)])
+            self._splitter_controller.apply([320, max(width - 320, 960)])
             return
         if width >= 1120:
             self.splitter.setOrientation(Qt.Horizontal)
-            self._splitter_controller.apply([80, 320, max(width - 400, 660)])
+            self._splitter_controller.apply([280, max(width - 280, 720)])
             return
         self.splitter.setOrientation(Qt.Vertical)
-        self._splitter_controller.apply([96, 240, max(self.height() - 336, 360)])
+        self._splitter_controller.apply([220, max(self.height() - 220, 420)])
 
     def _build_icon_button(
         self,
@@ -215,9 +222,9 @@ class ExtensionsTab(QWidget):
         button.setText(label)
         button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         button.setIcon(self.style().standardIcon(icon))
-        button.setIconSize(QSize(18, 18))
-        button.setFixedSize(44, 44)
-        style_button(button, role=role, min_height=44)
+        button.setIconSize(QSize(16, 16))
+        button.setFixedSize(36, 36)
+        style_button(button, role=role, min_height=36)
         button.clicked.connect(handler)
         button.setToolTip(tooltip)
         button.setStatusTip(tooltip)

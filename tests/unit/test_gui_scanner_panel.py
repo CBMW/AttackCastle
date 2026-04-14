@@ -91,3 +91,22 @@ def test_scanner_panel_tool_context_menu_routes_selected_row_to_handler(tmp_path
         assert calls == [("tool", panel.tools_model.index(0, 0).data(Qt.UserRole))]
     finally:
         panel.close()
+
+
+def test_scanner_panel_stacks_inspector_until_workspace_is_wide() -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = ScannerPanel()
+
+    try:
+        panel.resize(1240, 760)
+        panel.sync_responsive_mode(panel.width())
+        assert panel.main_split.orientation() == Qt.Vertical
+
+        panel.resize(1320, 760)
+        panel.sync_responsive_mode(panel.width())
+        assert panel.main_split.orientation() == Qt.Horizontal
+        sizes = panel.main_split.sizes()
+        assert sizes[0] > sizes[1]
+    finally:
+        panel.close()

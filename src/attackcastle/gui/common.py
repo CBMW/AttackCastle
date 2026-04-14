@@ -51,15 +51,15 @@ CHANGE_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["change"])
 TOOL_STATUS_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["tool_status"])
 
 PAGE_CONTENT_MARGIN = 0
-PAGE_SECTION_SPACING = 14
-PAGE_CARD_SPACING = 10
-PANEL_CONTENT_PADDING = 14
-PANEL_COMPACT_PADDING = 12
-TOOLBAR_SPACING = 10
-INSPECTOR_SPACING = 10
-BUTTON_MIN_HEIGHT = 40
-BUTTON_CHIP_MIN_HEIGHT = 32
-TABLE_ROW_HEIGHT = 34
+PAGE_SECTION_SPACING = 10
+PAGE_CARD_SPACING = 8
+PANEL_CONTENT_PADDING = 10
+PANEL_COMPACT_PADDING = 8
+TOOLBAR_SPACING = 8
+INSPECTOR_SPACING = 8
+BUTTON_MIN_HEIGHT = 34
+BUTTON_CHIP_MIN_HEIGHT = 28
+TABLE_ROW_HEIGHT = 30
 SURFACE_PRIMARY = "primary"
 SURFACE_SECONDARY = "secondary"
 SURFACE_FLAT = "flat"
@@ -696,7 +696,7 @@ def apply_responsive_splitter(
     splitter: QSplitter,
     stretches: tuple[int, ...],
     *,
-    handle_width: int = 12,
+    handle_width: int = 8,
     children_collapsible: bool = True,
 ) -> QSplitter:
     splitter.setOpaqueResize(False)

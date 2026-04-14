@@ -32,7 +32,7 @@ def _make_tab(tmp_path: Path) -> tuple[ExtensionsTab, list[str], list[str]]:
     return tab, opened_paths, applied_themes
 
 
-def test_extensions_tab_moves_actions_into_left_icon_rail(tmp_path: Path) -> None:
+def test_extensions_tab_moves_actions_into_compact_top_toolbar(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app
     tab, _opened_paths, _applied_themes = _make_tab(tmp_path)
@@ -42,10 +42,11 @@ def test_extensions_tab_moves_actions_into_left_icon_rail(tmp_path: Path) -> Non
         app.processEvents()
 
         assert tab.splitter.orientation() == Qt.Horizontal
-        assert tab.splitter.widget(0) is tab.action_panel
-        assert tab.splitter.widget(1) is tab.library_panel
-        assert tab.action_panel.width() < tab.library_panel.width()
-        assert tab.action_panel.findChildren(QLabel) == []
+        assert tab.splitter.count() == 2
+        assert tab.splitter.widget(0) is tab.library_panel
+        assert tab.action_panel.parentWidget() is tab
+        assert not tab.splitter.isAncestorOf(tab.action_panel)
+        assert tab.action_panel.height() < tab.library_panel.height()
         assert "Manifest Status" not in [label.text() for label in tab.findChildren(QLabel)]
 
         for button in (
@@ -59,6 +60,24 @@ def test_extensions_tab_moves_actions_into_left_icon_rail(tmp_path: Path) -> Non
         ):
             assert isinstance(button, QToolButton)
             assert button.toolButtonStyle() == Qt.ToolButtonIconOnly
+    finally:
+        tab.close()
+
+
+def test_extensions_tab_stacks_library_and_editor_at_narrow_width(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _opened_paths, _applied_themes = _make_tab(tmp_path)
+
+    try:
+        tab.resize(980, 760)
+        tab.sync_responsive_mode(tab.width())
+        app.processEvents()
+
+        assert tab.splitter.orientation() == Qt.Vertical
+        assert tab.splitter.count() == 2
+        assert tab.action_panel.parentWidget() is tab
+        assert tab.splitter.widget(0) is tab.library_panel
     finally:
         tab.close()
 

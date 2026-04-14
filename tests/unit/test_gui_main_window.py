@@ -11,6 +11,7 @@ from PySide6.QtGui import QShortcut
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton, QMenu
 
+from attackcastle.gui.common import BUTTON_MIN_HEIGHT, PAGE_SECTION_SPACING, PANEL_CONTENT_PADDING, TABLE_ROW_HEIGHT
 from attackcastle.gui.main_window import MainWindow
 from attackcastle.gui.extensions_store import GuiExtensionStore
 from attackcastle.gui.models import Engagement, RunRegistryEntry, RunSnapshot, Workspace
@@ -50,9 +51,9 @@ def test_navigation_defaults_to_workspace_and_uses_workflow_sections(tmp_path: P
     try:
         sections = [window.nav_list.item(idx).text() for idx in range(window.nav_list.count())]
 
-        assert sections == ["Workspaces", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"]
+        assert sections == ["Overview", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"]
         assert window.nav_list.currentItem() is not None
-        assert window.nav_list.currentItem().text() == "Workspaces"
+        assert window.nav_list.currentItem().text() == "Overview"
         assert window.section_stack.currentWidget() is window.workspace_page
     finally:
         window._refresh_timer.stop()
@@ -137,9 +138,10 @@ def test_run_actions_show_empty_selection_guidance(tmp_path: Path) -> None:
         window._update_run_action_state()
 
         assert "No run selected" in window.selected_run_status_label.text()
-        assert "disabled until a run is selected" in window.run_actions_hint_label.text()
         assert not window.pause_button.isEnabled()
-        assert not window.open_output_button.isEnabled()
+        assert not window.resume_button.isEnabled()
+        assert not window.stop_button.isEnabled()
+        assert not window.retry_button.isEnabled()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -169,10 +171,11 @@ def test_runs_page_actions_update_for_selected_run(tmp_path: Path) -> None:
         window._update_run_action_state()
 
         assert window.selected_run_status_label.text() == "Client Alpha External is Running and 40% complete."
-        assert "Pause, Stop, or Skip Task" in window.run_actions_hint_label.text()
-        assert "Client Alpha" in window.general_status_detail.text()
+        assert window.selected_run_progress_value.text() == "4/10 tasks complete"
+        assert window.selected_run_task_value.text() == "Nmap"
         assert window.pause_button.isEnabled()
-        assert window.open_output_button.isEnabled()
+        assert window.stop_button.isEnabled()
+        assert window.skip_button.isEnabled()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -373,7 +376,7 @@ def test_refresh_runs_reloads_active_run_snapshot_from_disk(tmp_path: Path) -> N
         window.close()
 
 
-def test_workspace_dashboard_prioritizes_critical_and_validation_metrics(tmp_path: Path) -> None:
+def test_workspace_run_models_include_active_run_after_refresh(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
     try:
@@ -397,11 +400,12 @@ def test_workspace_dashboard_prioritizes_critical_and_validation_metrics(tmp_pat
         )
         window._run_snapshots[snapshot.run_id] = snapshot
 
-        window._refresh_dashboard()
+        window._sync_run_table()
+        window._sync_workspace_run_table()
 
-        assert window.card_active_runs.value_label.text() == "1"
-        assert window.card_critical_findings.value_label.text() == "1"
-        assert window.card_needs_validation.value_label.text() == "2"
+        assert window.run_model.rowCount() == 1
+        assert window.workspace_run_model.rowCount() == 1
+        assert window.run_model.index(0, 0).data() == "Prod External"
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -430,7 +434,8 @@ def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path)
         scanner_titles = {group.title() for group in window.runs_page.findChildren(QGroupBox)}
 
         assert "Start New Scan" not in workspace_titles
-        assert "Start New Scan" in scanner_titles
+        assert "" in scanner_titles
+        assert "Active Run" in scanner_titles
         assert window.start_scan_button.parentWidget() is not None
         assert window.runs_page.isAncestorOf(window.start_scan_button)
     finally:
@@ -593,12 +598,44 @@ def test_responsive_layout_uses_horizontal_splits_on_wide_width(tmp_path: Path) 
     try:
         window.resize(1560, 980)
         window._sync_responsive_layouts()
+        window.output_tab.sync_responsive_mode(1560)
+        window.assets_tab.sync_responsive_mode(1560)
 
         assert window.workspace_content_split.orientation() == Qt.Horizontal
         assert window.runs_page_split.orientation() == Qt.Horizontal
         assert window.runs_top_split.orientation() == Qt.Vertical
         assert window.runs_body_split.orientation() == Qt.Horizontal
         assert window.output_tab.main_split.orientation() == Qt.Horizontal
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_responsive_layout_keeps_navigation_and_inspectors_compact(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        window.resize(1560, 980)
+        window._sync_responsive_layouts()
+        window.output_tab.sync_responsive_mode(1560)
+        window.assets_tab.sync_responsive_mode(1560)
+
+        body_sizes = window.body_split.sizes()
+        workspace_sizes = window.workspace_content_split.sizes()
+        runs_sizes = window.runs_page_split.sizes()
+        findings_sizes = window.output_tab.main_split.sizes()
+        assets_sizes = window.assets_tab.main_split.sizes()
+
+        assert PAGE_SECTION_SPACING == 10
+        assert PANEL_CONTENT_PADDING == 10
+        assert BUTTON_MIN_HEIGHT == 34
+        assert TABLE_ROW_HEIGHT == 30
+        assert body_sizes[0] <= 220
+        assert body_sizes[1] > body_sizes[0] * 2
+        assert workspace_sizes[1] < workspace_sizes[0]
+        assert runs_sizes[0] < runs_sizes[1]
+        assert findings_sizes[1] < findings_sizes[0]
+        assert assets_sizes[1] < assets_sizes[0]
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -672,8 +709,10 @@ def test_findings_workspace_surfaces_scanner_issue_summary(tmp_path: Path) -> No
         window._update_output_snapshot(snapshot.run_id)
 
         assert window.scanner_panel.issues_model.rowCount() == 1
-        assert "Open Scanner > Issues" in window.output_tab.attention_banner.text()
-        assert window.output_tab.health_card.value_label.text() == "Partial"
+        overview_text = window.output_tab.overview_text.toPlainText()
+        assert "Execution Health:" in overview_text
+        assert "Partial" in overview_text
+        assert "1 consolidated issue" in overview_text
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -699,7 +738,7 @@ def test_open_health_selects_scanner_health_tab(tmp_path: Path) -> None:
         window._update_output_snapshot(snapshot.run_id)
         window._update_run_action_state()
 
-        window.open_health_button.click()
+        window._focus_health_panel()
 
         assert window.section_stack.currentWidget() is window.runs_page
         assert window.scanner_panel.tabs.tabText(window.scanner_panel.tabs.currentIndex()) == "Health"
@@ -970,15 +1009,15 @@ def test_overview_checklist_add_updates_visible_rows(tmp_path: Path) -> None:
     window, _store = _make_workspace_window(tmp_path, "eng_alpha", ("eng_alpha", "Alpha"))
 
     try:
-        assert window.overview_checklist_input.text() == ""
-        assert len(window._overview_checklist_rows) == 0
+        assert window.overview_checklist_panel.composer.input.text() == ""
+        assert len(window.overview_checklist_panel._rows) == 0
 
-        window.overview_checklist_input.setText("Confirm scope boundaries")
-        window.overview_checklist_add_button.click()
+        window.overview_checklist_panel.composer.input.setText("Confirm scope boundaries")
+        window.overview_checklist_panel.composer.add_button.click()
 
-        assert len(window._overview_checklist_rows) == 1
+        assert len(window.overview_checklist_panel._rows) == 1
         assert window._overview_state.checklist_items[0].label == "Confirm scope boundaries"
-        assert window.overview_checklist_input.text() == ""
+        assert window.overview_checklist_panel.composer.input.text() == ""
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -989,14 +1028,15 @@ def test_overview_checklist_row_click_toggles_completion(tmp_path: Path) -> None
 
     try:
         window._add_overview_checklist_item("Validate exclusions")
-        row = next(iter(window._overview_checklist_rows.values()))
+        row = next(iter(window.overview_checklist_panel._rows.values()))
         window.show()
         QApplication.processEvents()
 
         QTest.mouseClick(row, Qt.LeftButton, pos=row.rect().center())
 
         assert window._overview_state.checklist_items[0].completed is True
-        assert row.toggle_button.text() == "X"
+        refreshed_row = next(iter(window.overview_checklist_panel._rows.values()))
+        assert refreshed_row.toggle_box.isChecked()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -1007,12 +1047,12 @@ def test_overview_checklist_delete_removes_item(tmp_path: Path) -> None:
 
     try:
         window._add_overview_checklist_item("Review attack path")
-        row = next(iter(window._overview_checklist_rows.values()))
+        row = next(iter(window.overview_checklist_panel._rows.values()))
         row.delete_button.setVisible(True)
         row.delete_button.click()
 
         assert window._overview_state.checklist_items == []
-        assert len(window._overview_checklist_rows) == 0
+        assert len(window.overview_checklist_panel._rows) == 0
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -1101,7 +1141,7 @@ def test_main_window_surfaces_tooltips_on_primary_controls(tmp_path: Path) -> No
         assert "workflow areas" in window.nav_list.toolTip().lower()
         assert "active workspace" in window.start_scan_button.toolTip().lower()
         assert "double-click" in window.workspace_run_table.toolTip().lower()
-        assert "selected run" in window.open_output_button.toolTip().lower()
+        assert "selected running job" in window.pause_button.toolTip().lower()
         assert "active for this gui session" in window.settings_workspace_combo.toolTip().lower()
     finally:
         window._refresh_timer.stop()

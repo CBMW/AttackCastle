@@ -76,14 +76,14 @@ EXTENSION_MANIFEST_SCHEMA: dict[str, Any] = {
 DEFAULT_THEME_TOKENS: dict[str, Any] = {
     "gradients": {
         "app_shell": {
-            "start": "#111318",
-            "mid": "#0b0e13",
-            "end": "#07090d",
+            "start": "#070a0f",
+            "mid": "#05070b",
+            "end": "#030509",
         },
         "panel": {
-            "start": "#161c25",
-            "mid": "#111722",
-            "end": "#0b1017",
+            "start": "#1a2330",
+            "mid": "#131b26",
+            "end": "#0d121a",
         },
         "summary_accent": {
             "start": "#6f9bff",
@@ -91,8 +91,8 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
             "end": "#58d4ff",
         },
         "surface": {
-            "start": "#141a23",
-            "end": "#0d1219",
+            "start": "#172130",
+            "end": "#0b1119",
         },
     },
     "palette": {
@@ -100,17 +100,17 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
         "accent_primary": "#78a6ff",
         "accent_secondary": "#4e84ff",
         "accent_soft": "#68d1ff",
-        "border": "#2b3747",
-        "border_soft": "#1e2834",
-        "chip_bg": "#101720",
-        "chip_hover": "#172130",
+        "border": "#344357",
+        "border_soft": "#253246",
+        "chip_bg": "#111824",
+        "chip_hover": "#1a2534",
         "hero_end": "#07090d",
         "hero_glow": "#131b27",
         "hero_mid": "#0b1016",
-        "input_bg": "#0c1219",
-        "panel_top": "#171e28",
-        "panel_mid": "#111722",
-        "panel_bottom": "#0b1017",
+        "input_bg": "#0a1018",
+        "panel_top": "#1a2330",
+        "panel_mid": "#131b26",
+        "panel_bottom": "#0d121a",
         "progress_start": "#4ade80",
         "progress_mid": "#5a8eff",
         "progress_end": "#5fd8ff",
@@ -119,14 +119,14 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
         "scrollbar_pressed": "rgba(146, 177, 225, 0.94)",
         "selection_bg": "#1d3556",
         "selection_fg": "#f7fbff",
-        "surface_top": "#141b24",
-        "surface_bottom": "#0d1218",
+        "surface_top": "#172130",
+        "surface_bottom": "#0b1119",
         "text_primary": "#d7e1ef",
         "text_strong": "#f7fbff",
         "text_muted": "#9aa9be",
         "text_soft": "#8191a6",
-        "window_bg": "#090b10",
-        "window_bg_secondary": "#06080c",
+        "window_bg": "#05070b",
+        "window_bg_secondary": "#030509",
     },
     "typography": {
         "ui_family": '"Segoe UI Variable", "Inter", "Segoe UI", "Noto Sans", sans-serif',
@@ -136,17 +136,17 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
         "section_title_size": "15px",
     },
     "radii": {
-        "badge": "12px",
-        "button": "9px",
-        "input": "10px",
-        "panel": "16px",
-        "section": "8px",
-        "surface": "12px",
+        "badge": "8px",
+        "button": "6px",
+        "input": "7px",
+        "panel": "8px",
+        "section": "6px",
+        "surface": "8px",
     },
     "spacing": {
-        "button_padding": "11px 16px",
-        "chip_padding": "7px 12px",
-        "status_padding": "8px 12px",
+        "button_padding": "8px 12px",
+        "chip_padding": "5px 10px",
+        "status_padding": "6px 10px",
     },
     "semantic_colors": {
         "change": {
@@ -248,7 +248,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         font-family: {typography['ui_family']};
     }}
     QWidget#appRoot {{
-        background: qradialgradient(cx:0.15, cy:0.1, radius:1.0, fx:0.15, fy:0.1, stop:0 {gradients['app_shell']['start']}, stop:0.45 {gradients['app_shell']['mid']}, stop:1 {gradients['app_shell']['end']});
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['app_shell']['start']}, stop:0.62 {gradients['app_shell']['mid']}, stop:1 {gradients['app_shell']['end']});
     }}
     QMainWindow {{ background-color: {palette['window_bg_secondary']}; }}
     QLabel {{ background: transparent; }}
@@ -290,7 +290,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 0;
         border-radius: 0;
     }}
-    QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0.2px; }}
+    QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0; }}
     QLabel#appSubtitle {{ color: {palette['text_muted']}; font-size: 12px; font-weight: 600; background: transparent; }}
     QLabel#headerMeta {{ color: {palette['text_muted']}; background: transparent; }}
     QLabel#statusBadge {{
@@ -324,7 +324,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#scannerRunName {{ color: {palette['text_strong']}; font-size: 18px; font-weight: 700; background: transparent; }}
     QLabel#scannerRunContext {{ color: {palette['text_muted']}; background: transparent; }}
     QLabel#scannerRunSummaryText {{ color: {palette['text_primary']}; background: transparent; }}
-    QLabel#scannerActionGroupLabel {{ color: {palette['text_muted']}; font-size: 11px; font-weight: 700; letter-spacing: 0.6px; background: transparent; }}
+    QLabel#scannerActionGroupLabel {{ color: {palette['text_muted']}; font-size: 11px; font-weight: 700; letter-spacing: 0; background: transparent; }}
     QLabel#attentionBanner {{
         padding: 9px 12px;
         border-radius: {radii['section']};
@@ -347,9 +347,9 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         padding: 0;
     }}
     QGroupBox#panelGroup {{
-        margin-top: 14px;
+        margin-top: 10px;
         border-top: 1px solid {palette['border_soft']};
-        padding-top: 12px;
+        padding-top: 8px;
         font-weight: 700;
         color: {palette['text_strong']};
     }}
@@ -358,20 +358,20 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         subcontrol-origin: margin;
         left: 0;
         top: 0;
-        padding: 0 0 6px 0;
+        padding: 0 0 4px 0;
         color: {palette['text_muted']};
         background: transparent;
-        letter-spacing: 0.6px;
+        letter-spacing: 0;
     }}
     QTabWidget::pane {{
         border: 0;
         background: transparent;
         padding: 0;
-        margin-top: 8px;
+        margin-top: 5px;
     }}
     QTabBar::tab {{
-        padding: 8px 12px;
-        margin: 2px 6px 2px 0;
+        padding: 6px 10px;
+        margin: 1px 4px 1px 0;
         border-radius: {radii['button']};
         background: rgba(16, 22, 31, 0.72);
         border: 1px solid transparent;
@@ -381,11 +381,11 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QTabBar::tab:selected {{ background: {palette['chip_hover']}; border-color: {palette['accent_border']}; color: {palette['text_strong']}; }}
     QTabBar::tab:hover {{ border-color: {palette['border_soft']}; color: {palette['text_strong']}; }}
-    QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']}); color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 20px; }}
+    QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']}); color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 18px; }}
     QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_soft']}, stop:1 {palette['accent_primary']}); }}
     QPushButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
-    QPushButton#scannerStartButton {{ min-height: 30px; font-size: 14px; padding: 10px 24px; }}
-    QPushButton#scannerActionButton, QPushButton#scannerDangerButton {{ padding: 8px 12px; }}
+    QPushButton#scannerStartButton {{ min-height: 28px; font-size: 14px; padding: 8px 18px; }}
+    QPushButton#scannerActionButton, QPushButton#scannerDangerButton {{ padding: 6px 10px; }}
     QPushButton[variant="secondary"] {{ background: rgba(16, 22, 31, 0.88); color: {palette['text_primary']}; border: 1px solid {palette['border_soft']}; }}
     QPushButton[variant="secondary"]:hover {{ background: {palette['chip_hover']}; border-color: {palette['border']}; }}
     QPushButton[variant="danger"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {severity['critical'][0]}, stop:1 #571924); color: {severity['critical'][1]}; border: 1px solid #8b2e3f; }}
@@ -393,7 +393,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton[variant="chip"] {{ background: {palette['chip_bg']}; color: {palette['text_muted']}; border: 1px solid {palette['border']}; padding: {spacing['chip_padding']}; }}
     QPushButton[variant="chip"]:hover {{ background: {palette['chip_hover']}; color: {palette['text_strong']}; }}
     QPushButton[variant="chip"]:checked {{ background: {palette['selection_bg']}; color: {palette['selection_fg']}; border-color: {palette['accent_soft']}; }}
-    QToolButton {{ background: rgba(16, 22, 31, 0.84); color: {palette['text_strong']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['button']}; padding: 8px 14px; font-weight: 600; min-height: 18px; }}
+    QToolButton {{ background: rgba(16, 22, 31, 0.84); color: {palette['text_strong']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['button']}; padding: 6px 10px; font-weight: 600; min-height: 18px; }}
     QToolButton:hover {{ border-color: {palette['border']}; }}
     QToolButton#sectionToggle {{
         background: transparent;
@@ -406,10 +406,10 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QToolButton::menu-indicator {{ image: none; }}
     QMenu {{ background: {palette['surface_top']}; color: {palette['text_primary']}; border: 1px solid {palette['border']}; padding: 6px; }}
-    QMenu::item {{ padding: 8px 14px; border-radius: 8px; }}
+    QMenu::item {{ padding: 6px 12px; border-radius: 6px; }}
     QMenu::item:selected {{ background: {palette['chip_hover']}; }}
     QTableView, QListWidget, QTextEdit, QPlainTextEdit, QLineEdit, QComboBox, QSpinBox {{
-        background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; padding: 6px; alternate-background-color: {palette['chip_bg']}; selection-background-color: {palette['selection_bg']}; selection-color: {palette['selection_fg']}; gridline-color: {palette['border_soft']};
+        background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; padding: 4px; alternate-background-color: {palette['chip_bg']}; selection-background-color: {palette['selection_bg']}; selection-color: {palette['selection_fg']}; gridline-color: {palette['border_soft']};
     }}
     QTableView#dataGrid, QTextEdit#consoleText, QLabel#monoLabel, QPlainTextEdit#extensionEditor {{
         font-family: {typography['mono_family']};
@@ -426,9 +426,9 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 0;
         padding: 0;
     }}
-    QListWidget#sidebarList::item, QListWidget#navList::item {{ margin: 3px 0; padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; }}
+    QListWidget#sidebarList::item, QListWidget#navList::item {{ margin: 2px 0; padding: 7px 10px; border-radius: 6px; border: 1px solid transparent; }}
     QListWidget#sidebarList::item:selected, QListWidget#navList::item:selected {{ background: {palette['selection_bg']}; border-color: {palette['accent_soft']}; color: {palette['text_strong']}; }}
-    QHeaderView::section {{ background: {palette['panel_top']}; padding: 11px 12px; border: 0; border-bottom: 1px solid {palette['border_soft']}; font-weight: 700; color: {palette['text_muted']}; }}
+    QHeaderView::section {{ background: {palette['panel_top']}; padding: 8px 10px; border: 0; border-bottom: 1px solid {palette['border_soft']}; font-weight: 700; color: {palette['text_muted']}; }}
     QProgressBar {{ background: {palette['surface_bottom']}; border: 1px solid {palette['border_soft']}; border-radius: 8px; min-height: 10px; }}
     QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {palette['progress_start']}, stop:0.55 {palette['progress_mid']}, stop:1 {palette['progress_end']}); border-radius: 8px; }}
     QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 1px 2px 1px; }}
@@ -446,10 +446,10 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; border: 1px solid {palette['border']}; background: {palette['input_bg']}; }}
     QCheckBox::indicator:checked {{ background: {palette['accent_primary']}; border-color: {palette['accent_border']}; }}
     QWidget#overviewChecklistHeader, QWidget#overviewChecklistListContainer {{ background: transparent; }}
-    QLabel#overviewChecklistTitle {{ color: {palette['text_strong']}; font-size: 16px; font-weight: 700; letter-spacing: 0.3px; background: transparent; }}
+    QLabel#overviewChecklistTitle {{ color: {palette['text_strong']}; font-size: 16px; font-weight: 700; letter-spacing: 0; background: transparent; }}
     QLabel#overviewChecklistSummary {{ color: {palette['text_soft']}; background: transparent; }}
     QLabel#overviewChecklistCountBadge {{
-        padding: 6px 10px;
+        padding: 5px 8px;
         background: {palette['chip_bg']};
         border: 1px solid {palette['border']};
         border-radius: {radii['badge']};
@@ -470,7 +470,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLineEdit#overviewChecklistInput {{
         background: transparent;
         border: 0;
-        padding: 10px 4px;
+        padding: 7px 4px;
         color: {palette['text_primary']};
         selection-background-color: {palette['selection_bg']};
         selection-color: {palette['selection_fg']};
@@ -479,7 +479,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton#overviewChecklistAddButton {{
         min-height: 32px;
         padding: 0 14px;
-        border-radius: 10px;
+        border-radius: 6px;
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']});
         color: {palette['window_bg']};
         border: 1px solid {palette['accent_border']};
@@ -532,7 +532,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton#overviewChecklistDelete {{
         background: transparent;
         border: 1px solid transparent;
-        border-radius: 10px;
+        border-radius: 6px;
         color: {palette['text_soft']};
         font-weight: 700;
         padding: 0;

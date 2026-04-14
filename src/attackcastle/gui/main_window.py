@@ -180,7 +180,7 @@ class MainWindow(QMainWindow):
         width = max(self.width(), 1)
         if width >= 1480:
             mode = "desktop"
-        elif width >= 1180:
+        elif width >= 1280:
             mode = "compact"
         else:
             mode = "stacked"
@@ -202,18 +202,18 @@ class MainWindow(QMainWindow):
             self.workspace_primary_split.setOrientation(Qt.Horizontal)
             self._apply_splitter_layout(
                 "workspace_content_split",
-                [max(int(width * 0.72), 760), max(int(width * 0.28), 320)],
+                [max(int(width * 0.78), 820), max(int(width * 0.22), 260)],
             )
             self._apply_splitter_layout(
                 "workspace_primary_split",
-                [max(int(width * 0.28), 260), max(int(width * 0.42), 420)],
+                [max(int(width * 0.24), 220), max(int(width * 0.54), 520)],
             )
         if mode == "stacked":
-            self._apply_splitter_layout("body_split", [200, max(width - 200, 680)])
+            self._apply_splitter_layout("body_split", [170, max(width - 170, 680)])
         elif mode == "compact":
-            self._apply_splitter_layout("body_split", [220, max(width - 220, 760)])
+            self._apply_splitter_layout("body_split", [180, max(width - 180, 760)])
         else:
-            self._apply_splitter_layout("body_split", [240, max(width - 240, 900)])
+            self._apply_splitter_layout("body_split", [196, max(width - 196, 900)])
 
         self._arrange_run_filters(width)
         if hasattr(self, "runs_page_split"):
@@ -221,7 +221,7 @@ class MainWindow(QMainWindow):
                 self.runs_page_split.setOrientation(Qt.Horizontal)
                 self._apply_splitter_layout(
                     "runs_page_split",
-                    [max(int(width * 0.24), 320), max(int(width * 0.76), 920)],
+                    [max(int(width * 0.18), 260), max(int(width * 0.82), 980)],
                 )
             else:
                 self.runs_page_split.setOrientation(Qt.Vertical)
@@ -238,10 +238,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "runs_body_split"):
             if width >= 1240:
                 self.runs_body_split.setOrientation(Qt.Horizontal)
-                content_width = max(int(width * (0.76 if width >= 1360 else 0.96)), 920)
+                content_width = max(int(width * (0.82 if width >= 1360 else 0.96)), 960)
                 self._apply_splitter_layout(
                     "runs_body_split",
-                    [max(int(content_width * 0.58), 560), max(int(content_width * 0.42), 400)],
+                    [max(int(content_width * 0.62), 620), max(int(content_width * 0.38), 360)],
                 )
             else:
                 self.runs_body_split.setOrientation(Qt.Vertical)
@@ -307,7 +307,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         central.setObjectName("appRoot")
         root = QVBoxLayout(central)
-        root.setContentsMargins(22, 22, 22, 22)
+        root.setContentsMargins(14, 14, 14, 14)
         root.setSpacing(PAGE_SECTION_SPACING)
 
         self.general_status = QLabel("Ready")
@@ -319,8 +319,8 @@ class MainWindow(QMainWindow):
         self.nav_rail = QFrame()
         self.nav_rail.setObjectName("navRail")
         nav_layout = QVBoxLayout(self.nav_rail)
-        nav_layout.setContentsMargins(14, 14, 14, 14)
-        nav_layout.setSpacing(10)
+        nav_layout.setContentsMargins(10, 10, 10, 10)
+        nav_layout.setSpacing(8)
         nav_title = QLabel("Workflow")
         nav_title.setObjectName("sectionTitle")
         nav_layout.addWidget(nav_title)
@@ -588,7 +588,7 @@ class MainWindow(QMainWindow):
         runs_control_panel = QFrame()
         runs_control_panel.setObjectName("scannerConsoleLeftColumn")
         runs_control_panel.setProperty("surface", SURFACE_PRIMARY)
-        runs_control_panel.setMinimumWidth(300)
+        runs_control_panel.setMinimumWidth(240)
         runs_control_layout = QVBoxLayout(runs_control_panel)
         runs_control_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
         runs_control_layout.setSpacing(PAGE_SECTION_SPACING)
@@ -697,8 +697,8 @@ class MainWindow(QMainWindow):
         self.start_scan_button.clicked.connect(self._start_scan)
         self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
         style_button(self.start_scan_button, min_height=48)
-        self.start_scan_button.setMinimumWidth(220)
-        self.start_scan_button.setMaximumWidth(320)
+        self.start_scan_button.setMinimumWidth(190)
+        self.start_scan_button.setMaximumWidth(280)
         self.start_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout.addStretch(1)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from attackcastle.gui.extensions import ExtensionValidationError, build_starter_theme_manifest, build_theme_stylesheet
+from attackcastle.gui.extensions import DEFAULT_THEME_TOKENS, ExtensionValidationError, build_starter_theme_manifest, build_theme_stylesheet
 from attackcastle.gui.extensions_store import GuiExtensionStore
 
 
@@ -13,6 +13,17 @@ def test_build_theme_stylesheet_uses_theme_token_overrides() -> None:
     assert "#010203" in stylesheet
     assert "#112233" in stylesheet
     assert "QLabel#themeProbe { color: #abcdef; }" in stylesheet
+
+
+def test_default_theme_uses_compact_density_and_clearer_panel_contrast() -> None:
+    stylesheet = build_theme_stylesheet()
+
+    assert DEFAULT_THEME_TOKENS["palette"]["window_bg"] == "#05070b"
+    assert DEFAULT_THEME_TOKENS["gradients"]["panel"]["start"] == "#1a2330"
+    assert DEFAULT_THEME_TOKENS["radii"]["panel"] == "8px"
+    assert "QWidget#appRoot" in stylesheet
+    assert "qlineargradient" in stylesheet
+    assert "padding: 6px 10px;" in stylesheet
 
 
 def test_invalid_theme_save_does_not_replace_last_good_active_theme(tmp_path) -> None:

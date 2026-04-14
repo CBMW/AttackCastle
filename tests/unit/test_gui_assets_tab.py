@@ -106,6 +106,26 @@ def test_assets_tab_populates_grouped_inventory_tables(tmp_path: Path) -> None:
         tab.close()
 
 
+def test_assets_tab_keeps_docked_detail_panel_secondary_on_wide_layout(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _launched, _notes = _make_tab()
+
+    try:
+        tab.resize(1400, 900)
+        tab.sync_responsive_mode(tab.width())
+        app.processEvents()
+
+        assert tab.main_split.orientation() == Qt.Horizontal
+        sizes = tab.main_split.sizes()
+        assert sizes[0] > sizes[1]
+
+        tab.sync_responsive_mode(1180)
+        assert tab.main_split.orientation() == Qt.Vertical
+    finally:
+        tab.close()
+
+
 def test_assets_tab_keeps_web_inventory_empty_until_web_apps_are_confirmed(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app

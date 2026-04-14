@@ -431,7 +431,7 @@ class AssetsTab(QWidget):
     def sync_responsive_mode(self, width: int) -> None:
         self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
         if width >= 1280:
-            self.main_split_controller.apply([max(int(width * 0.74), 760), max(int(width * 0.26), 340)])
+            self.main_split_controller.apply([max(int(width * 0.78), 820), max(int(width * 0.22), 300)])
         else:
             self.main_split_controller.apply([max(int(self.height() * 0.68), 420), max(int(self.height() * 0.32), 220)])
 

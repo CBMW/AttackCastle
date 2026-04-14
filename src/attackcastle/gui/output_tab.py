@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QTableView,
@@ -225,6 +226,8 @@ class OutputTab(QWidget):
         self.inspector_summary = QLabel("Select an item to inspect technical details and artifacts.")
         self.inspector_summary.setObjectName("helperText")
         self.inspector_summary.setWordWrap(True)
+        self.inspector_summary.setMaximumWidth(260)
+        self.inspector_summary.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.screenshot_preview = QLabel("Screenshot preview")
         self.screenshot_preview.setObjectName("previewSurface")
         self.screenshot_preview.setAlignment(Qt.AlignCenter)
@@ -270,6 +273,7 @@ class OutputTab(QWidget):
         self.primary_tabs = QTabWidget()
         self.primary_tabs.setObjectName("subTabs")
         self.primary_tabs.setDocumentMode(True)
+        self.primary_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         findings_page = QWidget()
         findings_layout = QVBoxLayout(findings_page)
@@ -320,6 +324,7 @@ class OutputTab(QWidget):
         self.inspector_tabs = QTabWidget()
         self.inspector_tabs.setObjectName("subTabs")
         self.inspector_tabs.setDocumentMode(True)
+        self.inspector_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.inspector_tabs.setCornerWidget(self.inspector_summary, Qt.TopRightCorner)
         self.inspector_tabs.addTab(self._section("Details", self.detail_text), "Details")
         self.inspector_tabs.addTab(self._section("Raw", self.raw_text), "Raw")
@@ -400,9 +405,9 @@ class OutputTab(QWidget):
 
     def sync_responsive_mode(self, width: int) -> None:
         self._arrange_filter_controls(width)
-        self.main_split.setOrientation(Qt.Horizontal if width >= 1180 else Qt.Vertical)
-        if width >= 1180:
-            self.main_split_controller.apply([max(int(width * 0.64), 640), max(int(width * 0.36), 380)])
+        self.main_split.setOrientation(Qt.Horizontal if width >= 1280 else Qt.Vertical)
+        if width >= 1280:
+            self.main_split_controller.apply([max(int(width * 0.68), 700), max(int(width * 0.32), 340)])
         else:
             self.main_split_controller.apply([max(int(self.height() * 0.6), 320), max(int(self.height() * 0.4), 260)])
 
