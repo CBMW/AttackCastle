@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from attackcastle.gui.extensions import DEFAULT_THEME_TOKENS, ExtensionValidationError, build_starter_theme_manifest, build_theme_stylesheet
 from attackcastle.gui.extensions_store import GuiExtensionStore
 
@@ -24,6 +25,22 @@ def test_default_theme_uses_compact_density_and_clearer_panel_contrast() -> None
     assert "QWidget#appRoot" in stylesheet
     assert "qlineargradient" in stylesheet
     assert "padding: 6px 10px;" in stylesheet
+    assert "margin: 10px 1px;" in stylesheet
+    assert "margin: 1px 10px;" in stylesheet
+
+
+def test_default_splitter_handles_are_slim() -> None:
+    pytest.importorskip("PySide6")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication, QSplitter
+
+    from attackcastle.gui.common import apply_responsive_splitter
+
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    splitter = apply_responsive_splitter(QSplitter(Qt.Horizontal), (1, 1))
+
+    assert splitter.handleWidth() == 4
 
 
 def test_invalid_theme_save_does_not_replace_last_good_active_theme(tmp_path) -> None:

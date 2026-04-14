@@ -120,10 +120,15 @@ def test_restore_geometry_uses_smaller_manageable_window_size(tmp_path: Path) ->
         window.close()
 
 
-def test_main_window_minimum_height_stays_shrinkable(tmp_path: Path) -> None:
+def test_main_window_minimum_size_stays_shrinkable(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
     try:
+        assert window.minimumWidth() <= 720
+        assert window.minimumHeight() <= 520
+        window.resize(760, 560)
+        assert window.width() == 760
+        assert window.height() == 560
         assert window.minimumSizeHint().height() < 700
     finally:
         window._refresh_timer.stop()

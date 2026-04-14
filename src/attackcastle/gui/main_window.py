@@ -304,6 +304,7 @@ class MainWindow(QMainWindow):
             controller.apply(fallback_sizes)
 
     def _init_ui(self) -> None:
+        self.setMinimumSize(720, 520)
         central = QWidget()
         central.setObjectName("appRoot")
         root = QVBoxLayout(central)

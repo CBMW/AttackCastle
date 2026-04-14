@@ -574,7 +574,7 @@ class FlowButtonRow(QWidget):
 
 
 def configure_scroll_surface(widget: QWidget) -> QWidget:
-    widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
     widget.setMinimumWidth(0)
     widget.setMinimumHeight(0)
     widget.setFocusPolicy(Qt.StrongFocus)
@@ -696,7 +696,7 @@ def apply_responsive_splitter(
     splitter: QSplitter,
     stretches: tuple[int, ...],
     *,
-    handle_width: int = 8,
+    handle_width: int = 4,
     children_collapsible: bool = True,
 ) -> QSplitter:
     splitter.setOpaqueResize(False)

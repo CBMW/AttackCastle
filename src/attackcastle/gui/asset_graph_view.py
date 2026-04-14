@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QUrl, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -70,6 +70,12 @@ class AssetGraphView(QWidget):
         layout.addWidget(graph_frame, 1)
 
         self._refresh_graph()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(320, 320)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(760, 520)
 
     def _build_primary_controls(self) -> QHBoxLayout:
         row = QHBoxLayout()

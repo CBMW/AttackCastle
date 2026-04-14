@@ -509,6 +509,8 @@ If you are running AttackCastle from a source checkout, the easiest way to start
 python attackcastlegui.py
 ```
 
+Run the GUI without `sudo` when you can. If you do start it as root on Kali, the launcher automatically applies QtWebEngine's required Chromium `--no-sandbox` setting before the browser component loads.
+
 That launcher:
 
 - creates a local runtime in `.attackcastle-runtime`
