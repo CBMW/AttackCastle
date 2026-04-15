@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from hashlib import sha1
 from pathlib import Path
 
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -35,6 +36,11 @@ def _run_data() -> RunData:
             started_at=now_utc(),
         )
     )
+
+
+def _instance_key(task_key: str, task_input: str, iteration: int = 1) -> str:
+    digest = sha1(task_input.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+    return f"{task_key}::iter{iteration}::{digest}"
 
 
 def test_scheduler_skips_matrix_gated_task_and_runs_dependents(tmp_path: Path):
@@ -227,6 +233,45 @@ def test_scheduler_records_running_fanout_task_state_before_completion(tmp_path:
     }
     assert all(state.status == "completed" for state in states)
     assert all(row["status"] == "completed" for row in checkpoint["run_data"]["task_states"])
+
+
+def test_scheduler_resume_skips_only_completed_fanout_instances(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-resume-fanout")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-resume-fanout"),
+        audit=_AuditStub(),
+    )
+    observed_inputs: list[str] = []
+
+    def _runner(task_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        observed_inputs.extend(task_context.task_inputs)
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-nmap",
+                label="Running Nmap",
+                capability="network_port_scan",
+                stage="recon",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+                can_run_many=True,
+                input_items=lambda _run_data: ["198.51.100.10", "198.51.100.11"],
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+        completed_task_instances={("run-nmap", _instance_key("run-nmap", "198.51.100.10"))},
+    )
+
+    assert observed_inputs == ["198.51.100.11"]
+    assert len(states) == 1
+    assert states[0].detail["task_inputs"] == ["198.51.100.11"]
 
 
 def test_scheduler_marks_adapter_results_with_errors_as_failed(tmp_path: Path):

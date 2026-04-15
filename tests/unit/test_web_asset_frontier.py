@@ -282,6 +282,78 @@ def test_web_probe_creates_service_for_confirmed_discovered_host(tmp_path: Path,
     assert result.web_apps[0].status_code == 403
 
 
+def test_web_probe_builtin_fallback_confirms_open_web_service_when_httpx_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    context = _context(
+        tmp_path,
+        "web-probe-builtin-fallback",
+        config={
+            "scan": {"http_timeout_seconds": 1},
+            "web_probe": {"enabled": True},
+        },
+    )
+    run_data = _run_data(tmp_path, target_input="203.0.113.10")
+    run_data.assets.append(Asset(asset_id="asset-ip", kind="host", name="203.0.113.10", ip="203.0.113.10"))
+    run_data.services.append(
+        Service(
+            service_id="svc-https",
+            asset_id="asset-ip",
+            port=443,
+            protocol="tcp",
+            state="open",
+            name="https",
+        )
+    )
+
+    def _missing_httpx(context, command_spec, proxy_url=None):  # noqa: ANN001
+        return SimpleNamespace(
+            execution=SimpleNamespace(),
+            evidence_artifacts=[],
+            task_result=SimpleNamespace(
+                task_id="task-httpx-missing",
+                status="skipped",
+                parsed_entities=[],
+                metrics={},
+                warnings=["missing required tool 'httpx'"],
+            ),
+            stdout_text="",
+            stdout_path=context.run_store.artifact_path("httpx", "missing_stdout.txt"),
+            execution_id="exec-httpx-missing",
+        )
+
+    class _FakeResponse:
+        headers = {"Content-Type": "text/html", "Server": "nginx"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return b"<html><title>Fallback Site</title></html>"
+
+        def geturl(self) -> str:
+            return "https://203.0.113.10/"
+
+        def getcode(self) -> int:
+            return 200
+
+    monkeypatch.setattr("attackcastle.adapters.web_probe.adapter.run_command_spec", _missing_httpx)
+    monkeypatch.setattr("attackcastle.adapters.web_probe.adapter.open_url", lambda *_args, **_kwargs: _FakeResponse())
+
+    result = WebProbeAdapter().run(context, run_data)
+
+    assert [item.url for item in result.web_apps] == ["https://203.0.113.10/"]
+    assert result.web_apps[0].asset_id == "asset-ip"
+    assert result.web_apps[0].service_id == "svc-https"
+    assert result.web_apps[0].status_code == 200
+    assert result.web_apps[0].title == "Fallback Site"
+    assert any("builtin" in warning.lower() for warning in result.warnings)
+
+
 def test_nikto_and_nuclei_skip_cleanly_when_disabled(tmp_path: Path) -> None:
     run_data = _confirmed_web_run_data(tmp_path)
     context = _context(

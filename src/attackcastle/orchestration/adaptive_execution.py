@@ -109,6 +109,14 @@ def _coerce_positive_int(value: Any, default: int, minimum: int = 1) -> int:
         return max(minimum, default)
 
 
+def _coerce_optional_int(value: Any, minimum: int = 1) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(minimum, parsed)
+
+
 def _loadavg_ratio(cpu_cap: int) -> float | None:
     if cpu_cap <= 0 or not hasattr(os, "getloadavg"):
         return None
@@ -298,6 +306,7 @@ class AdaptiveExecutionController:
         self._global_recent = _RecentMetrics()
         self._web_recent = _RecentMetrics()
         self._timeline: list[dict[str, Any]] = []
+        self._operator_throttle: dict[str, Any] | None = None
         self._healthy_streak = 0
         self._web_healthy_streak = 0
         self._last_sample_monotonic = 0.0
@@ -332,6 +341,10 @@ class AdaptiveExecutionController:
             host=self.host_resources.as_dict(),
         )
 
+        configured_throttle = self.config.get("operator_throttle")
+        if isinstance(configured_throttle, dict) and configured_throttle.get("enabled"):
+            self.apply_operator_throttle(configured_throttle, reason="configured_operator_throttle")
+
     def _append_timeline(self, *, event: str, reason: str, **payload: Any) -> None:
         entry = {
             "timestamp_monotonic": round(time.monotonic(), 3),
@@ -344,7 +357,7 @@ class AdaptiveExecutionController:
             self._timeline = self._timeline[-self.timeline_limit :]
 
     def is_enabled(self) -> bool:
-        return self.enabled
+        return self.enabled or self._operator_throttle is not None
 
     def is_web_capability(self, capability: str) -> bool:
         return str(capability) in self.web_capabilities
@@ -353,10 +366,13 @@ class AdaptiveExecutionController:
         return str(capability) in self.heavy_process_capabilities
 
     def dispatch_budget(self) -> int:
-        return max(1, self.current_budget if self.enabled else self.hard_max_workers)
+        return max(1, self.current_budget if self.is_enabled() else self.hard_max_workers)
 
     def heavy_process_limit(self) -> int:
-        return max(1, min(self.max_heavy_processes, self.dispatch_budget()))
+        limit = max(1, min(self.max_heavy_processes, self.dispatch_budget()))
+        if self._operator_throttle is not None:
+            limit = min(limit, _coerce_positive_int(self._operator_throttle.get("max_heavy_processes", 1), 1))
+        return max(1, limit)
 
     def stage_budget(self, stage: str, capability: str | None = None) -> int:
         budget = self.dispatch_budget()
@@ -407,11 +423,89 @@ class AdaptiveExecutionController:
         min_rate = _coerce_positive_int(overrides.get("min_rate", rate_per_worker), rate_per_worker)
         max_rate = _coerce_positive_int(overrides.get("max_rate", rate_per_worker * max_threads), rate_per_worker)
         rate = _clamp(rate_per_worker * max(1, workers), min_rate, max_rate)
-        return {
+        budget = {
             "workers": max(1, workers),
             "threads": _clamp(max(1, workers), min_threads, max_threads),
             "rate": rate,
         }
+        if self._operator_throttle is not None:
+            cap = self._operator_worker_cap(self.latest_host_sample)
+            max_tool_threads = _coerce_optional_int(
+                self._operator_throttle.get("max_tool_threads"),
+                minimum=1,
+            )
+            rate_ceiling = _coerce_optional_int(
+                self._operator_throttle.get("tool_rate_ceiling"),
+                minimum=1,
+            )
+            budget["workers"] = max(1, min(budget["workers"], cap))
+            budget["threads"] = max(1, min(budget["threads"], max_tool_threads or cap))
+            if rate_ceiling is not None:
+                budget["rate"] = max(1, min(budget["rate"], rate_ceiling))
+        return budget
+
+    def _operator_worker_cap(self, host: HostResources | None = None) -> int:
+        if self._operator_throttle is None:
+            return max(1, self.hard_max_workers)
+        caps: list[int] = []
+        for key in ("max_workers", "cpu_cores"):
+            cap = _coerce_optional_int(self._operator_throttle.get(key), minimum=1)
+            if cap is not None:
+                caps.append(cap)
+
+        memory_limit_percent = _coerce_optional_int(
+            self._operator_throttle.get("memory_usage_limit_percent"),
+            minimum=1,
+        )
+        host_sample = host or self.latest_host_sample
+        if memory_limit_percent is not None and host_sample.total_memory_bytes and host_sample.available_memory_bytes is not None:
+            limit_ratio = max(0.01, min(0.98, float(memory_limit_percent) / 100.0))
+            used_bytes = max(0, int(host_sample.total_memory_bytes) - int(host_sample.available_memory_bytes))
+            remaining_budget_bytes = max(0, int(float(host_sample.total_memory_bytes) * limit_ratio) - used_bytes)
+            memory_worker_cap = max(1, int(remaining_budget_bytes // max(1, self.memory_per_worker_mb * 1024 * 1024)))
+            caps.append(memory_worker_cap)
+
+        if not caps:
+            return max(1, self.hard_max_workers)
+        return max(1, min(caps))
+
+    def _clamp_to_operator_throttle(self) -> None:
+        if self._operator_throttle is None:
+            return
+        cap = self._operator_worker_cap(self.latest_host_sample)
+        self.hard_max_workers = max(1, min(self.hard_max_workers, cap))
+        self.current_budget = max(self.min_dispatch_workers, min(self.current_budget, self.hard_max_workers))
+        self.current_web_budget = max(self.min_web_workers, min(self.current_web_budget, self.current_budget))
+        self.max_heavy_processes = max(1, min(self.max_heavy_processes, self.current_budget))
+
+    def apply_operator_throttle(
+        self,
+        payload: dict[str, Any] | None = None,
+        *,
+        reason: str = "operator_requested_throttle",
+    ) -> dict[str, Any]:
+        payload = dict(payload or {})
+        payload.setdefault("max_workers", payload.get("cpu_cores", 1) or 1)
+        payload.setdefault("max_tool_threads", payload.get("max_workers", 1) or 1)
+        payload.setdefault("max_heavy_processes", 1)
+        payload.setdefault("tool_rate_ceiling", 250)
+        self._operator_throttle = payload
+        self.enabled = True
+        self.latest_host_sample = self._sample_host()
+        self._clamp_to_operator_throttle()
+        self._healthy_streak = 0
+        self._web_healthy_streak = 0
+        self._last_change_monotonic = time.monotonic()
+        self._append_timeline(
+            event="operator_throttle",
+            reason=reason,
+            dispatch_budget=self.current_budget,
+            web_budget=self.current_web_budget,
+            heavy_process_limit=self.heavy_process_limit(),
+            throttle=dict(self._operator_throttle),
+            host=self.latest_host_sample.as_dict(),
+        )
+        return self.snapshot()
 
     def _stage_for_capability(self, capability: str) -> str:
         if capability in {"network_port_scan", "subdomain_enumeration", "dns_resolution"}:
@@ -587,6 +681,8 @@ class AdaptiveExecutionController:
         if changed:
             self._last_change_monotonic = now_monotonic
 
+        self._clamp_to_operator_throttle()
+
         self._append_timeline(
             event="sample",
             reason=change_reason,
@@ -620,6 +716,7 @@ class AdaptiveExecutionController:
                 "host_resources": self.host_resources.as_dict(),
                 "latest_host_sample": self.latest_host_sample.as_dict(),
             },
+            "operator_throttle": dict(self._operator_throttle) if self._operator_throttle is not None else None,
             "timeline": list(self._timeline),
             "downgrade_reasons": downgrade_reasons,
         }

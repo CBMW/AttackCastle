@@ -33,6 +33,8 @@ def _merge_facts(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str
             merged[key] = current or value
         elif isinstance(current, (int, float)) and isinstance(value, (int, float)):
             merged[key] = max(current, value)
+        elif isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = {**current, **value}
         else:
             merged[key] = value
     return merged

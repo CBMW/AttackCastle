@@ -71,6 +71,8 @@ class AdaptiveRateLimiter:
             if str(item).isdigit()
         }
         self.mode_settings = self._build_mode_settings(config)
+        self.operator_mode: str | None = None
+        self.operator_min_interval_ms: float | None = None
 
         self._next_target: dict[str, float] = {}
         self._next_service: dict[str, float] = {}
@@ -124,7 +126,7 @@ class AdaptiveRateLimiter:
     def _state(self, key: str) -> _AdaptiveState:
         state = self._adaptive_state.get(key)
         if state is None:
-            state = _AdaptiveState(mode=self.initial_mode)
+            state = _AdaptiveState(mode=self._max_mode(self.initial_mode, self.operator_mode or self.initial_mode))
             self._adaptive_state[key] = state
         return state
 
@@ -161,19 +163,41 @@ class AdaptiveRateLimiter:
             state.clean_streak = 0
 
     def _effective_interval_ms(self, key_type: str, mode: str) -> float:
+        if self.operator_mode:
+            mode = self._max_mode(mode, self.operator_mode)
         settings = self.mode_settings.get(mode, self.mode_settings["aggressive"])
         interval_key = "service_interval_ms" if key_type == "service" else "target_interval_ms"
         base_value = float(settings.get(interval_key, 0.0))
+        if self.operator_min_interval_ms is not None:
+            base_value = max(base_value, float(self.operator_min_interval_ms))
         jitter_ratio = float(settings.get("jitter_ratio", 0.0))
         return max(0.0, base_value + (base_value * jitter_ratio * random.random()))
 
     def current_mode(self, target_key: str | None = None, service_key: str | None = None) -> str:
         with self._lock:
             modes = [self.initial_mode]
+            if self.operator_mode:
+                modes.append(self.operator_mode)
             for key in [item for item in (target_key, service_key) if item]:
                 if key in self._adaptive_state:
                     modes.append(self._adaptive_state[str(key)].mode)
             return self._max_mode(*modes)
+
+    def apply_operator_throttle(
+        self,
+        *,
+        mode: str = "careful",
+        min_interval_ms: float | int | None = None,
+    ) -> None:
+        with self._lock:
+            self.operator_mode = _coerce_mode(mode)
+            if min_interval_ms is not None:
+                self.operator_min_interval_ms = max(
+                    float(self.operator_min_interval_ms or 0.0),
+                    _coerce_float(min_interval_ms, 0.0),
+                )
+            for state in self._adaptive_state.values():
+                state.mode = self._max_mode(state.mode, self.operator_mode)
 
     def throttle(self, target_key: str | None = None, service_key: str | None = None) -> float:
         sleep_seconds = 0.0
@@ -277,10 +301,18 @@ class AdaptiveRateLimiter:
                     self.initial_mode,
                     *[state["mode"] for state in adaptive.values()],
                 )
+            if self.operator_mode:
+                current_mode = self._max_mode(current_mode, self.operator_mode)
             return {
                 "per_target_min_interval_ms": self.per_target_min_interval_ms,
                 "per_service_min_interval_ms": self.per_service_min_interval_ms,
                 "adaptive_backoff_enabled": self.adaptive_enabled,
+                "operator_throttle": {
+                    "mode": self.operator_mode,
+                    "min_interval_ms": self.operator_min_interval_ms,
+                }
+                if self.operator_mode
+                else None,
                 "current_mode": current_mode,
                 "mode_settings": self.mode_settings,
                 "adaptive_state": adaptive,

@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     temp_dir = Path(tempfile.mkdtemp(prefix="attackcastle-gui-"))
     try:
         request = _load_request(request_path)
-        overrides = profile_to_engine_overrides(request.profile)
+        overrides = profile_to_engine_overrides(request.profile, request.performance_guard)
         override_path = write_yaml_like_json(temp_dir / "gui_profile_override.yaml", overrides)
 
         export_html = bool(request.profile.export_html_report)

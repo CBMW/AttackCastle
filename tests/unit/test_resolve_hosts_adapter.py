@@ -124,7 +124,12 @@ def test_resolve_hosts_adapter_enriches_hostname_assets(monkeypatch, tmp_path: P
     assert {observation.entity_id for observation in result.observations} == {"asset_domain", "asset_scope"}
     assert result.task_results[0].status == "completed"
     assert result.task_results[0].parsed_entities == [
-        {"type": "ResolvedHost", "fqdn": "api.example.com", "ips": ["203.0.113.10", "203.0.113.11"]}
+        {
+            "type": "ResolvedHost",
+            "fqdn": "api.example.com",
+            "ips": ["203.0.113.10", "203.0.113.11"],
+            "cname_chain": [],
+        }
     ]
     assert any("[resolve-hosts] api.example.com -> 203.0.113.10" in message for message in logger.messages)
     assert audit.events[-1][0] == "adapter.completed"
@@ -163,6 +168,48 @@ def test_resolve_hosts_adapter_continues_after_timeout(monkeypatch, tmp_path: Pa
     assert any("[resolve-hosts] slow.example.com returned no IP" in message for message in logger.messages)
 
 
+def test_resolve_hosts_adapter_follows_cname_only_answers(monkeypatch, tmp_path: Path) -> None:
+    context, logger, _audit = _context(tmp_path)
+    run_data = _run_data(tmp_path)
+    run_data.assets.append(Asset(asset_id="asset_alias", kind="domain", name="alias.example.com"))
+
+    monkeypatch.setattr("attackcastle.adapters.resolve_hosts.adapter.shutil.which", lambda _cmd: "dig")
+
+    def _fake_run(*args, **kwargs):  # noqa: ANN001
+        hostname = args[0][1]
+        if hostname == "alias.example.com":
+            return subprocess.CompletedProcess(
+                args=["dig", hostname, "+short"],
+                returncode=0,
+                stdout="edge.example.net.\n",
+                stderr="",
+            )
+        if hostname == "edge.example.net":
+            return subprocess.CompletedProcess(
+                args=["dig", hostname, "+short"],
+                returncode=0,
+                stdout="198.51.100.42\n",
+                stderr="",
+            )
+        raise AssertionError(f"unexpected hostname {hostname}")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+
+    result = ResolveHostsAdapter().run(context, run_data)
+
+    assert result.assets[0].resolved_ips == ["198.51.100.42"]
+    assert result.task_results[0].parsed_entities == [
+        {
+            "type": "ResolvedHost",
+            "fqdn": "alias.example.com",
+            "ips": ["198.51.100.42"],
+            "cname_chain": ["edge.example.net"],
+        }
+    ]
+    assert any(observation.key == "dns.cname_chain" for observation in result.observations)
+    assert not any("alias.example.com returned no IP" in message for message in logger.messages)
+
+
 def test_merge_adapter_result_updates_existing_asset_in_place(tmp_path: Path) -> None:
     run_data = _run_data(tmp_path)
     run_data.assets.append(Asset(asset_id="asset_domain", kind="domain", name="api.example.com"))
@@ -185,6 +232,31 @@ def test_merge_adapter_result_updates_existing_asset_in_place(tmp_path: Path) ->
     assert len(run_data.assets) == 1
     assert run_data.assets[0].ip == "203.0.113.10"
     assert run_data.assets[0].resolved_ips == ["203.0.113.10", "203.0.113.11"]
+
+
+def test_merge_adapter_result_unions_scanned_target_facts(tmp_path: Path) -> None:
+    run_data = _run_data(tmp_path)
+
+    merge_adapter_result(run_data, AdapterResult(facts={"nmap.scanned_targets": ["198.51.100.10"]}))
+    merge_adapter_result(
+        run_data,
+        AdapterResult(
+            facts={
+                "nmap.scanned_targets": ["198.51.100.11", "198.51.100.10"],
+                "nmap.provider_edges": {"edge.example.net": "akamai"},
+            }
+        ),
+    )
+    merge_adapter_result(
+        run_data,
+        AdapterResult(facts={"nmap.provider_edges": {"service.example.net": "cloudflare"}}),
+    )
+
+    assert run_data.facts["nmap.scanned_targets"] == ["198.51.100.10", "198.51.100.11"]
+    assert run_data.facts["nmap.provider_edges"] == {
+        "edge.example.net": "akamai",
+        "service.example.net": "cloudflare",
+    }
 
 
 def test_resolve_hosts_adapter_emits_live_runtime_events(monkeypatch, tmp_path: Path) -> None:

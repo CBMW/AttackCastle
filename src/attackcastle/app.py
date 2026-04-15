@@ -136,6 +136,20 @@ def _build_run_id() -> str:
     return f"{now_utc().strftime('%Y%m%dT%H%M%SZ')}_{uuid4().hex[:8]}"
 
 
+def _target_input_summary(target_input: str, max_examples: int = 5) -> dict[str, Any]:
+    targets = [line.strip() for line in str(target_input or "").splitlines() if line.strip()]
+    if not targets and str(target_input or "").strip():
+        targets = [str(target_input).strip()]
+    examples = targets[:max_examples]
+    suffix = "" if len(targets) <= max_examples else f", +{len(targets) - max_examples} more"
+    return {
+        "count": len(targets),
+        "examples": examples,
+        "summary": f"{len(targets)} target(s): {', '.join(examples) if examples else '[none]'}{suffix}",
+        "targets": targets,
+    }
+
+
 def _seed_scope_assets(run_data: RunData) -> None:
     if run_data.assets:
         return
@@ -756,14 +770,19 @@ def _execute_scan_plan(
 
         transition_run_state(run_data, RunState.RUNNING, "workflow_started")
         logger = context.logger
+        target_summary = _target_input_summary(options.target_input)
+        run_store.write_json("data/target_input.json", target_summary)
         logger.info(
-            "Starting scan run_id=%s profile=%s target=%s",
+            "Starting scan run_id=%s profile=%s targets=%s",
             run_store.run_id,
             options.profile,
-            options.target_input,
+            target_summary["summary"],
         )
 
         completed_checkpoints = run_store.list_completed_checkpoints() if options.resume_run_dir else set()
+        completed_checkpoint_instances = (
+            run_store.list_completed_checkpoint_instances() if options.resume_run_dir else set()
+        )
         scheduler = WorkflowScheduler(
             console=console,
             use_rich_progress=(
@@ -776,6 +795,7 @@ def _execute_scan_plan(
             context=context,
             run_data=run_data,
             completed_task_keys=completed_checkpoints,
+            completed_task_instances=completed_checkpoint_instances,
         )
         run_data.task_states = to_serializable(task_states)
         refresh_autonomy_state(run_data, config)

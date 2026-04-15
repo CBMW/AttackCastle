@@ -240,7 +240,7 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     snapshot = load_run_snapshot(run_store.run_dir)
     assert snapshot.scan_name == "GUI Scan"
     assert snapshot.total_tasks == 2
-    assert snapshot.current_task == "run-nmap"
+    assert snapshot.current_task == "Nmap"
     assert len(snapshot.services) == 1
     assert len(snapshot.web_apps) == 1
     assert snapshot.web_apps[0]["url"] == "https://example.com"
@@ -364,6 +364,51 @@ def test_load_run_snapshot_ignores_running_manifest_rows_for_terminal_runs(tmp_p
     assert snapshot.current_task == "Running Nmap"
 
 
+def test_load_run_snapshot_ignores_stale_running_manifest_when_instances_are_terminal(tmp_path: Path) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="gui-running-stale-instance")
+    started_at = now_utc()
+    run_store.write_json(
+        "data/gui_session.json",
+        {
+            "scan_name": "Running Stale Instance",
+            "started_at": started_at.isoformat(),
+            "run_id": "gui-running-stale-instance",
+        },
+    )
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="gui-running-stale-instance",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(run_store.run_dir),
+            started_at=started_at,
+            state=RunState.RUNNING,
+        ),
+        task_states=[
+            {
+                "key": "run-nmap",
+                "label": "Running Nmap",
+                "status": TaskStatus.COMPLETED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {"instance_key": "run-nmap::iter1::done", "task_inputs": ["198.51.100.10"]},
+            }
+        ],
+    )
+    run_store.save_checkpoint(
+        "run-nmap",
+        "running",
+        run_data,
+        instance_key="run-nmap::iter1::stale",
+        task_inputs=["198.51.100.11"],
+    )
+
+    snapshot = load_run_snapshot(run_store.run_dir)
+
+    assert [row["status"] for row in snapshot.tasks] == ["completed"]
+    assert snapshot.current_task == "Running Nmap"
+
+
 def test_build_run_debug_bundle_includes_literal_output_and_run_log(tmp_path: Path) -> None:
     started_at = now_utc()
     snapshot = load_run_snapshot(
@@ -413,12 +458,19 @@ def test_build_run_debug_bundle_starts_with_run_health_summary(tmp_path: Path) -
             "timed_out": True,
         }
     )
+    snapshot.scope = [
+        {"value": "198.51.100.10"},
+        {"value": "198.51.100.11"},
+        {"value": "198.51.100.12"},
+    ]
+    snapshot.facts["nmap.scanned_targets"] = ["198.51.100.10", "198.51.100.11"]
 
     bundle = build_run_debug_bundle(snapshot)
 
     assert bundle["combined_log"].startswith("Run Health")
     assert "- tool_failures: 1" in bundle["combined_log"]
     assert "- tool_timeouts: 1" in bundle["combined_log"]
+    assert "- nmap_coverage: scanned=2, pending=1" in bundle["combined_log"]
     assert "nmap(status=failed, exit=1)" in bundle["combined_log"]
 
 
@@ -685,3 +737,26 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
     assert overrides["adaptive_execution"]["enabled"] is False
     assert overrides["adaptive_execution"]["cpu_core_cap"] == 3
     assert overrides["profile"]["cpu_cores"] == 3
+
+
+def test_profile_to_engine_overrides_applies_performance_guard_caps() -> None:
+    profile = GuiProfile(
+        name="Aggressive Local",
+        concurrency=16,
+        cpu_cores=0,
+        adaptive_execution_enabled=True,
+    )
+
+    overrides = profile_to_engine_overrides(
+        profile,
+        {
+            "enabled": True,
+            "throttle_cpu_cores": 2,
+            "memory_alert_percent": 75,
+        },
+    )
+
+    assert overrides["profile"]["concurrency"] == 2
+    assert overrides["profile"]["cpu_cores"] == 2
+    assert overrides["adaptive_execution"]["cpu_core_cap"] == 2
+    assert overrides["adaptive_execution"]["memory_pressure_high_ratio"] == 0.25

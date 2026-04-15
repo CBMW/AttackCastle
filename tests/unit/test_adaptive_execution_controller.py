@@ -139,3 +139,39 @@ def test_scheduler_respects_adaptive_dispatch_budget(tmp_path: Path) -> None:
 
     assert all(state.status == "completed" for state in states)
     assert observed_peak == 1
+
+
+def test_controller_operator_throttle_caps_workers_and_tool_budget(monkeypatch) -> None:
+    controller = AdaptiveExecutionController(
+        config={"enabled": True, "sample_interval_seconds": 0.0},
+        profile_config={"concurrency": 8},
+    )
+    stable_host = HostResources(
+        cpu_count=8,
+        cpu_cap=8,
+        total_memory_bytes=16 * 1024**3,
+        available_memory_bytes=12 * 1024**3,
+        memory_source="test",
+        load_ratio=0.2,
+    )
+    monkeypatch.setattr(controller, "_sample_host", lambda: stable_host)
+    controller.hard_max_workers = 8
+    controller.current_budget = 6
+    controller.current_web_budget = 4
+
+    snapshot = controller.apply_operator_throttle(
+        {
+            "cpu_cores": 2,
+            "max_workers": 2,
+            "max_tool_threads": 1,
+            "tool_rate_ceiling": 100,
+            "memory_usage_limit_percent": 80,
+        }
+    )
+
+    assert snapshot["current_state"]["dispatch_budget"] <= 2
+    assert controller.heavy_process_limit() == 1
+    budget = controller.tool_budget("web_template_scan", target_count=8)
+    assert budget["workers"] <= 2
+    assert budget["threads"] == 1
+    assert budget["rate"] <= 100

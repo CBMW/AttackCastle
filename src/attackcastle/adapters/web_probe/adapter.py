@@ -3,12 +3,17 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import ssl
+import urllib.error
+import urllib.request
 from hashlib import sha1
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlparse
 
-from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.base import build_tool_execution, normalize_command_termination
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
+from attackcastle.adapters.web_probe.parser import detect_technologies, extract_title
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import (
     Asset,
@@ -18,13 +23,15 @@ from attackcastle.core.models import (
     Observation,
     RunData,
     Service,
+    TaskArtifactRef,
+    TaskResult,
     Technology,
     WebApplication,
     new_id,
     now_utc,
 )
 from attackcastle.normalization.correlator import collect_web_targets
-from attackcastle.proxy import build_subprocess_env, chromium_proxy_args
+from attackcastle.proxy import build_subprocess_env, chromium_proxy_args, open_url
 from attackcastle.scan_policy import build_scan_policy
 from attackcastle.scope.expansion import is_ip_literal
 
@@ -108,6 +115,158 @@ class WebProbeAdapter:
             return None
         return str(screenshot_path)
 
+    def _run_builtin_probe(
+        self,
+        context: AdapterContext,
+        targets: list[dict[str, str | int]],
+        *,
+        timeout_seconds: int,
+        proxy_url: str | None,
+    ):
+        started_at = now_utc()
+        execution_id = new_id("exec")
+        task_id = new_id("task")
+        stdout_path = context.run_store.artifact_path(self.name, "builtin_probe_stdout.jsonl")
+        stderr_path = context.run_store.artifact_path(self.name, "builtin_probe_stderr.txt")
+        transcript_path = context.run_store.artifact_path(self.name, "builtin_probe_transcript.txt")
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        def _headers_to_dict(headers) -> dict[str, str]:  # noqa: ANN001
+            try:
+                return {str(key).lower(): str(value) for key, value in headers.items()}
+            except Exception:
+                return {}
+
+        def _decode_body(raw: bytes, headers: dict[str, str]) -> str:
+            content_type = headers.get("content-type", "")
+            charset = "utf-8"
+            if "charset=" in content_type:
+                charset = content_type.rsplit("charset=", 1)[-1].split(";", 1)[0].strip() or "utf-8"
+            return raw.decode(charset, errors="replace")
+
+        for target in targets:
+            url = str(target.get("url") or "").strip()
+            if not url:
+                continue
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": "AttackCastle/0.1 web-probe"},
+                method="GET",
+            )
+            try:
+                with open_url(
+                    request,
+                    timeout=timeout_seconds,
+                    proxy_url=proxy_url,
+                    https_context=ssl_context,
+                ) as response:
+                    raw_body = response.read(256 * 1024)
+                    headers = _headers_to_dict(response.headers)
+                    body = _decode_body(raw_body, headers)
+                    final_url = str(response.geturl() or url)
+                    status_code = int(response.getcode() or 0) or None
+            except urllib.error.HTTPError as exc:
+                raw_body = exc.read(256 * 1024)
+                headers = _headers_to_dict(exc.headers)
+                body = _decode_body(raw_body, headers)
+                final_url = str(exc.geturl() or url)
+                status_code = int(exc.code)
+            except Exception as exc:  # noqa: BLE001
+                stderr_lines.append(f"{url}: {exc}")
+                continue
+
+            parsed = urlparse(final_url or url)
+            tech = [name for name, _version, _confidence in detect_technologies(headers, body)]
+            payload = {
+                "url": url,
+                "input": url,
+                "final_url": final_url or url,
+                "title": extract_title(body),
+                "status_code": status_code,
+                "tech": tech,
+                "host": parsed.hostname or "",
+            }
+            stdout_lines.append(json.dumps(payload, sort_keys=True))
+
+        stdout_text = "\n".join(stdout_lines)
+        stderr_text = "\n".join(stderr_lines)
+        stdout_path.write_text(stdout_text + ("\n" if stdout_text else ""), encoding="utf-8")
+        stderr_path.write_text(stderr_text + ("\n" if stderr_text else ""), encoding="utf-8")
+        transcript_path.write_text("\n".join([stdout_text, stderr_text]).strip(), encoding="utf-8")
+        ended_at = now_utc()
+        termination_reason, termination_detail, timed_out = normalize_command_termination(0)
+        execution = build_tool_execution(
+            tool_name=self.name,
+            command=f"AttackCastle builtin web probe ({len(targets)} target(s))",
+            started_at=started_at,
+            ended_at=ended_at,
+            status="completed",
+            execution_id=execution_id,
+            capability=self.capability,
+            exit_code=0,
+            stdout_path=str(stdout_path),
+            stderr_path=str(stderr_path),
+            transcript_path=str(transcript_path),
+            raw_artifact_paths=[],
+            termination_reason=termination_reason,
+            termination_detail=termination_detail,
+            timed_out=timed_out,
+        )
+        task_result = TaskResult(
+            task_id=task_id,
+            task_type="CheckWebsites",
+            status="completed",
+            command=execution.command,
+            exit_code=0,
+            started_at=started_at,
+            finished_at=ended_at,
+            transcript_path=str(transcript_path),
+            raw_artifacts=[
+                TaskArtifactRef(artifact_type="stdout", path=str(stdout_path)),
+                TaskArtifactRef(artifact_type="stderr", path=str(stderr_path)),
+            ],
+            parsed_entities=[],
+            metrics={"fallback_probe": True, "confirmed_targets": len(stdout_lines), "errors": len(stderr_lines)},
+            warnings=[
+                "httpx is unavailable; used AttackCastle builtin HTTP(S) probe fallback."
+            ],
+            termination_reason=termination_reason,
+            termination_detail=termination_detail,
+            timed_out=timed_out,
+        )
+        evidence_artifacts = [
+            EvidenceArtifact(
+                artifact_id=new_id("artifact"),
+                kind="stdout",
+                path=str(stdout_path),
+                source_tool=self.name,
+                caption="builtin web probe stdout",
+                source_task_id=task_id,
+                source_execution_id=execution_id,
+            ),
+            EvidenceArtifact(
+                artifact_id=new_id("artifact"),
+                kind="stderr",
+                path=str(stderr_path),
+                source_tool=self.name,
+                caption="builtin web probe stderr",
+                source_task_id=task_id,
+                source_execution_id=execution_id,
+            ),
+        ]
+        return SimpleNamespace(
+            execution=execution,
+            evidence_artifacts=evidence_artifacts,
+            task_result=task_result,
+            stdout_text=stdout_text,
+            stdout_path=stdout_path,
+            execution_id=execution_id,
+        )
+
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         result = AdapterResult()
         if not bool(context.config.get("web_probe", {}).get("enabled", True)):
@@ -172,7 +331,17 @@ class WebProbeAdapter:
         result.task_results.append(command_result.task_result)
         if command_result.task_result.status == "skipped":
             result.warnings.extend(command_result.task_result.warnings)
-            return result
+            fallback_result = self._run_builtin_probe(
+                context,
+                targets,
+                timeout_seconds=timeout_seconds,
+                proxy_url=proxy_url,
+            )
+            result.tool_executions.append(fallback_result.execution)
+            result.evidence_artifacts.extend(fallback_result.evidence_artifacts)
+            result.task_results.append(fallback_result.task_result)
+            result.warnings.extend(fallback_result.task_result.warnings)
+            command_result = fallback_result
 
         target_lookup: dict[str, dict[str, str | int]] = {}
         for item in targets:

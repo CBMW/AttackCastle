@@ -161,10 +161,20 @@ def build_priority_leads(run_data: RunData) -> list[Lead]:
     service_assets, web_assets, tls_assets = _entity_asset_maps(run_data)
     observations_by_entity = _observations_by_entity(run_data)
     findings_by_entity = _finding_lookup_by_entity(run_data)
+    provider_edge_assets = {
+        observation.entity_id: str(observation.value.get("provider"))
+        for observation in run_data.observations
+        if observation.entity_type == "asset"
+        and observation.key == "dns.provider_edge"
+        and isinstance(observation.value, dict)
+        and str(observation.value.get("provider") or "").strip()
+    }
     leads: list[Lead] = []
 
     for service in run_data.services:
         key = ("service", service.service_id)
+        provider_edge = provider_edge_assets.get(service.asset_id)
+        generic_provider_web_port = bool(provider_edge and int(service.port) in {80, 443, 8080, 8443})
         signals: list[str] = []
         weights: list[int] = []
         evidence_ids: set[str] = set()
@@ -177,7 +187,7 @@ def build_priority_leads(run_data: RunData) -> list[Lead]:
         lowered_name = (service.name or "").lower()
         if "vpn" in lowered_name:
             _append_signal(signals, weights, evidence_ids, observation_ids, sources, "Public VPN or remote access service", 34)
-        if service.banner and any(char.isdigit() for char in service.banner):
+        if service.banner and any(char.isdigit() for char in service.banner) and not generic_provider_web_port:
             _append_signal(signals, weights, evidence_ids, observation_ids, sources, "Version-bearing banner observed", 8)
         for observation in observations_by_entity.get(key, []):
             if observation.key == "service.remote_admin.exposed" and observation.value is True:
@@ -208,6 +218,9 @@ def build_priority_leads(run_data: RunData) -> list[Lead]:
             likely_severity="high" if any(weight >= 30 for weight in weights) else "medium",
         )
         if lead:
+            if provider_edge:
+                lead.tags.append("provider-edge")
+                lead.reasoning += f" Provider edge detected: {provider_edge}."
             leads.append(lead)
 
     for web_app in run_data.web_apps:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, Q
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFrame,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QScrollArea,
     QSizePolicy,
+    QSlider,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -98,6 +101,12 @@ from attackcastle.gui.models import (
 )
 from attackcastle.gui.overview_checklist import OverviewChecklistPanel
 from attackcastle.gui.output_tab import OutputTab
+from attackcastle.gui.performance import (
+    PerformanceGuardSettings,
+    SystemUsageSampler,
+    load_performance_guard_settings,
+    save_performance_guard_settings,
+)
 from attackcastle.gui.profile_store import GuiProfileStore
 from attackcastle.gui.runtime import build_run_debug_bundle, load_run_snapshot
 from attackcastle.gui.scanner_panel import ScannerPanel
@@ -146,6 +155,10 @@ class MainWindow(QMainWindow):
         self._page_indices: dict[str, int] = {}
         self._splitter_controllers: dict[str, PersistentSplitterController] = {}
         self._switch_in_progress = False
+        self.performance_guard_settings = load_performance_guard_settings()
+        self._system_usage_sampler = SystemUsageSampler()
+        self._last_performance_prompt_at = 0.0
+        self._performance_prompt_active = False
         self._init_ui()
         self._apply_initial_geometry()
 
@@ -157,6 +170,10 @@ class MainWindow(QMainWindow):
         self._overview_notes_timer.setSingleShot(True)
         self._overview_notes_timer.setInterval(300)
         self._overview_notes_timer.timeout.connect(self._persist_overview_state)
+        self._performance_timer = QTimer(self)
+        self._performance_timer.setInterval(5000)
+        self._performance_timer.timeout.connect(self._check_performance_guard)
+        self._performance_timer.start()
         self._apply_styles()
         self._setup_shortcuts()
         self._sync_workspace_list()
@@ -816,6 +833,28 @@ class MainWindow(QMainWindow):
         section_layout.addWidget(button_row)
         return section
 
+    def _build_performance_slider_row(
+        self,
+        label: str,
+        slider: QSlider,
+        value_label: QLabel,
+        tooltip: str,
+    ) -> QWidget:
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(10)
+        name = QLabel(label)
+        name.setMinimumWidth(190)
+        slider.setOrientation(Qt.Horizontal)
+        slider.setToolTip(tooltip)
+        value_label.setMinimumWidth(72)
+        value_label.setObjectName("monoLabel")
+        row_layout.addWidget(name)
+        row_layout.addWidget(slider, 1)
+        row_layout.addWidget(value_label)
+        return row
+
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -855,6 +894,66 @@ class MainWindow(QMainWindow):
         self.settings_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
         self._register_splitter(self.settings_split, "settings_split")
         self.settings_split.addWidget(session_panel)
+
+        performance_panel, performance_layout = build_surface_frame(spacing=12)
+        performance_header, _performance_title, _performance_summary = build_section_header("Performance Guard")
+        performance_layout.addWidget(performance_header)
+        self.performance_guard_enabled_checkbox = QCheckBox("Alert when host CPU or memory is high")
+        self.performance_guard_enabled_checkbox.setChecked(self.performance_guard_settings.enabled)
+        self.performance_guard_enabled_checkbox.toggled.connect(lambda _checked: self._persist_performance_guard_settings())
+        self.performance_guard_status_label = QLabel(
+            "When pressure is detected, AttackCastle can cap workers, heavy tooling, threads, and request pacing for running scans."
+        )
+        self.performance_guard_status_label.setObjectName("infoBanner")
+        self.performance_guard_status_label.setWordWrap(True)
+        cpu_count = max(1, int(os.cpu_count() or 1))
+        self.performance_cpu_slider = QSlider(Qt.Horizontal)
+        self.performance_cpu_slider.setRange(1, cpu_count)
+        self.performance_cpu_slider.setValue(
+            max(1, min(cpu_count, int(self.performance_guard_settings.throttle_cpu_cores or 1)))
+        )
+        self.performance_cpu_value_label = QLabel("")
+        self.performance_cpu_slider.valueChanged.connect(lambda _value: self._persist_performance_guard_settings())
+        self.performance_memory_slider = QSlider(Qt.Horizontal)
+        self.performance_memory_slider.setRange(50, 98)
+        self.performance_memory_slider.setValue(int(self.performance_guard_settings.memory_alert_percent))
+        self.performance_memory_value_label = QLabel("")
+        self.performance_memory_slider.valueChanged.connect(lambda _value: self._persist_performance_guard_settings())
+        self.performance_test_throttle_button = QPushButton("Throttle Running Scans Now")
+        style_button(self.performance_test_throttle_button, role="secondary")
+        self.performance_test_throttle_button.clicked.connect(lambda: self._throttle_live_runs("operator_requested"))
+        set_tooltips(
+            (
+                (
+                    self.performance_guard_enabled_checkbox,
+                    "Enable the host pressure alert and automatic offer to throttle running scans.",
+                ),
+                (
+                    self.performance_test_throttle_button,
+                    "Immediately apply the performance guard limits to all live running scans.",
+                ),
+            )
+        )
+        performance_layout.addWidget(self.performance_guard_enabled_checkbox)
+        performance_layout.addWidget(self.performance_guard_status_label)
+        performance_layout.addWidget(
+            self._build_performance_slider_row(
+                "Throttle CPU cores",
+                self.performance_cpu_slider,
+                self.performance_cpu_value_label,
+                "Maximum workers and tool threads AttackCastle may use after throttling.",
+            )
+        )
+        performance_layout.addWidget(
+            self._build_performance_slider_row(
+                "RAM alert threshold",
+                self.performance_memory_slider,
+                self.performance_memory_value_label,
+                "Prompt when system memory usage reaches this percentage; also tightens adaptive memory pressure.",
+            )
+        )
+        performance_layout.addWidget(self.performance_test_throttle_button, 0, Qt.AlignLeft)
+        self.settings_split.addWidget(performance_panel)
 
         store_panel, store_layout = build_surface_frame(spacing=12)
         store_header, _store_title, _store_summary = build_section_header("Storage & Utilities")
@@ -1092,8 +1191,124 @@ class MainWindow(QMainWindow):
             return
         self.profile_store_path_label.setText(str(self.store.path))
         self.workspace_store_path_label.setText(str(self.workspace_store.path))
+        self._sync_performance_guard_controls()
         self._sync_settings_workspace_switcher()
         self._update_danger_zone_state()
+
+    def _performance_guard_from_controls(self) -> PerformanceGuardSettings:
+        if not hasattr(self, "performance_guard_enabled_checkbox"):
+            return self.performance_guard_settings
+        return PerformanceGuardSettings.from_dict(
+            {
+                **self.performance_guard_settings.to_dict(),
+                "enabled": self.performance_guard_enabled_checkbox.isChecked(),
+                "throttle_cpu_cores": self.performance_cpu_slider.value(),
+                "memory_alert_percent": self.performance_memory_slider.value(),
+            }
+        )
+
+    def _sync_performance_guard_controls(self) -> None:
+        if not hasattr(self, "performance_cpu_value_label"):
+            return
+        self.performance_cpu_value_label.setText(f"{self.performance_cpu_slider.value()} core(s)")
+        self.performance_memory_value_label.setText(f"{self.performance_memory_slider.value()}%")
+        self.performance_test_throttle_button.setEnabled(bool(self._live_running_snapshots()))
+
+    def _persist_performance_guard_settings(self) -> None:
+        self.performance_guard_settings = self._performance_guard_from_controls()
+        save_performance_guard_settings(self.performance_guard_settings)
+        self._sync_performance_guard_controls()
+
+    def _live_running_snapshots(self) -> list[RunSnapshot]:
+        terminal_states = {"completed", "failed", "cancelled", "blocked"}
+        rows: list[RunSnapshot] = []
+        for snapshot in self._run_snapshots.values():
+            process = self._run_processes.get(snapshot.run_id)
+            if process is None or process.state() == QProcess.NotRunning:
+                continue
+            if str(snapshot.state or "").lower() in terminal_states:
+                continue
+            rows.append(snapshot)
+        return rows
+
+    def _check_performance_guard(self) -> None:
+        settings = self.performance_guard_settings
+        if not settings.enabled or self._performance_prompt_active:
+            return
+        live_runs = self._live_running_snapshots()
+        if not live_runs:
+            return
+        sample = self._system_usage_sampler.sample()
+        cpu_high = sample.cpu_percent is not None and sample.cpu_percent >= settings.cpu_alert_percent
+        memory_high = (
+            sample.memory_used_percent is not None
+            and sample.memory_used_percent >= settings.memory_alert_percent
+        )
+        if not cpu_high and not memory_high:
+            return
+        now = monotonic()
+        if now - self._last_performance_prompt_at < 120.0:
+            return
+        self._last_performance_prompt_at = now
+        self._performance_prompt_active = True
+        details: list[str] = []
+        if sample.cpu_percent is not None:
+            details.append(f"CPU {sample.cpu_percent:.1f}%")
+        if sample.memory_used_percent is not None:
+            details.append(f"RAM {sample.memory_used_percent:.1f}%")
+        detail_text = ", ".join(details) if details else "host pressure detected"
+        decision = QMessageBox.question(
+            self,
+            "High Resource Usage",
+            (
+                "Warning: High Memory/CPU usage detected, would you like to throttle AttackCastle?\n\n"
+                f"Current pressure: {detail_text}"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        self._performance_prompt_active = False
+        if decision == QMessageBox.Yes:
+            self._throttle_live_runs("operator_confirmed_high_resource_alert")
+
+    def _throttle_live_runs(self, reason: str = "operator_requested") -> None:
+        settings = self.performance_guard_settings
+        payload = settings.throttle_payload()
+        live_runs = self._live_running_snapshots()
+        if not live_runs:
+            self.general_status.setText("No running scans to throttle.")
+            self._sync_performance_guard_controls()
+            return
+        throttled = 0
+        for snapshot in live_runs:
+            run_dir_text = str(snapshot.run_dir or "").strip()
+            if not run_dir_text:
+                continue
+            try:
+                RunStore.from_existing(Path(run_dir_text)).write_control(
+                    "throttle",
+                    {
+                        "reason": reason,
+                        "throttle": payload,
+                    },
+                )
+                throttled += 1
+                self._append_audit(
+                    "control.throttle_requested",
+                    f"Throttle requested for {snapshot.scan_name}",
+                    run_id=snapshot.run_id,
+                    workspace_id=snapshot.workspace_id,
+                    details=payload,
+                )
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.warning(
+                    self,
+                    "Throttle Request Failed",
+                    f"Could not throttle {snapshot.scan_name}.\n\n{exc}",
+                )
+        if throttled:
+            self.general_status.setText(f"Throttle requested for {throttled} running scan(s).")
+        self._sync_performance_guard_controls()
 
     def _sync_settings_workspace_switcher(self) -> None:
         if not hasattr(self, "settings_workspace_combo"):
@@ -1184,6 +1399,7 @@ class MainWindow(QMainWindow):
         self._refresh_dashboard()
 
     def _launch_request(self, request: ScanRequest) -> None:
+        request.performance_guard = self.performance_guard_settings.to_dict()
         job_handle = tempfile.NamedTemporaryFile(prefix="attackcastle-gui-job-", suffix=".json", delete=False)
         job_file = Path(job_handle.name)
         job_handle.close()
@@ -1272,6 +1488,21 @@ class MainWindow(QMainWindow):
                 self._sync_run_registry_for_snapshot(snapshot)
                 self.general_status.setText(f"Running: {snapshot.scan_name}")
                 self._append_audit("worker.resumed", f"Resumed {snapshot.scan_name}", run_id=run_id, workspace_id=snapshot.workspace_id)
+        elif event.event == "worker.throttled":
+            run_id = self._process_run_ids.get(process) or str(payload.get("run_id") or "")
+            if run_id and run_id in self._run_snapshots:
+                snapshot = self._run_snapshots[run_id]
+                snapshot.state = "running"
+                snapshot.live_process = True
+                self._sync_run_registry_for_snapshot(snapshot)
+                self.general_status.setText(f"Throttling active: {snapshot.scan_name}")
+                self._append_audit(
+                    "worker.throttled",
+                    f"Throttling active for {snapshot.scan_name}",
+                    run_id=run_id,
+                    workspace_id=snapshot.workspace_id,
+                    details=payload,
+                )
         elif event.event == "worker.error":
             message = str(payload.get("message", "Worker failed"))
             self.general_status.setText(message)

@@ -11,6 +11,7 @@ from attackcastle.adapters.nmap.parser import parse_nmap_xml
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import RunData, new_id, now_utc
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
+from attackcastle.scope.compiler import classify_cloud_provider
 from attackcastle.scope.expansion import collect_resolved_host_scan_targets
 
 
@@ -207,6 +208,7 @@ class NmapAdapter:
         discovered_hosts_total = 0
         parsed_any = False
         completed_jobs = 0
+        provider_edges: dict[str, str] = {}
 
         for job in jobs:
             execution_id = new_id("exec")
@@ -292,6 +294,10 @@ class NmapAdapter:
                 discovered_hosts_total += int(parsed["facts"].get("nmap.discovered_hosts", 0))
                 parsed_any = parsed_any or bool(parsed["facts"].get("nmap.parsed"))
                 for asset in parsed["assets"]:
+                    provider = classify_cloud_provider(getattr(asset, "name", None))
+                    if provider:
+                        provider_edges[getattr(asset, "name", "")] = provider
+                for asset in parsed["assets"]:
                     emit_entity_event(context, "asset", asset, source=self.name)
                 for service in parsed["services"]:
                     emit_entity_event(context, "service", service, source=self.name)
@@ -337,6 +343,7 @@ class NmapAdapter:
         result.facts["nmap.discovered_hosts"] = discovered_hosts_total
         result.facts["nmap.service_detection_runs"] = completed_jobs
         result.facts["nmap.udp_top_ports"] = udp_top_ports
+        result.facts["nmap.provider_edges"] = provider_edges
         result.facts["nmap.scanned_targets"] = sorted(
             existing_scanned.union(self._normalize_target(item) for item in targets)
         )

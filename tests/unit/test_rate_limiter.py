@@ -61,3 +61,22 @@ def test_rate_limiter_downgrades_after_noisy_canary():
     state = snapshot["adaptive_state"]["https://portal.example.com"]
     assert state["mode"] in {"balanced", "careful"}
     assert state["canary_failures"] >= 1
+
+
+def test_rate_limiter_operator_throttle_forces_careful_mode():
+    limiter = AdaptiveRateLimiter(
+        {
+            "per_target_min_interval_ms": 0,
+            "per_service_min_interval_ms": 0,
+            "adaptive_backoff_enabled": False,
+        }
+    )
+
+    limiter.apply_operator_throttle(mode="careful", min_interval_ms=500)
+    limiter.record(target_key="https://example.com", success=True)
+
+    snapshot = limiter.snapshot()
+    state = snapshot["adaptive_state"]["https://example.com"]
+    assert snapshot["current_mode"] == "careful"
+    assert state["mode"] == "careful"
+    assert state["last_wait_ms"] >= 500

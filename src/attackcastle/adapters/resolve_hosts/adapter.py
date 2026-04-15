@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from attackcastle.adapters.base import build_tool_execution
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
@@ -12,6 +12,7 @@ from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Asset, Evidence, EvidenceArtifact, Observation, RunData, TaskArtifactRef, TaskResult, new_id, now_utc
 from attackcastle.scope.expansion import is_ip_literal
+from attackcastle.scope.compiler import classify_cloud_provider
 
 IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 PARSER_VERSION = "resolve_hosts_v1"
@@ -26,6 +27,7 @@ class ResolveHostnameResult:
     termination_reason: str
     termination_detail: str | None = None
     timed_out: bool = False
+    cname_chain: list[str] = field(default_factory=list)
 
 
 def _normalize_hostname(value: str | None) -> str:
@@ -43,24 +45,62 @@ def _extract_ipv4_lines(output: str) -> list[str]:
     return ips
 
 
+def _extract_cname_lines(output: str) -> list[str]:
+    cnames: list[str] = []
+    for raw_line in output.splitlines():
+        candidate = _normalize_hostname(raw_line)
+        if not candidate or IPV4_RE.match(candidate):
+            continue
+        if candidate not in cnames:
+            cnames.append(candidate)
+    return cnames
+
+
+def _run_dig_short(hostname: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["dig", hostname, "+short"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+
 def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    cname_chain: list[str] = []
+    query_hostname = hostname
+    exit_code: int | None = 0
     try:
-        completed = subprocess.run(
-            ["dig", hostname, "+short"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
+        for _ in range(5):
+            completed = _run_dig_short(query_hostname)
+            exit_code = completed.returncode
+            stdout = completed.stdout or ""
+            stderr = completed.stderr or ""
+            stdout_parts.append(stdout)
+            stderr_parts.append(stderr)
+            ips = _extract_ipv4_lines(stdout)
+            cnames = _extract_cname_lines(stdout)
+            for cname in cnames:
+                if cname not in cname_chain:
+                    cname_chain.append(cname)
+            if ips or completed.returncode != 0 or not cnames:
+                break
+            next_hostname = cnames[-1]
+            if next_hostname == _normalize_hostname(query_hostname):
+                break
+            query_hostname = next_hostname
     except subprocess.TimeoutExpired:
         return ResolveHostnameResult(
             ips=[],
-            stdout="",
-            stderr="",
+            stdout="\n".join(part for part in stdout_parts if part),
+            stderr="\n".join(part for part in stderr_parts if part),
             exit_code=None,
             termination_reason="timeout",
             termination_detail="command exceeded timeout of 5s",
             timed_out=True,
+            cname_chain=cname_chain,
         )
     except FileNotFoundError:
         return ResolveHostnameResult(
@@ -70,41 +110,53 @@ def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
             exit_code=None,
             termination_reason="missing_dependency",
             termination_detail="dig was not found in PATH",
+            cname_chain=cname_chain,
         )
     except OSError as exc:
         return ResolveHostnameResult(
             ips=[],
-            stdout="",
-            stderr="",
+            stdout="\n".join(part for part in stdout_parts if part),
+            stderr="\n".join(part for part in stderr_parts if part),
             exit_code=None,
             termination_reason="spawn_failure",
             termination_detail=str(exc),
+            cname_chain=cname_chain,
         )
 
-    stdout = completed.stdout or ""
-    stderr = completed.stderr or ""
+    stdout = "\n".join(part for part in stdout_parts if part)
+    stderr = "\n".join(part for part in stderr_parts if part)
     ips = _extract_ipv4_lines(stdout)
-    if completed.returncode == 0:
+    if exit_code == 0:
         return ResolveHostnameResult(
             ips=ips,
             stdout=stdout,
             stderr=stderr,
-            exit_code=completed.returncode,
+            exit_code=exit_code,
             termination_reason="completed",
+            cname_chain=cname_chain,
         )
-    detail = stderr.strip() or f"dig exited with code {completed.returncode}"
+    detail = stderr.strip() or f"dig exited with code {exit_code}"
     return ResolveHostnameResult(
         ips=ips,
         stdout=stdout,
         stderr=stderr,
-        exit_code=completed.returncode,
+        exit_code=exit_code,
         termination_reason="nonzero_exit",
         termination_detail=detail,
+        cname_chain=cname_chain,
     )
 
 
 def resolve_hostname(hostname: str) -> list[str]:
     return _resolve_hostname_result(hostname).ips
+
+
+def _provider_from_resolution(hostname: str, cname_chain: list[str]) -> str | None:
+    for candidate in [*cname_chain, hostname]:
+        provider = classify_cloud_provider(candidate)
+        if provider:
+            return provider
+    return None
 
 
 class ResolveHostsAdapter:
@@ -221,6 +273,8 @@ class ResolveHostsAdapter:
 
         max_workers = max(1, min(8, len(hostnames)))
         resolved_count = 0
+        cname_chains: dict[str, list[str]] = {}
+        provider_edges: dict[str, str] = {}
         emit_runtime_event(
             context,
             "task.progress",
@@ -302,7 +356,14 @@ class ResolveHostsAdapter:
                         TaskArtifactRef(artifact_type="stdout", path=str(stdout_path)),
                         TaskArtifactRef(artifact_type="stderr", path=str(stderr_path)),
                     ],
-                    parsed_entities=[{"type": "ResolvedHost", "fqdn": hostname, "ips": list(resolution.ips)}],
+                    parsed_entities=[
+                        {
+                            "type": "ResolvedHost",
+                            "fqdn": hostname,
+                            "ips": list(resolution.ips),
+                            "cname_chain": list(resolution.cname_chain),
+                        }
+                    ],
                     metrics={
                         "ipv4_count": len(resolution.ips),
                         "lines_parsed": len([line for line in resolution.stdout.splitlines() if line.strip()]),
@@ -338,6 +399,11 @@ class ResolveHostsAdapter:
 
                 if not resolution.ips:
                     self._log(context, f"[resolve-hosts] {hostname} returned no IP")
+                    if resolution.cname_chain:
+                        cname_chains[hostname] = list(resolution.cname_chain)
+                    provider = _provider_from_resolution(hostname, resolution.cname_chain)
+                    if provider:
+                        provider_edges[hostname] = provider
                     result.tool_executions.extend(partial.tool_executions)
                     result.task_results.extend(partial.task_results)
                     result.evidence_artifacts.extend(partial.evidence_artifacts)
@@ -360,6 +426,15 @@ class ResolveHostsAdapter:
 
                 for ip in resolution.ips:
                     self._log(context, f"[resolve-hosts] {hostname} -> {ip}")
+                if resolution.cname_chain:
+                    cname_chains[hostname] = list(resolution.cname_chain)
+                    self._log(
+                        context,
+                        f"[resolve-hosts] {hostname} CNAME chain: {' -> '.join(resolution.cname_chain)}",
+                    )
+                provider = _provider_from_resolution(hostname, resolution.cname_chain)
+                if provider:
+                    provider_edges[hostname] = provider
 
                 seen_asset_ids: set[str] = set()
                 for asset in asset_groups.get(hostname, []):
@@ -399,6 +474,36 @@ class ResolveHostsAdapter:
                             parser_version=PARSER_VERSION,
                         )
                     )
+                    if resolution.cname_chain:
+                        partial.observations.append(
+                            Observation(
+                                observation_id=new_id("obs"),
+                                key="dns.cname_chain",
+                                value=list(resolution.cname_chain),
+                                entity_type="asset",
+                                entity_id=asset.asset_id,
+                                source_tool=self.name,
+                                confidence=1.0,
+                                evidence_ids=[evidence.evidence_id],
+                                source_execution_id=execution_id,
+                                parser_version=PARSER_VERSION,
+                            )
+                        )
+                    if provider:
+                        partial.observations.append(
+                            Observation(
+                                observation_id=new_id("obs"),
+                                key="dns.provider_edge",
+                                value={"provider": provider, "hostname": hostname},
+                                entity_type="asset",
+                                entity_id=asset.asset_id,
+                                source_tool=self.name,
+                                confidence=0.9,
+                                evidence_ids=[evidence.evidence_id],
+                                source_execution_id=execution_id,
+                                parser_version=PARSER_VERSION,
+                            )
+                        )
                 self._log(context, f"[resolve-hosts] {hostname} resolved {len(resolution.ips)} IP")
                 emit_artifact_event(
                     context,
@@ -417,6 +522,8 @@ class ResolveHostsAdapter:
 
         result.facts["resolve_hosts.hostname_count"] = len(hostnames)
         result.facts["resolve_hosts.resolved_count"] = resolved_count
+        result.facts["resolve_hosts.cname_chains"] = cname_chains
+        result.facts["resolve_hosts.provider_edges"] = provider_edges
         emit_runtime_event(
             context,
             "task.progress",

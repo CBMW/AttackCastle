@@ -16,7 +16,36 @@ ACTIVE_TASK_STATUSES = {"running", "waiting"}
 RUNTIME_CHECKPOINT_KEYS = {"_runtime_state"}
 
 
-def profile_to_engine_overrides(profile: GuiProfile) -> dict[str, Any]:
+def _performance_guard_overrides(profile: GuiProfile, settings: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(settings, dict) or not settings.get("enabled", True):
+        return {}
+    try:
+        cpu_cores = int(settings.get("throttle_cpu_cores") or 0)
+    except (TypeError, ValueError):
+        cpu_cores = 0
+    try:
+        memory_alert_percent = int(settings.get("memory_alert_percent") or 0)
+    except (TypeError, ValueError):
+        memory_alert_percent = 0
+
+    overrides: dict[str, Any] = {}
+    if cpu_cores > 0:
+        capped_concurrency = max(1, min(int(profile.concurrency), cpu_cores))
+        overrides.setdefault("profile", {})["concurrency"] = capped_concurrency
+        overrides.setdefault("profile", {})["cpu_cores"] = cpu_cores
+        overrides.setdefault("adaptive_execution", {})["cpu_core_cap"] = cpu_cores
+        overrides["adaptive_execution"]["max_heavy_processes"] = max(1, min(2, cpu_cores))
+
+    if 50 <= memory_alert_percent <= 98:
+        free_ratio_floor = max(0.01, min(0.5, 1.0 - (float(memory_alert_percent) / 100.0)))
+        adaptive = overrides.setdefault("adaptive_execution", {})
+        adaptive["memory_pressure_high_ratio"] = free_ratio_floor
+        adaptive["memory_pressure_critical_ratio"] = max(0.01, min(free_ratio_floor, free_ratio_floor * 0.65))
+
+    return overrides
+
+
+def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str, Any] | None = None) -> dict[str, Any]:
     coverage_engine = {
         "enabled": True,
         "mode": profile.active_validation_mode,
@@ -73,7 +102,7 @@ def profile_to_engine_overrides(profile: GuiProfile) -> dict[str, Any]:
             "infra": {"enabled": True, "preset_path": profile.infra_preset_path},
         },
     }
-    return {
+    overrides: dict[str, Any] = {
         "profile": {
             "concurrency": profile.concurrency,
             "cpu_cores": profile.cpu_cores,
@@ -118,6 +147,13 @@ def profile_to_engine_overrides(profile: GuiProfile) -> dict[str, Any]:
         },
         "web_probe": {"capture_screenshots": True},
     }
+    performance_overrides = _performance_guard_overrides(profile, performance_guard)
+    for section, values in performance_overrides.items():
+        if isinstance(values, dict) and isinstance(overrides.get(section), dict):
+            overrides[section].update(values)
+        else:
+            overrides[section] = values
+    return overrides
 
 
 def read_json_file(path: Path) -> dict[str, Any] | list[Any] | None:
@@ -376,6 +412,96 @@ def _status_counts(rows: list[dict[str, Any]]) -> str:
     return ", ".join(f"{status}={count}" for status, count in sorted(counts.items()))
 
 
+def _manifest_row_detail(item: dict[str, Any]) -> dict[str, Any]:
+    detail: dict[str, Any] = {"source": "checkpoint_manifest"}
+    for key in ("instance_key", "task_inputs", "updated_at"):
+        value = item.get(key)
+        if value not in (None, "", []):
+            detail[key] = value
+    return detail
+
+
+def _manifest_row_label(item: dict[str, Any]) -> str:
+    task_key = str(item.get("task_key") or "").strip()
+    task_inputs = item.get("task_inputs")
+    if isinstance(task_inputs, list) and task_inputs:
+        label_inputs = ", ".join(str(value) for value in task_inputs[:2])
+        return f"{task_key} ({label_inputs})"
+    return task_key or str(item.get("status") or "task")
+
+
+def _is_manifest_instance_row(item: dict[str, Any]) -> bool:
+    instance_key = item.get("instance_key")
+    return isinstance(instance_key, str) and bool(instance_key.strip())
+
+
+def _manifest_completed_task_keys(manifest: list[dict[str, Any]]) -> set[str]:
+    completed: set[str] = set()
+    instance_rows_by_task: dict[str, list[dict[str, Any]]] = {}
+    for item in manifest:
+        task_key = str(item.get("task_key") or "").strip()
+        if not task_key or task_key in RUNTIME_CHECKPOINT_KEYS:
+            continue
+        if _is_manifest_instance_row(item):
+            instance_rows_by_task.setdefault(task_key, []).append(item)
+        elif str(item.get("status") or "") in TERMINAL_TASK_STATUSES:
+            completed.add(task_key)
+    for task_key, rows in instance_rows_by_task.items():
+        if rows and all(str(row.get("status") or "") in TERMINAL_TASK_STATUSES for row in rows):
+            completed.add(task_key)
+    return completed
+
+
+def _manifest_running_task_labels(manifest: list[dict[str, Any]]) -> list[str]:
+    labels: list[str] = []
+    for item in manifest:
+        task_key = str(item.get("task_key") or "").strip()
+        if not task_key or task_key in RUNTIME_CHECKPOINT_KEYS:
+            continue
+        if str(item.get("status") or "") in ACTIVE_TASK_STATUSES:
+            labels.append(_manifest_row_label(item))
+    return labels
+
+
+def _normalize_nmap_target(value: Any) -> str:
+    item = str(value or "").strip()
+    return item if item.replace(".", "").isdigit() else item.lower()
+
+
+def _nmap_scope_targets(snapshot: RunSnapshot) -> set[str]:
+    targets: set[str] = set()
+    for scope_row in snapshot.scope:
+        for key in ("host", "value"):
+            value = str(scope_row.get(key) or "").strip()
+            if value and any(char.isdigit() for char in value):
+                targets.add(_normalize_nmap_target(value))
+    for asset in snapshot.assets:
+        for value in [asset.get("ip"), *(asset.get("resolved_ips") or [])]:
+            if str(value or "").strip():
+                targets.add(_normalize_nmap_target(value))
+    return targets
+
+
+def _nmap_coverage_line(snapshot: RunSnapshot) -> str | None:
+    scanned = {
+        _normalize_nmap_target(item)
+        for item in snapshot.facts.get("nmap.scanned_targets", [])
+        if str(item or "").strip()
+    }
+    scope_targets = _nmap_scope_targets(snapshot)
+    if not scanned and not scope_targets:
+        return None
+    pending = sorted(scope_targets - scanned)
+    skipped_runs = len(
+        [
+            row
+            for row in snapshot.tool_executions
+            if str(row.get("tool_name") or "") == "nmap" and str(row.get("status") or "") == "skipped"
+        ]
+    )
+    return f"- nmap_coverage: scanned={len(scanned)}, pending={len(pending)}, skipped_runs={skipped_runs}"
+
+
 def _tool_exit_failed(row: dict[str, Any]) -> bool:
     status = str(row.get("status") or "").strip().lower()
     exit_code = row.get("exit_code")
@@ -438,6 +564,9 @@ def _build_run_health_lines(snapshot: RunSnapshot) -> list[str]:
             tool = str(row.get("tool_name") or row.get("execution_id") or "tool")
             examples.append(f"{tool}={duration:.1f}s")
         lines.append(f"- longest_tools: {', '.join(examples)}")
+    nmap_coverage = _nmap_coverage_line(snapshot)
+    if nmap_coverage:
+        lines.append(nmap_coverage)
     return lines
 
 
@@ -514,11 +643,11 @@ def _synthesize_task_rows(
             rows.append(
                 {
                     "key": task_key or status,
-                    "label": task_key or status,
+                    "label": _manifest_row_label(item),
                     "status": status,
                     "started_at": "",
                     "ended_at": "",
-                    "detail": {"source": "checkpoint_manifest"},
+                    "detail": _manifest_row_detail(item),
                 }
             )
         return rows
@@ -561,7 +690,19 @@ def _merge_manifest_task_rows(
             continue
         if status in ACTIVE_TASK_STATUSES and run_state in TERMINAL_TASK_STATUSES:
             continue
-        matching_rows = [row for row in merged if str(row.get("key") or "").strip() == task_key]
+        manifest_instance_key = str(item.get("instance_key") or "").strip()
+        same_task_rows = [row for row in merged if str(row.get("key") or "").strip() == task_key]
+        if status in ACTIVE_TASK_STATUSES and same_task_rows and all(
+            str(row.get("status") or "").strip() in TERMINAL_TASK_STATUSES for row in same_task_rows
+        ):
+            continue
+        matching_rows = same_task_rows
+        if manifest_instance_key:
+            matching_rows = [
+                row
+                for row in same_task_rows
+                if str((row.get("detail") or {}).get("instance_key") or "").strip() == manifest_instance_key
+            ]
         if any(str(row.get("status") or "").strip() == status for row in matching_rows):
             continue
         if status in ACTIVE_TASK_STATUSES and any(
@@ -571,11 +712,11 @@ def _merge_manifest_task_rows(
         merged.append(
             {
                 "key": task_key,
-                "label": task_key,
+                "label": _manifest_row_label(item),
                 "status": status or "unknown",
                 "started_at": "",
                 "ended_at": "",
-                "detail": {"source": "checkpoint_manifest"},
+                "detail": _manifest_row_detail(item),
             }
         )
     return merged
@@ -971,19 +1112,8 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     summary = summary if isinstance(summary, dict) else {}
 
     total_tasks = _load_plan_total(run_store)
-    completed_tasks = len(
-        [
-            item
-            for item in manifest
-            if str(item.get("status")) in TERMINAL_TASK_STATUSES
-            and str(item.get("task_key") or "") not in RUNTIME_CHECKPOINT_KEYS
-        ]
-    )
-    running_tasks = [
-        str(item.get("task_key"))
-        for item in manifest
-        if str(item.get("status")) == "running" and str(item.get("task_key") or "") not in RUNTIME_CHECKPOINT_KEYS
-    ]
+    completed_tasks = len(_manifest_completed_task_keys(manifest))
+    running_tasks = _manifest_running_task_labels(manifest)
     current_task = ", ".join(running_tasks[:2]) if running_tasks else "Idle"
 
     state = str(summary.get("state") or "running")
@@ -1021,6 +1151,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     tool_executions: list[dict[str, Any]] = []
     evidence_artifacts: list[dict[str, Any]] = []
     extensions: list[dict[str, Any]] = []
+    facts: dict[str, Any] = {}
     warnings: list[str] = []
     errors: list[str] = []
     execution_issues: list[dict[str, Any]] = []
@@ -1079,6 +1210,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         evidence_artifacts = to_serializable(run_data.evidence_artifacts)
         raw_extensions = run_data.facts.get("gui.extensions", [])
         extensions = [dict(item) for item in raw_extensions if isinstance(item, dict)] if isinstance(raw_extensions, list) else []
+        facts = to_serializable(run_data.facts)
         warnings = [str(item) for item in getattr(run_data, "warnings", [])]
         errors = [str(item) for item in getattr(run_data, "errors", [])]
         execution_issues = build_execution_issues(run_data)
@@ -1091,6 +1223,10 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         tasks = _merge_manifest_task_rows(tasks, manifest, run_state=state)
     else:
         tasks = _synthesize_task_rows(manifest, task_results, tool_executions)
+
+    active_task_rows = [
+        item for item in tasks if str(item.get("status") or "").strip().lower() in ACTIVE_TASK_STATUSES
+    ]
 
     if started_at is None:
         started_at = parse_datetime(gui_session.get("started_at")) or datetime.now(timezone.utc)
@@ -1105,9 +1241,11 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         selected_task = sorted(tasks, key=_task_sort_key)[-1]
         current_task = str(selected_task.get("label") or selected_task.get("key") or current_task)
     elif tasks:
-        running_task_rows = [item for item in tasks if str(item.get("status")) == "running"]
-        if running_task_rows:
-            current_task = str(running_task_rows[0].get("label") or running_task_rows[0].get("key") or current_task)
+        if active_task_rows:
+            current_task = str(active_task_rows[0].get("label") or active_task_rows[0].get("key") or current_task)
+        elif current_task != "Idle":
+            selected_task = sorted(tasks, key=_task_sort_key)[-1]
+            current_task = str(selected_task.get("label") or selected_task.get("key") or "Idle")
     elif current_task == "Idle":
         visible_manifest = [
             item for item in manifest if str(item.get("task_key") or "") not in RUNTIME_CHECKPOINT_KEYS
@@ -1126,8 +1264,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     tool_executions.sort(key=lambda item: (str(item.get("tool_name", "")), str(item.get("started_at", ""))))
     evidence_artifacts.sort(key=lambda item: (str(item.get("source_tool", "")), str(item.get("path", ""))))
     if current_task == "Idle" and tasks:
-        running_task_rows = [item for item in tasks if str(item.get("status") or "") in ACTIVE_TASK_STATUSES]
-        selected_task = running_task_rows[0] if running_task_rows else sorted(tasks, key=_task_sort_key)[-1]
+        selected_task = active_task_rows[0] if active_task_rows else sorted(tasks, key=_task_sort_key)[-1]
         current_task = str(selected_task.get("label") or selected_task.get("key") or current_task)
 
     return RunSnapshot(
@@ -1180,5 +1317,6 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         errors=errors,
         execution_issues=execution_issues,
         execution_issues_summary=execution_issues_summary,
+        facts=facts,
         completeness_status=completeness_status,
     )

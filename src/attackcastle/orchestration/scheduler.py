@@ -128,9 +128,11 @@ class WorkflowScheduler:
         context: AdapterContext,
         run_data: RunData,
         completed_task_keys: set[str] | None = None,
+        completed_task_instances: set[tuple[str, str]] | None = None,
     ) -> list[TaskExecutionState]:
         states: list[TaskExecutionState] = []
         completed = set(completed_task_keys or set())
+        completed_instances = set(completed_task_instances or set())
         terminal_status = {TaskStatus.COMPLETED.value, TaskStatus.SKIPPED.value}
         circuit_failures: dict[str, int] = {}
         max_failures = int(context.config.get("orchestration", {}).get("circuit_breaker_failures", 2))
@@ -164,16 +166,18 @@ class WorkflowScheduler:
             digest = sha1("|".join(task_inputs).encode("utf-8")).hexdigest()[:12]  # noqa: S324
             return f"{task_key}::iter{iteration}::{digest}"
 
-        pending: dict[str, ScheduledTask] = {
-            build_instance_key(task.key, 1, ()): ScheduledTask(
+        pending: dict[str, ScheduledTask] = {}
+        for task in tasks:
+            instance_key = build_instance_key(task.key, 1, ())
+            if task.key in completed or (task.key, instance_key) in completed_instances:
+                completed.add(task.key)
+                continue
+            pending[instance_key] = ScheduledTask(
                 definition=task,
                 attempt=0,
                 iteration=1,
-                instance_key=build_instance_key(task.key, 1, ()),
+                instance_key=instance_key,
             )
-            for task in tasks
-            if task.key not in completed
-        }
         running: dict[Future, tuple[ScheduledTask, object, str]] = {}
         executor = ThreadPoolExecutor(max_workers=max(1, hard_concurrency))
 
@@ -255,6 +259,32 @@ class WorkflowScheduler:
                     except Exception:
                         return ""
 
+                def apply_performance_overrides(throttle_payload: dict[str, object]) -> None:
+                    try:
+                        max_threads = max(1, int(throttle_payload.get("max_tool_threads") or throttle_payload.get("cpu_cores") or 1))
+                    except (TypeError, ValueError):
+                        max_threads = 1
+                    try:
+                        rate_ceiling = max(1, int(throttle_payload.get("tool_rate_ceiling") or 250))
+                    except (TypeError, ValueError):
+                        rate_ceiling = 250
+                    capped_threads = str(max_threads)
+                    profile_config = context.profile_config if isinstance(context.profile_config, dict) else {}
+                    profile_config.update(
+                        {
+                            "concurrency": max_threads,
+                            "cpu_cores": max_threads,
+                            "nmap_args": ["-T2"],
+                            "whatweb_args": ["-a", "1"],
+                            "nuclei_args": ["-c", capped_threads, "-rl", str(rate_ceiling)],
+                            "sqlmap_args": ["--threads", capped_threads],
+                            "wpscan_args": ["--plugins-detection", "passive"],
+                        }
+                    )
+                    config_profile = context.config.setdefault("profile", {})
+                    if isinstance(config_profile, dict):
+                        config_profile.update(profile_config)
+
                 def has_active_instances(task_key: str) -> bool:
                     if any(item.definition.key == task_key for item in pending.values()):
                         return True
@@ -316,6 +346,11 @@ class WorkflowScheduler:
                     if len(normalized_inputs) <= 1:
                         single_inputs = tuple(normalized_inputs)
                         instance_key = build_instance_key(task.key, item.iteration, single_inputs)
+                        if (task.key, instance_key) in completed_instances:
+                            pending.pop(queue_key, None)
+                            waiting_reason_by_task.pop(queue_key, None)
+                            mark_task_completed_if_idle(task.key)
+                            return True
                         updated = ScheduledTask(
                             definition=task,
                             attempt=item.attempt,
@@ -338,6 +373,8 @@ class WorkflowScheduler:
                     for task_input in normalized_inputs:
                         task_inputs = (task_input,)
                         instance_key = build_instance_key(task.key, item.iteration, task_inputs)
+                        if (task.key, instance_key) in completed_instances:
+                            continue
                         if instance_key in pending or any(
                             running_item.instance_key == instance_key for running_item, *_rest in running.values()
                         ):
@@ -372,6 +409,8 @@ class WorkflowScheduler:
                             "count": progress_delta,
                         },
                     )
+                    if progress_delta == 0:
+                        mark_task_completed_if_idle(task.key)
                     return True
 
                 def extend_progress_total() -> None:
@@ -510,7 +549,9 @@ class WorkflowScheduler:
                             capability_runtime[task.capability] = (
                                 capability_runtime.get(task.capability, 0.0) + duration_seconds
                             )
-                            last_input_signature_by_task[task.key] = input_signature
+                            last_input_signature_by_task[task.key] = (
+                                current_input_signature(task) if task.repeatable_on_new_inputs else input_signature
+                            )
                             last_iteration_by_task[task.key] = iteration
                             if execution_controller is not None and getattr(
                                 execution_controller,
@@ -579,7 +620,13 @@ class WorkflowScheduler:
                                     "task_inputs": list(item.task_inputs),
                                 },
                             )
-                            context.run_store.save_checkpoint(task.key, status, run_data)
+                            context.run_store.save_checkpoint(
+                                task.key,
+                                status,
+                                run_data,
+                                instance_key=item.instance_key,
+                                task_inputs=item.task_inputs,
+                            )
                     update_live_metrics()
 
                 def mark_terminal(
@@ -683,6 +730,56 @@ class WorkflowScheduler:
                                 context.audit.write(
                                     "orchestration.control",
                                     {"action": "stop", "payload": control_signal},
+                                )
+                                context.run_store.clear_control()
+                            elif action in {"throttle", "performance_throttle"}:
+                                throttle_payload = control_signal.get("throttle", {})
+                                if not isinstance(throttle_payload, dict):
+                                    throttle_payload = {}
+                                apply_performance_overrides(throttle_payload)
+                                controller_snapshot = None
+                                if execution_controller is not None and hasattr(
+                                    execution_controller,
+                                    "apply_operator_throttle",
+                                ):
+                                    controller_snapshot = execution_controller.apply_operator_throttle(
+                                        throttle_payload,
+                                        reason=str(control_signal.get("reason") or "operator_requested_throttle"),
+                                    )
+                                    hard_concurrency = int(
+                                        getattr(execution_controller, "hard_max_workers", hard_concurrency)
+                                    )
+                                limiter = getattr(context, "rate_limiter", None)
+                                if limiter is not None and hasattr(limiter, "apply_operator_throttle"):
+                                    limiter.apply_operator_throttle(
+                                        mode=str(throttle_payload.get("rate_limit_mode") or "careful"),
+                                        min_interval_ms=throttle_payload.get("min_request_delay_ms", 500),
+                                    )
+                                paused = False
+                                pause_notice_emitted = False
+                                pause_event_emitted = False
+                                warning = (
+                                    "High Memory/CPU usage detected. AttackCastle throttling is active for this run."
+                                )
+                                if warning not in run_data.warnings:
+                                    run_data.warnings.append(warning)
+                                context.audit.write(
+                                    "orchestration.control",
+                                    {
+                                        "action": "throttle",
+                                        "payload": control_signal,
+                                        "controller": controller_snapshot,
+                                    },
+                                )
+                                context.run_store.save_checkpoint("_runtime_state", "running", run_data)
+                                emit_runtime_event(
+                                    context,
+                                    "worker.throttled",
+                                    {
+                                        "state": RunState.RUNNING.value,
+                                        "throttle": throttle_payload,
+                                        "controller": controller_snapshot or {},
+                                    },
                                 )
                                 context.run_store.clear_control()
                             elif action == "approval_decision":
@@ -1113,7 +1210,13 @@ class WorkflowScheduler:
                             },
                         )
                         record_running_state(item, started_at, reason)
-                        context.run_store.save_checkpoint(task.key, "running", run_data)
+                        context.run_store.save_checkpoint(
+                            task.key,
+                            "running",
+                            run_data,
+                            instance_key=item.instance_key,
+                            task_inputs=item.task_inputs,
+                        )
                         if progress is not None and progress_id is not None:
                             progress.update(progress_id, description=f"[cyan]{task.label}")
                         else:

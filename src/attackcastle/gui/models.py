@@ -201,6 +201,7 @@ class ScanRequest:
     resume_run_dir: str = ""
     launch_mode: str = "new"
     enabled_extension_ids: list[str] = field(default_factory=list)
+    performance_guard: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -217,6 +218,7 @@ class ScanRequest:
             "resume_run_dir": self.resume_run_dir,
             "launch_mode": self.launch_mode,
             "enabled_extension_ids": list(self.enabled_extension_ids),
+            "performance_guard": dict(self.performance_guard),
         }
 
     @classmethod
@@ -240,6 +242,9 @@ class ScanRequest:
             ]
             if isinstance(payload.get("enabled_extension_ids"), list)
             else [],
+            performance_guard=dict(payload.get("performance_guard", {}))
+            if isinstance(payload.get("performance_guard"), dict)
+            else {},
         )
 
     @property
@@ -580,6 +585,7 @@ class RunSnapshot:
     errors: list[str] = field(default_factory=list)
     execution_issues: list[dict[str, Any]] = field(default_factory=list)
     execution_issues_summary: dict[str, Any] = field(default_factory=dict)
+    facts: dict[str, Any] = field(default_factory=dict)
     completeness_status: str = "healthy"
 
     def __post_init__(self) -> None:

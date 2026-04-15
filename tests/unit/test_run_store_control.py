@@ -63,15 +63,11 @@ def test_save_checkpoint_recovers_from_invalid_manifest_json(tmp_path: Path):
 
     assert checkpoint_path.exists()
     repaired = run_store.read_json("checkpoints/manifest.json")
-    assert repaired == {
-        "checkpoints": [
-            {
-                "path": str(checkpoint_path),
-                "status": "running",
-                "task_key": "task-1",
-            }
-        ]
-    }
+    assert len(repaired["checkpoints"]) == 1
+    assert repaired["checkpoints"][0]["path"] == str(checkpoint_path)
+    assert repaired["checkpoints"][0]["status"] == "running"
+    assert repaired["checkpoints"][0]["task_key"] == "task-1"
+    assert repaired["checkpoints"][0]["updated_at"]
 
 
 def test_save_checkpoint_filters_invalid_manifest_rows_when_updating_task(tmp_path: Path):
@@ -95,16 +91,54 @@ def test_save_checkpoint_filters_invalid_manifest_rows_when_updating_task(tmp_pa
     checkpoint_path = run_store.save_checkpoint("task-1", "running", {"value": 2})
 
     repaired = run_store.read_json("checkpoints/manifest.json")
-    assert repaired == {
-        "checkpoints": [
-            {"status": "completed", "path": "missing-task-key"},
-            {
-                "path": str(checkpoint_path),
-                "status": "running",
-                "task_key": "task-1",
-            },
-        ]
+    assert repaired["checkpoints"][0] == {"status": "completed", "path": "missing-task-key"}
+    assert repaired["checkpoints"][1]["path"] == str(checkpoint_path)
+    assert repaired["checkpoints"][1]["status"] == "running"
+    assert repaired["checkpoints"][1]["task_key"] == "task-1"
+    assert repaired["checkpoints"][1]["updated_at"]
+
+
+def test_save_checkpoint_tracks_fanout_instances_independently(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="checkpoint-instances")
+
+    first = run_store.save_checkpoint(
+        "run-nmap",
+        "completed",
+        {"value": 1},
+        instance_key="run-nmap::iter1::first",
+        task_inputs=["198.51.100.10"],
+    )
+    second = run_store.save_checkpoint(
+        "run-nmap",
+        "running",
+        {"value": 2},
+        instance_key="run-nmap::iter1::second",
+        task_inputs=["198.51.100.11"],
+    )
+
+    manifest = run_store.read_json("checkpoints/manifest.json")
+    rows = manifest["checkpoints"]
+    assert {row["instance_key"] for row in rows} == {
+        "run-nmap::iter1::first",
+        "run-nmap::iter1::second",
     }
+    assert first != second
+    assert run_store.list_completed_checkpoint_instances() == {("run-nmap", "run-nmap::iter1::first")}
+    assert "run-nmap" not in run_store.list_completed_checkpoints()
+
+    run_store.save_checkpoint(
+        "run-nmap",
+        "completed",
+        {"value": 3},
+        instance_key="run-nmap::iter1::second",
+        task_inputs=["198.51.100.11"],
+    )
+
+    assert run_store.list_completed_checkpoint_instances() == {
+        ("run-nmap", "run-nmap::iter1::first"),
+        ("run-nmap", "run-nmap::iter1::second"),
+    }
+    assert "run-nmap" not in run_store.list_completed_checkpoints()
 
 
 def test_run_store_rejects_paths_that_escape_run_directory(tmp_path: Path):

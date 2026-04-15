@@ -191,13 +191,41 @@ class RunStore:
     def log_path(self, file_name: str) -> Path:
         return self._resolve_under(self.logs_dir, file_name, label="log file name")
 
-    def save_checkpoint(self, task_key: str, status: str, run_data: Any) -> Path:
+    @staticmethod
+    def _safe_checkpoint_stem(task_key: str, instance_key: str | None = None) -> str:
+        safe_task = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in task_key)[:80]
+        if not instance_key:
+            return safe_task or "checkpoint"
+        digest = hashlib.sha1(instance_key.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+        return f"{safe_task or 'checkpoint'}__{digest}"
+
+    @staticmethod
+    def _manifest_entry_matches(item: dict[str, Any], task_key: str, instance_key: str | None) -> bool:
+        if item.get("task_key") != task_key:
+            return False
+        existing_instance = item.get("instance_key")
+        if instance_key:
+            return existing_instance == instance_key
+        return not isinstance(existing_instance, str) or not existing_instance.strip()
+
+    def save_checkpoint(
+        self,
+        task_key: str,
+        status: str,
+        run_data: Any,
+        *,
+        instance_key: str | None = None,
+        task_inputs: list[str] | tuple[str, ...] | None = None,
+    ) -> Path:
         payload = {
             "task_key": task_key,
             "status": status,
             "run_data": to_serializable(run_data),
         }
-        checkpoint_path = self.checkpoints_dir / f"{task_key}.json"
+        if instance_key:
+            payload["instance_key"] = instance_key
+            payload["task_inputs"] = list(task_inputs or [])
+        checkpoint_path = self.checkpoints_dir / f"{self._safe_checkpoint_stem(task_key, instance_key)}.json"
         self._atomic_write_bytes(
             checkpoint_path,
             json.dumps(payload, indent=2, sort_keys=True).encode("utf-8"),
@@ -208,9 +236,18 @@ class RunStore:
         checkpoints = [
             item
             for item in manifest["checkpoints"]
-            if not (isinstance(item.get("task_key"), str) and item["task_key"] == task_key)
+            if not self._manifest_entry_matches(item, task_key, instance_key)
         ]
-        checkpoints.append({"task_key": task_key, "status": status, "path": str(checkpoint_path)})
+        entry: dict[str, Any] = {
+            "task_key": task_key,
+            "status": status,
+            "path": str(checkpoint_path),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if instance_key:
+            entry["instance_key"] = instance_key
+            entry["task_inputs"] = list(task_inputs or [])
+        checkpoints.append(entry)
         manifest["checkpoints"] = checkpoints
         self._atomic_write_bytes(
             manifest_path,
@@ -249,8 +286,28 @@ class RunStore:
         completed = set()
         for item in self._read_checkpoint_manifest()["checkpoints"]:
             task_key = item.get("task_key")
-            if item.get("status") == "completed" and isinstance(task_key, str) and task_key:
+            if not isinstance(task_key, str) or not task_key:
+                continue
+            instance_key = item.get("instance_key")
+            if isinstance(instance_key, str) and instance_key.strip():
+                continue
+            if item.get("status") == "completed":
                 completed.add(task_key)
+        return completed
+
+    def list_completed_checkpoint_instances(self) -> set[tuple[str, str]]:
+        completed: set[tuple[str, str]] = set()
+        for item in self._read_checkpoint_manifest()["checkpoints"]:
+            task_key = item.get("task_key")
+            instance_key = item.get("instance_key")
+            if (
+                item.get("status") == "completed"
+                and isinstance(task_key, str)
+                and task_key
+                and isinstance(instance_key, str)
+                and instance_key
+            ):
+                completed.add((task_key, instance_key))
         return completed
 
     def _read_checkpoint_manifest(self) -> dict[str, list[dict[str, Any]]]:
