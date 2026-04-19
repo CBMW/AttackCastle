@@ -85,6 +85,7 @@ class AdapterContext:
     post_run_processors: list[Callable[[Any, RunData, Any], None]] = field(default_factory=list)
     task_instance_key: str | None = None
     task_inputs: list[str] = field(default_factory=list)
+    cancellation_token: Any = None
 
 
 class ToolAdapter(Protocol):

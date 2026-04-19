@@ -20,8 +20,10 @@ from attackcastle.core.models import (
     ToolExecution,
     WebApplication,
     now_utc,
+    run_data_from_dict,
+    to_serializable,
 )
-from attackcastle.gui.models import GuiProfile
+from attackcastle.gui.models import GuiProfile, RunSnapshot
 from attackcastle.gui.runtime import profile_to_engine_overrides
 from attackcastle.gui.runtime import build_run_debug_bundle
 from attackcastle.gui.runtime import load_run_snapshot
@@ -268,6 +270,85 @@ def test_load_run_snapshot_reads_checkpoints_and_outputs(tmp_path: Path) -> None
     assert snapshot.execution_issues
     assert snapshot.execution_issues_summary["total_count"] >= 3
     assert snapshot.completeness_status in {"partial", "failed"}
+
+
+def test_raw_command_and_task_instance_round_trip_and_match(tmp_path: Path) -> None:
+    started_at = now_utc()
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="raw-command",
+            target_input="https://example.com",
+            profile="prototype",
+            output_dir=str(tmp_path),
+            started_at=started_at,
+        ),
+        task_states=[
+            {
+                "key": "web-probe",
+                "label": "Web Probe",
+                "status": TaskStatus.COMPLETED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {
+                    "capability": "web_probe",
+                    "instance_key": "web-probe::iter1::abc",
+                    "task_inputs": ["https://example.com/"],
+                },
+            }
+        ],
+        task_results=[
+            TaskResult(
+                task_id="task-httpx",
+                task_type="web-probe",
+                status=TaskStatus.COMPLETED.value,
+                command="httpx -redacted",
+                raw_command="httpx -silent -u https://example.com/",
+                exit_code=0,
+                started_at=started_at,
+                finished_at=started_at,
+                task_instance_key="web-probe::iter1::abc",
+                task_inputs=["https://example.com/"],
+            )
+        ],
+        tool_executions=[
+            ToolExecution(
+                execution_id="exec-httpx",
+                tool_name="httpx",
+                command="httpx -redacted",
+                raw_command="httpx -silent -u https://example.com/",
+                started_at=started_at,
+                ended_at=started_at,
+                exit_code=0,
+                status=TaskStatus.COMPLETED.value,
+                capability="web_probe",
+                task_instance_key="web-probe::iter1::abc",
+                task_inputs=["https://example.com/"],
+            )
+        ],
+    )
+
+    restored = run_data_from_dict(to_serializable(run_data))
+
+    assert restored.tool_executions[0].raw_command == "httpx -silent -u https://example.com/"
+    assert restored.task_results[0].raw_command == "httpx -silent -u https://example.com/"
+
+    snapshot = RunSnapshot(
+        run_id="raw-command",
+        scan_name="Raw Command",
+        run_dir=str(tmp_path),
+        state="completed",
+        elapsed_seconds=1,
+        eta_seconds=0,
+        current_task="Web Probe",
+        total_tasks=1,
+        completed_tasks=1,
+        tasks=to_serializable(restored.task_states),
+        task_results=to_serializable(restored.task_results),
+        tool_executions=to_serializable(restored.tool_executions),
+    )
+    bundle = resolve_current_task_debug_bundle(snapshot, task_row=snapshot.tasks[0])
+
+    assert bundle["tool_executions"][0]["raw_command"] == "httpx -silent -u https://example.com/"
 
 
 def test_load_run_snapshot_merges_running_manifest_tasks_into_checkpoint_timeline(tmp_path: Path) -> None:
@@ -760,3 +841,28 @@ def test_profile_to_engine_overrides_applies_performance_guard_caps() -> None:
     assert overrides["profile"]["cpu_cores"] == 2
     assert overrides["adaptive_execution"]["cpu_core_cap"] == 2
     assert overrides["adaptive_execution"]["memory_pressure_high_ratio"] == 0.25
+
+
+def test_profile_to_engine_overrides_leaves_max_resource_limits_unrestricted() -> None:
+    profile = GuiProfile(
+        name="Default Local",
+        concurrency=8,
+        cpu_cores=0,
+        adaptive_execution_enabled=True,
+    )
+
+    overrides = profile_to_engine_overrides(
+        profile,
+        {
+            "enabled": True,
+            "cpu_limit_percent": 100,
+            "memory_limit_percent": 100,
+        },
+    )
+
+    assert overrides["profile"]["concurrency"] == 8
+    assert overrides["profile"]["cpu_cores"] == 0
+    assert overrides["adaptive_execution"]["cpu_core_cap"] == 0
+    assert "memory_pressure_high_ratio" not in overrides["adaptive_execution"]
+    assert overrides["adaptive_execution"]["resource_limits"]["cpu_limit_percent"] == 100
+    assert overrides["adaptive_execution"]["resource_limits"]["memory_limit_percent"] == 100

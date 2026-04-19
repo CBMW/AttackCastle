@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import shlex
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -57,6 +58,7 @@ def run_command_spec(
     started_at = now_utc()
     execution_id = new_id("exec")
     rendered_command = command_text(spec.command, proxy_url)
+    raw_command = " ".join(shlex.quote(str(part)) for part in spec.command)
     stdout_path = context.run_store.artifact_path(spec.tool_name, f"{spec.artifact_prefix}_stdout.txt")
     stderr_path = context.run_store.artifact_path(spec.tool_name, f"{spec.artifact_prefix}_stderr.txt")
     transcript_path = context.run_store.artifact_path(spec.tool_name, f"{spec.artifact_prefix}_transcript.txt")
@@ -86,6 +88,7 @@ def run_command_spec(
             termination_reason=termination_reason,
             termination_detail=termination_detail,
             timed_out=timed_out,
+            raw_command=raw_command,
         )
         task_result = TaskResult(
             task_id=task_id,
@@ -103,6 +106,7 @@ def run_command_spec(
             termination_reason=termination_reason,
             termination_detail=termination_detail,
             timed_out=timed_out,
+            raw_command=raw_command,
         )
         return CommandRunResult(
             execution=execution,
@@ -127,6 +131,7 @@ def run_command_spec(
         timeout=spec.timeout_seconds,
         env=build_subprocess_env(proxy_url),
         stdin=spec.stdin,
+        cancellation_token=getattr(context, "cancellation_token", None),
     )
     ended_at = now_utc()
     exit_code = stream_result.exit_code
@@ -151,6 +156,7 @@ def run_command_spec(
         termination_reason=stream_result.termination_reason,
         termination_detail=stream_result.termination_detail,
         timed_out=stream_result.timed_out,
+        raw_command=raw_command,
     )
     evidence_artifacts = [
         EvidenceArtifact(
@@ -211,6 +217,7 @@ def run_command_spec(
         termination_reason=stream_result.termination_reason,
         termination_detail=stream_result.termination_detail,
         timed_out=stream_result.timed_out,
+        raw_command=raw_command,
     )
     return CommandRunResult(
         execution=execution,

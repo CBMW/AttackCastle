@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import signal
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, wait
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -133,7 +133,7 @@ class WorkflowScheduler:
         states: list[TaskExecutionState] = []
         completed = set(completed_task_keys or set())
         completed_instances = set(completed_task_instances or set())
-        terminal_status = {TaskStatus.COMPLETED.value, TaskStatus.SKIPPED.value}
+        terminal_status = {TaskStatus.COMPLETED.value, TaskStatus.SKIPPED.value, TaskStatus.CANCELLED.value}
         circuit_failures: dict[str, int] = {}
         max_failures = int(context.config.get("orchestration", {}).get("circuit_breaker_failures", 2))
         hard_concurrency = int(context.profile_config.get("concurrency", 2))
@@ -178,7 +178,20 @@ class WorkflowScheduler:
                 iteration=1,
                 instance_key=instance_key,
             )
-        running: dict[Future, tuple[ScheduledTask, object, str]] = {}
+        running: dict[Future, tuple[ScheduledTask, object, str, Event]] = {}
+        resource_pressure_active = False
+        resource_pressure_samples = 0
+        resource_grace_samples = int(context.config.get("adaptive_execution", {}).get("resource_limits", {}).get("grace_samples", 3) or 3)
+        resource_cooldown_seconds = float(
+            context.config.get("adaptive_execution", {}).get("resource_limits", {}).get("cooldown_seconds", 60) or 60
+        )
+        resource_limits_payload: dict[str, object] = dict(
+            context.config.get("adaptive_execution", {}).get("resource_limits", {}) or {}
+        )
+        resource_latest_sample: dict[str, object] = {}
+        resource_last_cancel_monotonic = 0.0
+        resource_last_unmet_monotonic = 0.0
+        resource_cancelled_instances: set[str] = set()
         executor = ThreadPoolExecutor(max_workers=max(1, hard_concurrency))
 
         progress = (
@@ -284,6 +297,157 @@ class WorkflowScheduler:
                     config_profile = context.config.setdefault("profile", {})
                     if isinstance(config_profile, dict):
                         config_profile.update(profile_config)
+
+                def apply_resource_throttle(control_signal: dict[str, object], *, reason: str) -> dict[str, object]:
+                    throttle_payload = control_signal.get("throttle", {})
+                    if not isinstance(throttle_payload, dict):
+                        throttle_payload = {}
+                    throttle_payload = dict(throttle_payload)
+                    if execution_controller is not None and getattr(execution_controller, "is_enabled", lambda: False)():
+                        try:
+                            step_cap = max(1, int(execution_controller.dispatch_budget()) - 1)
+                        except Exception:
+                            step_cap = 1
+                        for key in ("cpu_cores", "max_workers", "max_tool_threads"):
+                            try:
+                                existing_cap = max(1, int(throttle_payload.get(key) or step_cap))
+                            except (TypeError, ValueError):
+                                existing_cap = step_cap
+                            throttle_payload[key] = max(1, min(existing_cap, step_cap))
+                        throttle_payload["max_heavy_processes"] = 1
+                    apply_performance_overrides(throttle_payload)
+                    controller_snapshot = None
+                    if execution_controller is not None and hasattr(execution_controller, "apply_operator_throttle"):
+                        controller_snapshot = execution_controller.apply_operator_throttle(
+                            throttle_payload,
+                            reason=reason,
+                        )
+                    limiter = getattr(context, "rate_limiter", None)
+                    if limiter is not None and hasattr(limiter, "apply_operator_throttle"):
+                        limiter.apply_operator_throttle(
+                            mode=str(throttle_payload.get("rate_limit_mode") or "careful"),
+                            min_interval_ms=throttle_payload.get("min_request_delay_ms", 500),
+                        )
+                    return {
+                        "throttle": dict(throttle_payload),
+                        "controller": controller_snapshot or {},
+                    }
+
+                def running_task_labels() -> list[str]:
+                    labels: list[str] = []
+                    for item, *_rest in running.values():
+                        labels.append(item.definition.label or item.definition.key)
+                    return labels
+
+                def mark_pending_waiting_for_resource_pressure() -> None:
+                    for key, item in pending.items():
+                        previous_reason = waiting_reason_by_task.get(key)
+                        if previous_reason == "resource_pressure":
+                            continue
+                        waiting_reason_by_task[key] = "resource_pressure"
+                        context.audit.write(
+                            "task.waiting",
+                            {
+                                "task": item.definition.key,
+                                "instance_key": item.instance_key,
+                                "reason": "resource_pressure",
+                            },
+                        )
+                        emit_runtime_event(
+                            context,
+                            "task.waiting",
+                            {
+                                "task": item.definition.key,
+                                "label": item.definition.label,
+                                "reason": "resource_pressure",
+                            },
+                        )
+
+                def select_resource_cancel_candidate() -> tuple[Future, ScheduledTask, Event] | None:
+                    candidates: list[tuple[int, float, Future, ScheduledTask, Event]] = []
+                    now_value = time.monotonic()
+                    for future, (item, started_at, _reason, token) in running.items():
+                        if future.done() or getattr(token, "is_set", lambda: False)():
+                            continue
+                        task = item.definition
+                        heavy_score = 1 if execution_controller is not None and execution_controller.is_heavy_capability(task.capability) else 0
+                        cost_score = int(getattr(task, "cost_score", 0) or 0)
+                        try:
+                            started_score = float(getattr(started_at, "timestamp", lambda: now_value)())
+                        except Exception:
+                            started_score = now_value
+                        candidates.append((heavy_score * 1000 + cost_score, started_score, future, item, token))
+                    if not candidates:
+                        return None
+                    _score, _started, future, item, token = sorted(candidates, key=lambda row: (row[0], row[1]), reverse=True)[0]
+                    return future, item, token
+
+                def emit_resource_limit_unmet(reason: str) -> None:
+                    nonlocal resource_last_unmet_monotonic
+                    now_value = time.monotonic()
+                    if now_value - resource_last_unmet_monotonic < resource_cooldown_seconds:
+                        return
+                    resource_last_unmet_monotonic = now_value
+                    message = "AttackCastle is still above the configured CPU/RAM resource limit after pausing safe work."
+                    if message not in run_data.warnings:
+                        run_data.warnings.append(message)
+                    context.audit.write(
+                        "resource_limit.unmet",
+                        {
+                            "reason": reason,
+                            "sample": resource_latest_sample,
+                            "limits": resource_limits_payload,
+                            "running_tasks": running_task_labels(),
+                        },
+                    )
+                    context.run_store.save_checkpoint("_runtime_state", "resource_limit_unmet", run_data)
+                    emit_runtime_event(
+                        context,
+                        "worker.resource_limit_unmet",
+                        {
+                            "state": RunState.RUNNING.value,
+                            "reason": reason,
+                            "sample": resource_latest_sample,
+                            "limits": resource_limits_payload,
+                            "running_tasks": running_task_labels(),
+                        },
+                    )
+
+                def cancel_one_resource_task_if_needed() -> None:
+                    nonlocal resource_last_cancel_monotonic
+                    if resource_pressure_samples < resource_grace_samples:
+                        return
+                    now_value = time.monotonic()
+                    if now_value - resource_last_cancel_monotonic < resource_cooldown_seconds:
+                        return
+                    candidate = select_resource_cancel_candidate()
+                    if candidate is None:
+                        emit_resource_limit_unmet("no_cancellable_running_task")
+                        return
+                    future, item, token = candidate
+                    token.set()
+                    future.cancel()
+                    resource_cancelled_instances.add(item.instance_key)
+                    resource_last_cancel_monotonic = now_value
+                    context.audit.write(
+                        "resource_limit.cancel_requested",
+                        {
+                            "task": item.definition.key,
+                            "instance_key": item.instance_key,
+                            "reason": "cancelled_for_resource_limit",
+                            "sample": resource_latest_sample,
+                            "limits": resource_limits_payload,
+                        },
+                    )
+                    emit_runtime_event(
+                        context,
+                        "task.waiting",
+                        {
+                            "task": item.definition.key,
+                            "label": item.definition.label,
+                            "reason": "cancelled_for_resource_limit",
+                        },
+                    )
 
                 def has_active_instances(task_key: str) -> bool:
                     if any(item.definition.key == task_key for item in pending.values()):
@@ -465,7 +629,7 @@ class WorkflowScheduler:
                     nonlocal total_retries
                     done_futures = [future for future in list(running.keys()) if future.done()]
                     for future in done_futures:
-                        item, started_at, decision_reason = running.pop(future)
+                        item, started_at, decision_reason, cancellation_token = running.pop(future)
                         task = item.definition
                         attempt = item.attempt
                         input_signature = item.input_signature
@@ -473,10 +637,26 @@ class WorkflowScheduler:
                         ended_at = now_utc()
                         error_message = None
                         status = TaskStatus.COMPLETED.value
+                        cancelled_for_resource = (
+                            item.instance_key in resource_cancelled_instances
+                            or getattr(cancellation_token, "is_set", lambda: False)()
+                        )
                         duration_seconds = max((ended_at - started_at).total_seconds(), 0.001)
                         try:
+                            if future.cancelled():
+                                raise CancelledError()
                             result = future.result()
                             if isinstance(result, AdapterResult):
+                                for execution in result.tool_executions:
+                                    if getattr(execution, "task_instance_key", None) in (None, ""):
+                                        execution.task_instance_key = item.instance_key
+                                    if not getattr(execution, "task_inputs", None):
+                                        execution.task_inputs = list(item.task_inputs)
+                                for task_result in result.task_results:
+                                    if getattr(task_result, "task_instance_key", None) in (None, ""):
+                                        task_result.task_instance_key = item.instance_key
+                                    if not getattr(task_result, "task_inputs", None):
+                                        task_result.task_inputs = list(item.task_inputs)
                                 merge_adapter_result(run_data, result)
                                 _emit_adapter_result_runtime_events(context, result)
                                 refresh_autonomy_state(run_data, context.config)
@@ -486,12 +666,19 @@ class WorkflowScheduler:
                                     ) or "adapter reported one or more execution errors"
                                     status = TaskStatus.FAILED.value
                                     circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
+                        except CancelledError:
+                            error_message = "cancelled_for_resource_limit"
+                            status = TaskStatus.CANCELLED.value
                         except Exception as exc:  # noqa: BLE001
                             context.logger.exception("Task failed: %s", task.key)
                             error_message = str(exc)
                             run_data.errors.append(f"{task.key}: {exc}")
                             status = TaskStatus.FAILED.value
                             circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
+
+                        if cancelled_for_resource and status != TaskStatus.CANCELLED.value:
+                            status = TaskStatus.CANCELLED.value
+                            error_message = "cancelled_for_resource_limit"
 
                         # Optional stage time budgets.
                         stage_budget_limit = stage_budget.get(task.stage)
@@ -782,6 +969,87 @@ class WorkflowScheduler:
                                     },
                                 )
                                 context.run_store.clear_control()
+                            elif action == "resource_limit_update":
+                                limits_payload = control_signal.get("limits", {})
+                                if isinstance(limits_payload, dict):
+                                    resource_limits_payload = dict(limits_payload)
+                                    resource_grace_samples = max(1, int(resource_limits_payload.get("grace_samples", resource_grace_samples) or resource_grace_samples))
+                                    resource_cooldown_seconds = max(
+                                        5.0,
+                                        float(resource_limits_payload.get("cooldown_seconds", resource_cooldown_seconds) or resource_cooldown_seconds),
+                                    )
+                                context.audit.write(
+                                    "orchestration.control",
+                                    {"action": "resource_limit_update", "payload": control_signal},
+                                )
+                                context.run_store.clear_control()
+                            elif action == "resource_pressure":
+                                resource_pressure_active = True
+                                resource_pressure_samples += 1
+                                sample_payload = control_signal.get("sample", {})
+                                resource_latest_sample = dict(sample_payload) if isinstance(sample_payload, dict) else {}
+                                limits_payload = control_signal.get("limits", {})
+                                if isinstance(limits_payload, dict):
+                                    resource_limits_payload = dict(limits_payload)
+                                    resource_grace_samples = max(1, int(resource_limits_payload.get("grace_samples", resource_grace_samples) or resource_grace_samples))
+                                    resource_cooldown_seconds = max(
+                                        5.0,
+                                        float(resource_limits_payload.get("cooldown_seconds", resource_cooldown_seconds) or resource_cooldown_seconds),
+                                    )
+                                applied = apply_resource_throttle(
+                                    control_signal,
+                                    reason=str(control_signal.get("reason") or "resource_pressure"),
+                                )
+                                warning = "AttackCastle resource governor is reducing work for this run."
+                                if warning not in run_data.warnings:
+                                    run_data.warnings.append(warning)
+                                context.audit.write(
+                                    "orchestration.control",
+                                    {
+                                        "action": "resource_pressure",
+                                        "payload": control_signal,
+                                        "applied": applied,
+                                    },
+                                )
+                                context.run_store.save_checkpoint("_runtime_state", "resource_pressure", run_data)
+                                emit_runtime_event(
+                                    context,
+                                    "worker.resource_pressure",
+                                    {
+                                        "state": RunState.RUNNING.value,
+                                        "reason": str(control_signal.get("reason") or "resource_pressure"),
+                                        "sample": resource_latest_sample,
+                                        "limits": resource_limits_payload,
+                                        "running_tasks": running_task_labels(),
+                                    },
+                                )
+                                context.run_store.clear_control()
+                            elif action == "resource_relief":
+                                resource_pressure_active = False
+                                resource_pressure_samples = 0
+                                sample_payload = control_signal.get("sample", {})
+                                resource_latest_sample = dict(sample_payload) if isinstance(sample_payload, dict) else {}
+                                limits_payload = control_signal.get("limits", {})
+                                if isinstance(limits_payload, dict):
+                                    resource_limits_payload = dict(limits_payload)
+                                if execution_controller is not None and hasattr(execution_controller, "clear_operator_throttle"):
+                                    execution_controller.clear_operator_throttle(reason="resource_relief")
+                                context.audit.write(
+                                    "orchestration.control",
+                                    {"action": "resource_relief", "payload": control_signal},
+                                )
+                                context.run_store.save_checkpoint("_runtime_state", "resource_relief", run_data)
+                                emit_runtime_event(
+                                    context,
+                                    "worker.resource_relief",
+                                    {
+                                        "state": RunState.RUNNING.value,
+                                        "reason": str(control_signal.get("reason") or "resource_relief"),
+                                        "sample": resource_latest_sample,
+                                        "limits": resource_limits_payload,
+                                    },
+                                )
+                                context.run_store.clear_control()
                             elif action == "approval_decision":
                                 approval_status = str(control_signal.get("status", "approved")).lower()
                                 approval_class = str(control_signal.get("approval_class", "safe_auto"))
@@ -840,6 +1108,21 @@ class WorkflowScheduler:
                             self.console.print("Workflow paused by operator control signal")
                             pause_notice_emitted = True
                         time.sleep(0.2)
+                        continue
+
+                    if resource_pressure_active:
+                        mark_pending_waiting_for_resource_pressure()
+                        cancel_one_resource_task_if_needed()
+                        if running:
+                            wait(running.keys(), timeout=0.1)
+                            process_done_futures()
+                        else:
+                            if (
+                                resource_last_cancel_monotonic <= 0
+                                or time.monotonic() - resource_last_cancel_monotonic >= resource_cooldown_seconds
+                            ):
+                                emit_resource_limit_unmet("resource_pressure_active_at_minimum")
+                            time.sleep(0.2)
                         continue
 
                     # Schedule ready tasks up to worker limit.
@@ -1230,8 +1513,10 @@ class WorkflowScheduler:
                             task_instance_key=item.instance_key,
                             task_inputs=list(item.task_inputs),
                         )
+                        cancellation_token = Event()
+                        task_context = replace(task_context, cancellation_token=cancellation_token)
                         future = executor.submit(task.runner, task_context, run_data)
-                        running[future] = (item, started_at, reason)
+                        running[future] = (item, started_at, reason, cancellation_token)
                         if capability_run_token not in capability_run_tokens:
                             capability_runs[task.capability] = capability_runs.get(task.capability, 0) + 1
                             capability_run_tokens.add(capability_run_token)

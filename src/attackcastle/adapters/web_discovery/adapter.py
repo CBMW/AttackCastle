@@ -10,6 +10,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs
 from attackcastle.adapters.web_discovery.parser import (
     detect_frontend_libraries,
     extract_discovery_urls,
@@ -244,7 +245,7 @@ class WebDiscoveryAdapter:
         total_libraries = 0
         coverage_gaps: list[dict[str, Any]] = []
 
-        for target in collect_confirmed_web_targets(run_data):
+        for target in filter_url_targets_for_task_inputs(context, collect_confirmed_web_targets(run_data)):
             base_url = str(target["url"])
             if base_url in existing_scanned:
                 continue
@@ -825,6 +826,10 @@ class WebDiscoveryAdapter:
                 execution_id=execution_id,
                 capability=self.capability,
                 exit_code=0,
+                raw_command=(
+                    "python urllib crawl + JS/source map/library discovery"
+                    + (f" --target {scanned_urls[0]}" if len(scanned_urls) == 1 else "")
+                ),
             )
         )
         context.audit.write(

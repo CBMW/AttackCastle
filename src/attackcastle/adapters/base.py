@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import subprocess
+import time
 from pathlib import Path
 from threading import Lock
 from threading import Thread
@@ -78,6 +79,9 @@ def build_tool_execution(
     termination_reason: str | None = None,
     termination_detail: str | None = None,
     timed_out: bool = False,
+    raw_command: str | None = None,
+    task_instance_key: str | None = None,
+    task_inputs: list[str] | None = None,
 ) -> ToolExecution:
     return ToolExecution(
         execution_id=execution_id or new_id("exec"),
@@ -96,6 +100,9 @@ def build_tool_execution(
         termination_reason=termination_reason,
         termination_detail=termination_detail,
         timed_out=timed_out,
+        raw_command=raw_command or command,
+        task_instance_key=task_instance_key,
+        task_inputs=list(task_inputs or []),
     )
 
 
@@ -110,6 +117,7 @@ def stream_command(
     on_stderr=None,
     env: dict[str, str] | None = None,
     stdin=None,
+    cancellation_token=None,
 ) -> StreamCommandResult:
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,8 +193,31 @@ def stream_command(
 
             error_message: str | None = None
             timed_out = False
+            cancelled = False
             try:
-                process.wait(timeout=timeout)
+                deadline = None if timeout is None else time.monotonic() + float(timeout)
+                while True:
+                    if process.poll() is not None:
+                        break
+                    if cancellation_token is not None and getattr(cancellation_token, "is_set", lambda: False)():
+                        cancelled = True
+                        error_message = "command cancelled by resource governor"
+                        process.terminate()
+                        try:
+                            process.wait(timeout=3)
+                        except Exception:  # noqa: BLE001
+                            process.kill()
+                            try:
+                                process.wait(timeout=1)
+                            except Exception:  # noqa: BLE001
+                                pass
+                        break
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise subprocess.TimeoutExpired(command, timeout)
+                    try:
+                        process.wait(timeout=0.25)
+                    except subprocess.TimeoutExpired:
+                        continue
             except subprocess.TimeoutExpired:
                 process.kill()
                 timed_out = True
@@ -204,6 +235,9 @@ def stream_command(
                 error_message,
                 timed_out=timed_out,
             )
+            if cancelled:
+                termination_reason = "interrupted"
+                termination_detail = error_message
             return StreamCommandResult(
                 exit_code=process.returncode,
                 stdout_text="".join(stdout_chunks),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import shlex
 from datetime import timedelta
 from hashlib import sha1
 from pathlib import Path
@@ -14,6 +15,7 @@ from attackcastle.adapters.base import (
     record_execution_telemetry,
     stream_command,
 )
+from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs
 from attackcastle.adapters.nuclei.parser import parse_nuclei_jsonl
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, WebApplication, new_id, now_utc
@@ -157,6 +159,7 @@ class NucleiAdapter:
             for target in collect_confirmed_web_targets(run_data)
             if str(target["url"]) not in existing_scanned
         ]
+        pending_targets = filter_url_targets_for_task_inputs(context, pending_targets)
 
         def _scan_target(target: dict[str, str | int]) -> dict[str, Any]:
             partial = AdapterResult()
@@ -201,6 +204,7 @@ class NucleiAdapter:
                     "tool.output",
                     {"tool_name": self.name, "stream": "stderr", "text": chunk[-400:]},
                 ),
+                cancellation_token=getattr(context, "cancellation_token", None),
             )
             exit_code = stream_result.exit_code
             if stream_result.termination_reason == "timeout":
@@ -324,6 +328,7 @@ class NucleiAdapter:
                     termination_reason=stream_result.termination_reason,
                     termination_detail=stream_result.termination_detail,
                     timed_out=stream_result.timed_out,
+                    raw_command=" ".join(shlex.quote(str(item)) for item in command),
                 )
             )
             return {"url": url, "issues": issues, "partial": partial}

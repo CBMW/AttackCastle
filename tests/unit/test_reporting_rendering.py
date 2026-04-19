@@ -9,6 +9,34 @@ from attackcastle.reporting.builder import ReportBuilder
 from attackcastle.storage.run_store import RunStore
 
 
+def test_report_css_uses_square_modern_tabs_and_radii() -> None:
+    css_path = Path(__file__).resolve().parents[2] / "src" / "attackcastle" / "reporting" / "assets" / "report.css"
+    css = css_path.read_text(encoding="utf-8")
+
+    assert "--radius-sm: 2px;" in css
+    assert "--radius-md: 3px;" in css
+    assert "--radius-lg: 4px;" in css
+    assert ".tab-btn" in css
+    assert "border-bottom: 2px solid transparent;" in css
+    assert ".tab-btn.active" in css
+    assert "border-bottom-color: var(--accent);" in css
+    assert "border-radius: 999px" not in css
+
+    for disallowed_radius in ("12px", "14px", "16px", "18px", "20px", "22px", "24px"):
+        assert f"border-radius: {disallowed_radius}" not in css
+
+
+def test_asset_graph_css_uses_square_modern_surface_tokens() -> None:
+    css_path = Path(__file__).resolve().parents[2] / "src" / "attackcastle" / "gui" / "web" / "asset_graph.css"
+    css = css_path.read_text(encoding="utf-8")
+
+    assert "--graph-bg: #0b1119;" in css
+    assert "--graph-radius: 3px;" in css
+    assert "background: var(--graph-bg);" in css
+    assert "border-radius: 0;" in css
+    assert "border-radius: 999px" not in css
+
+
 def test_report_renders_expandable_http_evidence(tmp_path: Path) -> None:
     run_store = RunStore(output_root=tmp_path, run_id="reportproof")
     http_artifact = run_store.artifact_path("web_probe", "web_example.txt")

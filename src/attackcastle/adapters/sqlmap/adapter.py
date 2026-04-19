@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import shlex
 from hashlib import sha1
 from pathlib import Path
 from typing import Any
@@ -212,6 +213,7 @@ class SQLMapAdapter:
                 transcript_path=transcript_path,
                 timeout=timeout,
                 env=build_subprocess_env(proxy_url or None),
+                cancellation_token=getattr(context, "cancellation_token", None),
             )
             stdout_text = stream_result.stdout_text
             stderr_text = stream_result.stderr_text
@@ -325,6 +327,7 @@ class SQLMapAdapter:
                     termination_reason=stream_result.termination_reason,
                     termination_detail=stream_result.termination_detail,
                     timed_out=stream_result.timed_out,
+                    raw_command=" ".join(shlex.quote(str(item)) for item in command),
                 )
             )
             scanned_urls.append(url)

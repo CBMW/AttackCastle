@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from attackcastle.adapters.base import build_tool_execution, normalize_command_termination
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
+from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs, normalize_url_key
 from attackcastle.adapters.web_probe.parser import detect_technologies, extract_title
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import (
@@ -41,18 +42,7 @@ def _safe_name(value: str) -> str:
 
 
 def _normalize_url_key(value: str | None) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    parsed = urlparse(raw)
-    host = (parsed.hostname or "").lower()
-    if not parsed.scheme or not host:
-        return raw
-    netloc = host
-    if parsed.port is not None:
-        netloc = f"{host}:{parsed.port}"
-    path = parsed.path or "/"
-    return f"{parsed.scheme.lower()}://{netloc}{path}" + (f"?{parsed.query}" if parsed.query else "")
+    return normalize_url_key(value)
 
 
 def _hostname_lookup(run_data: RunData) -> dict[str, str]:
@@ -122,13 +112,14 @@ class WebProbeAdapter:
         *,
         timeout_seconds: int,
         proxy_url: str | None,
+        artifact_suffix: str,
     ):
         started_at = now_utc()
         execution_id = new_id("exec")
         task_id = new_id("task")
-        stdout_path = context.run_store.artifact_path(self.name, "builtin_probe_stdout.jsonl")
-        stderr_path = context.run_store.artifact_path(self.name, "builtin_probe_stderr.txt")
-        transcript_path = context.run_store.artifact_path(self.name, "builtin_probe_transcript.txt")
+        stdout_path = context.run_store.artifact_path(self.name, f"builtin_probe_{artifact_suffix}_stdout.jsonl")
+        stderr_path = context.run_store.artifact_path(self.name, f"builtin_probe_{artifact_suffix}_stderr.txt")
+        transcript_path = context.run_store.artifact_path(self.name, f"builtin_probe_{artifact_suffix}_transcript.txt")
         stdout_lines: list[str] = []
         stderr_lines: list[str] = []
         ssl_context = ssl.create_default_context()
@@ -237,6 +228,7 @@ class WebProbeAdapter:
             termination_reason=termination_reason,
             termination_detail=termination_detail,
             timed_out=timed_out,
+            raw_command=execution.raw_command or execution.command,
         )
         evidence_artifacts = [
             EvidenceArtifact(
@@ -292,6 +284,7 @@ class WebProbeAdapter:
             for target in collect_web_targets(run_data)
             if str(target["url"]).strip() and _normalize_url_key(str(target["url"])) not in existing_scanned_keys
         ]
+        targets = filter_url_targets_for_task_inputs(context, targets)
         if not targets:
             return result
 
@@ -301,7 +294,8 @@ class WebProbeAdapter:
         capture_screenshots = bool(context.config.get("web_probe", {}).get("capture_screenshots", False))
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip() or None
 
-        input_path = context.run_store.artifact_path(self.name, "httpx_targets.txt")
+        artifact_suffix = _safe_name(context.task_instance_key or "\n".join(str(item["url"]) for item in targets))
+        input_path = context.run_store.artifact_path(self.name, f"httpx_targets_{artifact_suffix}.txt")
         input_path.write_text("\n".join(str(item["url"]) for item in targets), encoding="utf-8")
         command_result = run_command_spec(
             context,
@@ -321,7 +315,7 @@ class WebProbeAdapter:
                     "-follow-redirects",
                 ],
                 timeout_seconds=timeout_seconds,
-                artifact_prefix="httpx_probe",
+                artifact_prefix=f"httpx_probe_{artifact_suffix}",
                 extra_artifacts=[input_path],
             ),
             proxy_url=proxy_url,
@@ -336,6 +330,7 @@ class WebProbeAdapter:
                 targets,
                 timeout_seconds=timeout_seconds,
                 proxy_url=proxy_url,
+                artifact_suffix=artifact_suffix,
             )
             result.tool_executions.append(fallback_result.execution)
             result.evidence_artifacts.extend(fallback_result.evidence_artifacts)

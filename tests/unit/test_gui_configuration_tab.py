@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QFileDialog, QGroupBox, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QMessageBox
 
 from attackcastle.gui.configuration_tab import ConfigurationTab
 from attackcastle.gui.models import GuiProfile
@@ -105,7 +105,10 @@ def test_profile_form_merges_risk_controls_into_profile_posture_section(tmp_path
     tab = _make_tab(tmp_path)
 
     try:
-        section_titles = {group.title() for group in tab.findChildren(QGroupBox)}
+        section_titles = {
+            label.text()
+            for label in tab.findChildren(QLabel, "sectionTitle")
+        }
         assert "Profile Posture" in section_titles
         assert "Safety" not in section_titles
     finally:
@@ -119,7 +122,12 @@ def test_configuration_tab_exposes_tooltips_for_profile_actions(tmp_path: Path) 
         assert "profile library" not in tab.profile_list.toolTip().lower()
         assert "saved gui profiles" in tab.profile_list.toolTip().lower()
         assert "new profile draft" in tab.new_button.toolTip().lower()
-        assert "reload profiles from disk" in tab.reload_button.toolTip().lower()
+        assert "duplicate the currently loaded profile" in tab.duplicate_button.toolTip().lower()
+        assert "save the current profile form" in tab.save_button.toolTip().lower()
+        assert "delete the currently loaded profile" in tab.delete_button.toolTip().lower()
+        assert not hasattr(tab, "import_button")
+        assert not hasattr(tab, "export_button")
+        assert not hasattr(tab, "reload_button")
     finally:
         tab.close()
 

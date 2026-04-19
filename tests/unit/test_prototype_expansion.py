@@ -6,8 +6,9 @@ from attackcastle.adapters.nmap.adapter import NmapAdapter
 from attackcastle.adapters.nuclei.parser import parse_nuclei_jsonl
 from attackcastle.core.enums import TargetType
 from attackcastle.core.errors import ValidationError
-from attackcastle.core.models import RunData, RunMetadata, ScanTarget, WebApplication, now_utc
+from attackcastle.core.models import Asset, Observation, RunData, RunMetadata, ScanTarget, WebApplication, now_utc
 from attackcastle.normalization.correlator import collect_sqlmap_targets
+from attackcastle.orchestration.rules import INPUT_ITEMS_MAP
 from attackcastle.scope.validators import validate_targets
 
 
@@ -44,11 +45,60 @@ def test_nmap_collect_scope_targets_normalizes_url_and_host_port():
             ),
         ]
     )
+    run_data.assets.extend(
+        [
+            Asset(asset_id="asset-url", kind="host", name="app.example.com", resolved_ips=["203.0.113.10"]),
+            Asset(asset_id="asset-host-port", kind="host", name="api.example.com", resolved_ips=["203.0.113.11"]),
+        ]
+    )
     targets = NmapAdapter()._collect_scope_targets(run_data)
     assert "app.example.com" in targets
     assert "api.example.com" in targets
     assert "https://app.example.com/login" not in targets
     assert "api.example.com:8443" not in targets
+
+
+def test_repeatable_scan_input_items_split_pending_targets():
+    run_data = _run_data()
+    run_data.scope.append(
+        ScanTarget(
+            target_id="scope-url",
+            raw="https://app.example.com",
+            target_type=TargetType.URL,
+            value="https://app.example.com",
+            host="app.example.com",
+        )
+    )
+    run_data.web_apps.extend(
+        [
+            WebApplication(webapp_id="web-1", asset_id="asset-1", url="https://app.example.com"),
+            WebApplication(webapp_id="web-2", asset_id="asset-2", url="https://blog.example.com"),
+        ]
+    )
+    run_data.observations.append(
+        Observation(
+            observation_id="obs-wp",
+            key="tech.wordpress.detected",
+            value=True,
+            entity_type="web_app",
+            entity_id="web-2",
+            source_tool="test",
+            confidence=0.9,
+        )
+    )
+    run_data.facts["web_probe.scanned_urls"] = ["https://app.example.com/"]
+    run_data.facts["whatweb.scanned_urls"] = ["https://app.example.com/"]
+    run_data.facts["nikto.scanned_urls"] = []
+    run_data.facts["nuclei.scanned_urls"] = []
+    run_data.facts["web_discovery.scanned_urls"] = []
+    run_data.facts["wpscan.scanned_urls"] = []
+
+    assert "https://blog.example.com/" in INPUT_ITEMS_MAP["fingerprint-web"](run_data)
+    assert "https://app.example.com/" not in INPUT_ITEMS_MAP["fingerprint-web"](run_data)
+    assert INPUT_ITEMS_MAP["assess-web"](run_data) == ["https://app.example.com/", "https://blog.example.com/"]
+    assert INPUT_ITEMS_MAP["run-nuclei"](run_data) == ["https://app.example.com/", "https://blog.example.com/"]
+    assert INPUT_ITEMS_MAP["discover-web"](run_data) == ["https://app.example.com/", "https://blog.example.com/"]
+    assert INPUT_ITEMS_MAP["run-wpscan"](run_data) == ["https://blog.example.com"]
 
 
 def test_collect_sqlmap_targets_uses_forms_and_query_signals():

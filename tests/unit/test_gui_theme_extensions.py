@@ -21,12 +21,24 @@ def test_default_theme_uses_compact_density_and_clearer_panel_contrast() -> None
 
     assert DEFAULT_THEME_TOKENS["palette"]["window_bg"] == "#05070b"
     assert DEFAULT_THEME_TOKENS["gradients"]["panel"]["start"] == "#1a2330"
-    assert DEFAULT_THEME_TOKENS["radii"]["panel"] == "8px"
+    assert DEFAULT_THEME_TOKENS["radii"]["panel"] == "3px"
+    assert DEFAULT_THEME_TOKENS["radii"]["surface"] == "3px"
+    assert DEFAULT_THEME_TOKENS["radii"]["input"] == "3px"
+    assert DEFAULT_THEME_TOKENS["radii"]["button"] == "3px"
+    assert DEFAULT_THEME_TOKENS["radii"]["badge"] == "4px"
+    assert DEFAULT_THEME_TOKENS["spacing"]["button_padding"] == "5px 9px"
     assert "QWidget#appRoot" in stylesheet
     assert "qlineargradient" in stylesheet
-    assert "padding: 6px 10px;" in stylesheet
-    assert "margin: 8px 1px;" in stylesheet
-    assert "margin: 1px 8px;" in stylesheet
+    assert "padding: 5px 9px;" in stylesheet
+    assert "QTabBar#workflowTabBar::tab" in stylesheet
+    assert "border-bottom: 2px solid transparent;" in stylesheet
+    assert "QTabBar#workflowTabBar::tab:selected" in stylesheet
+    assert "border-bottom-color: #73a2ff;" in stylesheet
+    assert "border-radius: 0;" in stylesheet
+    assert "border-radius: 999px" not in stylesheet
+    assert "border-radius: 22px" not in stylesheet
+    assert "margin: 4px 1px;" in stylesheet
+    assert "margin: 1px 4px;" in stylesheet
 
 
 def test_default_splitter_handles_are_slim() -> None:

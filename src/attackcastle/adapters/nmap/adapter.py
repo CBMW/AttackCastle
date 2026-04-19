@@ -258,6 +258,7 @@ class NmapAdapter:
                     "tool.output",
                     {"tool_name": self.name, "stream": "stderr", "text": chunk[-400:]},
                 ),
+                cancellation_token=getattr(context, "cancellation_token", None),
             )
             exit_code = stream_result.exit_code
             if stream_result.termination_reason == "timeout":

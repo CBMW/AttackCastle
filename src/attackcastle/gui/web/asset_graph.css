@@ -1,7 +1,14 @@
+:root {
+  --graph-bg: #0b1119;
+  --graph-text: #d8e1ea;
+  --graph-line: #253246;
+  --graph-radius: 3px;
+}
+
 html,
 body {
-  background: #0b1119;
-  color: #d8e1ea;
+  background: var(--graph-bg);
+  color: var(--graph-text);
   font-family: "Segoe UI", "Noto Sans", sans-serif;
   height: 100%;
   margin: 0;
@@ -9,6 +16,9 @@ body {
 }
 
 #graph {
+  background: var(--graph-bg);
+  border-radius: 0;
   height: 100vh;
+  outline: 1px solid transparent;
   width: 100vw;
 }

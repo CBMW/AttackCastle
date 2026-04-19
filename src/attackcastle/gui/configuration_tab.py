@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -14,12 +15,16 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
 
 from attackcastle.gui.common import (
+    Card,
     FlowButtonRow,
+    PAGE_CARD_SPACING,
+    PANEL_CONTENT_PADDING,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
@@ -63,8 +68,8 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
         rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(10, 10, 10, 10)
-        rail_layout.setSpacing(8)
+        rail_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        rail_layout.setSpacing(PAGE_SECTION_SPACING)
         rail_title = QLabel("Profile Library")
         rail_title.setObjectName("sectionTitle")
         rail_helper = QLabel("Save operator presets, duplicate them for new engagements, and keep launch defaults tidy.")
@@ -76,6 +81,49 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         rail_layout.addWidget(rail_title)
         rail_layout.addWidget(rail_helper)
         rail_layout.addWidget(self.profile_list, 1)
+        library_actions = QFrame()
+        library_actions.setObjectName("profileLibraryActions")
+        library_action_layout = QHBoxLayout(library_actions)
+        library_action_layout.setContentsMargins(0, 0, 0, 0)
+        library_action_layout.setSpacing(PAGE_CARD_SPACING)
+        self.new_button = self._library_action_button(
+            QStyle.StandardPixmap.SP_FileIcon,
+            "New Profile",
+            role="secondary",
+        )
+        self.duplicate_button = self._library_action_button(
+            QStyle.StandardPixmap.SP_FileDialogDetailedView,
+            "Duplicate",
+            role="secondary",
+        )
+        self.save_button = self._library_action_button(
+            QStyle.StandardPixmap.SP_DialogSaveButton,
+            "Save Profile",
+            role="primary",
+        )
+        self.delete_button = self._library_action_button(
+            QStyle.StandardPixmap.SP_DialogCloseButton,
+            "Delete",
+            role="danger",
+        )
+        self.save_button.setObjectName("profilePrimaryAction")
+        self.delete_button.setObjectName("profileDangerAction")
+        self.new_button.clicked.connect(self._new_profile)
+        self.duplicate_button.clicked.connect(self._duplicate_profile)
+        self.save_button.clicked.connect(self._save_profile)
+        self.delete_button.clicked.connect(self._delete_profile)
+        library_action_layout.addStretch(1)
+        library_action_layout.addWidget(self.new_button)
+        library_action_layout.addWidget(self.duplicate_button)
+        library_action_layout.addWidget(self.save_button)
+        library_action_layout.addWidget(self.delete_button)
+        library_action_layout.addStretch(1)
+        rail_layout.addWidget(library_actions)
+
+        self.status_label = QLabel("Profiles are stored as JSON and translated into engine overrides at launch time.")
+        self.status_label.setObjectName("helperText")
+        self.status_label.setWordWrap(True)
+        rail_layout.addWidget(self.status_label)
         self.splitter.addWidget(rail)
 
         right = QWidget()
@@ -88,24 +136,40 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         self.scroll_area = scroll
         scroll_container = QWidget()
         scroll_layout = QVBoxLayout(scroll_container)
-        scroll_layout.setContentsMargins(0, 0, 8, 0)
+        scroll_layout.setContentsMargins(0, 0, PAGE_CARD_SPACING, 0)
         scroll_layout.setSpacing(PAGE_SECTION_SPACING)
 
-        helper = QLabel("Profiles define launch defaults, stored posture, tool coverage, and guardrails. They are stored as JSON and translated at launch time.")
-        helper.setWordWrap(True)
-        helper.setObjectName("helperText")
-        scroll_layout.addWidget(helper)
-
+        summary_card = Card(
+            "Profile Summary",
+            summary="Profiles define launch defaults, stored posture, tool coverage, and guardrails.",
+            object_name="profileSummaryCard",
+            padding=18,
+            spacing=10,
+        )
+        self.profile_summary_name_label = QLabel("Select a profile")
+        self.profile_summary_name_label.setObjectName("profileSummaryName")
+        self.profile_summary_name_label.setWordWrap(True)
         self.profile_blurb_label = QLabel("")
-        self.profile_blurb_label.setObjectName("infoBanner")
+        self.profile_blurb_label.setObjectName("profileSummaryDescription")
         self.profile_blurb_label.setWordWrap(True)
-        scroll_layout.addWidget(self.profile_blurb_label)
+        self.profile_summary_chips: dict[str, QLabel] = {}
+        chip_row = FlowButtonRow(h_spacing=6, v_spacing=6)
+        for key in ("base", "risk", "validation", "rate", "tools", "output"):
+            chip = QLabel("--")
+            chip.setObjectName("profileChip")
+            chip.setWordWrap(False)
+            self.profile_summary_chips[key] = chip
+            chip_row.addWidget(chip)
 
         self.profile_posture_label = QLabel("")
         self.profile_posture_label.setObjectName("attentionBanner")
         self.profile_posture_label.setProperty("tone", "neutral")
         self.profile_posture_label.setWordWrap(True)
-        scroll_layout.addWidget(self.profile_posture_label)
+        summary_card.content_layout.addWidget(self.profile_summary_name_label)
+        summary_card.content_layout.addWidget(self.profile_blurb_label)
+        summary_card.content_layout.addWidget(chip_row)
+        summary_card.content_layout.addWidget(self.profile_posture_label)
+        scroll_layout.addWidget(summary_card)
 
         scroll_layout.addWidget(
             self._profile_form(
@@ -116,33 +180,6 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
             )
         )
 
-        action_panel = QFrame()
-        action_panel.setObjectName("toolbarPanel")
-        action_panel.setProperty("surface", "secondary")
-        action_layout = QVBoxLayout(action_panel)
-        action_layout.setContentsMargins(10, 10, 10, 10)
-        action_layout.setSpacing(8)
-        button_row = FlowButtonRow()
-        self.new_button = QPushButton("New Profile")
-        self.duplicate_button = QPushButton("Duplicate")
-        self.save_button = QPushButton("Save Profile")
-        self.delete_button = QPushButton("Delete")
-        self.import_button = QPushButton("Import")
-        self.export_button = QPushButton("Export")
-        self.reload_button = QPushButton("Reload")
-        self.new_button.clicked.connect(self._new_profile)
-        self.duplicate_button.clicked.connect(self._duplicate_profile)
-        self.save_button.clicked.connect(self._save_profile)
-        self.delete_button.clicked.connect(self._delete_profile)
-        self.import_button.clicked.connect(self._import_profiles)
-        self.export_button.clicked.connect(self._export_profiles)
-        self.reload_button.clicked.connect(self.reload_profiles)
-        style_button(self.new_button, role="secondary")
-        style_button(self.save_button)
-        for button in (self.duplicate_button,):
-            style_button(button, role="secondary")
-        for button in (self.delete_button, self.import_button, self.export_button, self.reload_button):
-            style_button(button, role="secondary")
         set_tooltips(
             (
                 (self.profile_list, "Browse saved GUI profiles and load one into the editor."),
@@ -150,33 +187,32 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
                 (self.duplicate_button, "Duplicate the currently loaded profile so you can make a variant safely."),
                 (self.save_button, "Save the current profile form back into the profile library."),
                 (self.delete_button, "Delete the currently loaded profile from the profile library."),
-                (self.import_button, "Import one or more profiles from a JSON file."),
-                (self.export_button, "Export the current profile library to a JSON file."),
-                (self.reload_button, "Reload profiles from disk and refresh the editor."),
             )
         )
-        button_row.addWidget(self.new_button)
-        button_row.addWidget(self.duplicate_button)
-        button_row.addWidget(self.save_button)
-        button_row.addWidget(self.delete_button)
-        button_row.addWidget(self.import_button)
-        button_row.addWidget(self.export_button)
-        button_row.addWidget(self.reload_button)
-        action_layout.addWidget(button_row)
-
-        self.status_label = QLabel("Profiles are stored as JSON and translated into engine overrides at launch time.")
-        self.status_label.setObjectName("helperText")
-        self.status_label.setWordWrap(True)
-        action_layout.addWidget(self.status_label)
-        scroll_layout.addWidget(action_panel)
         scroll_layout.addStretch(1)
         scroll.setWidget(scroll_container)
-        right_layout.addWidget(scroll)
+        right_layout.addWidget(scroll, 1)
         self.splitter.addWidget(right)
 
         self.reload_profiles()
         self.sync_profile_form_width(self.width())
         self._sync_responsive_mode(self.width())
+
+    def _library_action_button(
+        self,
+        icon: QStyle.StandardPixmap,
+        accessible_name: str,
+        *,
+        role: str,
+    ) -> QPushButton:
+        button = QPushButton("")
+        button.setAccessibleName(accessible_name)
+        button.setIcon(self.style().standardIcon(icon))
+        button.setIconSize(QSize(16, 16))
+        button.setFixedSize(36, 32)
+        button.setProperty("libraryAction", True)
+        style_button(button, role=role)
+        return button
 
     def _sync_responsive_mode(self, width: int) -> None:
         if width >= 1280:
@@ -229,8 +265,17 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
                     profile.enable_sqlmap,
                 )
             )
+            self.profile_summary_name_label.setText(profile.name)
             self.profile_blurb_label.setText(
                 f"{profile.name}: {profile.description or 'No description yet.'} | Base posture: {title_case_label(profile.base_profile)} | Stored profile posture with {enabled_tools} tools enabled"
+            )
+            self._set_profile_summary_chips(
+                base=title_case_label(profile.base_profile),
+                risk=title_case_label(profile.risk_mode),
+                validation=title_case_label(profile.active_validation_mode),
+                rate=title_case_label(profile.rate_limit_mode),
+                tools=f"{enabled_tools} tools",
+                output=profile.output_directory or "./output",
             )
             self.profile_posture_label.setText(
                 f"Stored risk mode: {title_case_label(profile.risk_mode)} | Validation: {title_case_label(profile.active_validation_mode)} | Rate mode: {title_case_label(profile.rate_limit_mode)} | Output: {profile.output_directory}"
@@ -244,12 +289,45 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
                 else "neutral",
             )
         else:
+            self.profile_summary_name_label.setText("New profile draft")
             self.profile_blurb_label.setText("Select a profile to review its stored posture, launch defaults, and tool coverage.")
+            self._set_profile_summary_chips(
+                base="Base --",
+                risk="Risk --",
+                validation="Validation --",
+                rate="Rate --",
+                tools="Tools --",
+                output="Output --",
+            )
             self.profile_posture_label.setText("Stored risk mode, validation posture, rate mode, and output defaults will appear here once a profile is selected.")
             self.profile_posture_label.setProperty("tone", "neutral")
         self.profile_posture_label.style().unpolish(self.profile_posture_label)
         self.profile_posture_label.style().polish(self.profile_posture_label)
         self.profile_posture_label.update()
+
+    def _set_profile_summary_chips(
+        self,
+        *,
+        base: str,
+        risk: str,
+        validation: str,
+        rate: str,
+        tools: str,
+        output: str,
+    ) -> None:
+        output_summary = output if len(output) <= 48 else f"...{output[-45:]}"
+        values = {
+            "base": f"Base: {base}",
+            "risk": f"Risk: {risk}",
+            "validation": f"Validation: {validation}",
+            "rate": f"Rate: {rate}",
+            "tools": tools,
+            "output": f"Output: {output_summary}",
+        }
+        for key, text in values.items():
+            chip = self.profile_summary_chips.get(key)
+            if chip is not None:
+                chip.setText(text)
 
     def _selected_profile_name(self) -> str:
         item = self.profile_list.currentItem()
@@ -260,7 +338,16 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
     def _new_profile(self) -> None:
         self._apply_profile_to_form(GuiProfile(name="New Profile"))
         self.profile_list.clearSelection()
+        self.profile_summary_name_label.setText("New Profile")
         self.profile_blurb_label.setText("New profile draft. Name it clearly before saving so operators can find it later.")
+        self._set_profile_summary_chips(
+            base=title_case_label(self.base_profile_combo.currentText()),
+            risk=title_case_label(self.risk_mode_combo.currentText()),
+            validation=title_case_label(self.active_validation_mode_combo.currentText()),
+            rate=title_case_label(self.rate_mode_combo.currentText()),
+            tools=f"{sum(1 for checkbox in self._tool_checkboxes() if checkbox.isChecked())} tools",
+            output=self.output_dir_edit.text().strip() or "./output",
+        )
         self.profile_posture_label.setText("Start from a preset, then save the stored posture and launch defaults as a reusable operator profile.")
         self.status_label.setText("Creating a new profile draft.")
         self.profile_name_edit.selectAll()
@@ -270,6 +357,16 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         profile = self._profile_from_form()
         profile.name = f"{profile.name} Copy"
         self._apply_profile_to_form(profile)
+        self.profile_summary_name_label.setText(profile.name)
+        self.profile_blurb_label.setText(f"{profile.name}: duplicated draft. Adjust the name and save when ready.")
+        self._set_profile_summary_chips(
+            base=title_case_label(profile.base_profile),
+            risk=title_case_label(profile.risk_mode),
+            validation=title_case_label(profile.active_validation_mode),
+            rate=title_case_label(profile.rate_limit_mode),
+            tools=f"{sum(1 for checkbox in self._tool_checkboxes() if checkbox.isChecked())} tools",
+            output=profile.output_directory or "./output",
+        )
         self.status_label.setText("Profile duplicated. Adjust the name and save when ready.")
 
     def _save_profile(self) -> None:

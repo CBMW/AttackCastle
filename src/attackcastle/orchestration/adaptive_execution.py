@@ -253,6 +253,7 @@ class AdaptiveExecutionController:
         self.min_dispatch_workers = _coerce_positive_int(self.config.get("min_dispatch_workers", 1), 1)
         self.min_web_workers = _coerce_positive_int(self.config.get("min_web_workers", 1), 1)
         self.max_heavy_processes = _coerce_positive_int(self.config.get("max_heavy_processes", 2), 2)
+        self._base_max_heavy_processes = self.max_heavy_processes
         self.timeline_limit = _coerce_positive_int(self.config.get("timeline_limit", 200), 200)
 
         self.web_capabilities = {
@@ -324,6 +325,7 @@ class AdaptiveExecutionController:
             available_mb = max(1, int(self.host_resources.available_memory_bytes // (1024 * 1024)))
             memory_ceiling = max(1, available_mb // max(1, self.memory_per_worker_mb))
         self.hard_max_workers = max(1, min(hard_ceiling, self.host_resources.cpu_cap, memory_ceiling))
+        self._base_hard_max_workers = self.hard_max_workers
         startup_budget = max(
             self.min_dispatch_workers,
             min(self.hard_max_workers, int(math.ceil(self.hard_max_workers * self.startup_ramp_fraction))),
@@ -473,7 +475,7 @@ class AdaptiveExecutionController:
         if self._operator_throttle is None:
             return
         cap = self._operator_worker_cap(self.latest_host_sample)
-        self.hard_max_workers = max(1, min(self.hard_max_workers, cap))
+        self.hard_max_workers = max(1, min(self._base_hard_max_workers, cap))
         self.current_budget = max(self.min_dispatch_workers, min(self.current_budget, self.hard_max_workers))
         self.current_web_budget = max(self.min_web_workers, min(self.current_web_budget, self.current_budget))
         self.max_heavy_processes = max(1, min(self.max_heavy_processes, self.current_budget))
@@ -503,6 +505,22 @@ class AdaptiveExecutionController:
             web_budget=self.current_web_budget,
             heavy_process_limit=self.heavy_process_limit(),
             throttle=dict(self._operator_throttle),
+            host=self.latest_host_sample.as_dict(),
+        )
+        return self.snapshot()
+
+    def clear_operator_throttle(self, *, reason: str = "operator_throttle_cleared") -> dict[str, Any]:
+        self._operator_throttle = None
+        self.hard_max_workers = max(1, self._base_hard_max_workers)
+        self.max_heavy_processes = max(1, min(self._base_max_heavy_processes, self.hard_max_workers))
+        self.current_budget = max(self.min_dispatch_workers, min(self.current_budget, self.hard_max_workers))
+        self.current_web_budget = max(self.min_web_workers, min(self.current_web_budget, self.current_budget))
+        self._last_change_monotonic = time.monotonic()
+        self._append_timeline(
+            event="operator_throttle_cleared",
+            reason=reason,
+            dispatch_budget=self.current_budget,
+            web_budget=self.current_web_budget,
             host=self.latest_host_sample.as_dict(),
         )
         return self.snapshot()

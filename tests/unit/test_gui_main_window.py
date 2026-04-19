@@ -49,12 +49,14 @@ def test_navigation_defaults_to_workspace_and_uses_workflow_sections(tmp_path: P
     window = _make_window(tmp_path)
 
     try:
-        sections = [window.nav_list.item(idx).text() for idx in range(window.nav_list.count())]
+        sections = [window.workflow_tabs.tabText(idx) for idx in range(window.workflow_tabs.count())]
 
         assert sections == ["Overview", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"]
-        assert window.nav_list.currentItem() is not None
-        assert window.nav_list.currentItem().text() == "Overview"
-        assert window.section_stack.currentWidget() is window.workspace_page
+        assert window.workflow_tabs.tabText(window.workflow_tabs.currentIndex()) == "Overview"
+        assert window.workflow_tabs.currentWidget() is window.workspace_page
+        assert window.workflow_tabs.usesScrollButtons()
+        assert window.workflow_tabs.tabBar().usesScrollButtons()
+        assert window.workflow_tabs.tabBar().expanding()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -142,11 +144,7 @@ def test_run_actions_show_empty_selection_guidance(tmp_path: Path) -> None:
         window._selected_run_id = None
         window._update_run_action_state()
 
-        assert "No run selected" in window.selected_run_status_label.text()
-        assert not window.pause_button.isEnabled()
-        assert not window.resume_button.isEnabled()
-        assert not window.stop_button.isEnabled()
-        assert not window.retry_button.isEnabled()
+        assert "Select a run" in window.general_status_detail.text()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -175,12 +173,8 @@ def test_runs_page_actions_update_for_selected_run(tmp_path: Path) -> None:
 
         window._update_run_action_state()
 
-        assert window.selected_run_status_label.text() == "Client Alpha External is Running and 40% complete."
-        assert window.selected_run_progress_value.text() == "4/10 tasks complete"
-        assert window.selected_run_task_value.text() == "Nmap"
-        assert window.pause_button.isEnabled()
-        assert window.stop_button.isEnabled()
-        assert window.skip_button.isEnabled()
+        assert "Focused on Client Alpha" in window.general_status_detail.text()
+        assert "0 execution issue(s)" in window.general_status_detail.text()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -224,7 +218,16 @@ def test_run_context_menu_actions_reflect_pause_resume_state(
             tasks=[{"key": "probe", "label": "Probe", "status": state}],
         )
 
-        menu, pause_action, resume_action, stop_action, debug_action, current_task_action = window._build_run_context_menu(
+        (
+            menu,
+            pause_action,
+            resume_action,
+            stop_action,
+            skip_task_action,
+            retry_action,
+            debug_action,
+            current_task_action,
+        ) = window._build_run_context_menu(
             window.run_table,
             snapshot,
         )
@@ -233,12 +236,16 @@ def test_run_context_menu_actions_reflect_pause_resume_state(
             "Pause Scan",
             "Resume",
             "Stop",
+            "Skip Current Task",
+            "Relaunch Scan",
             "View Debug Log",
             "View Current Task Debug Log",
         ]
         assert pause_action.isEnabled() is pause_enabled
         assert resume_action.isEnabled() is resume_enabled
         assert stop_action.isEnabled() is stop_enabled
+        assert skip_task_action.isEnabled() is (state == "running" and not pause_requested and not resume_required)
+        assert retry_action.isEnabled() is True
         assert debug_action.isEnabled() is True
         assert current_task_action.isEnabled() is True
     finally:
@@ -272,7 +279,9 @@ def test_run_context_menu_selects_row_before_showing_actions(
             completed_tasks=1,
             tasks=[{"key": "resolve-hosts", "label": "Resolve Hosts", "status": "running"}],
         )
-        getattr(window, search_name).clear()
+        search = getattr(window, search_name, None)
+        if search is not None:
+            search.clear()
         window._sync_run_table()
         window.show()
         app.processEvents()
@@ -436,10 +445,15 @@ def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path)
 
     try:
         workspace_titles = {group.title() for group in window.workspace_page.findChildren(QGroupBox)}
-        scanner_titles = {group.title() for group in window.runs_page.findChildren(QGroupBox)}
+        scanner_group_titles = {group.title() for group in window.runs_page.findChildren(QGroupBox)}
+        scanner_section_titles = {
+            label.text() for label in window.runs_page.findChildren(QLabel) if label.objectName() == "sectionTitle"
+        }
 
         assert "Start New Scan" not in workspace_titles
-        assert "Active Run" in scanner_titles
+        assert "Active Run" not in scanner_group_titles
+        assert "Run Queue" not in scanner_section_titles
+        assert "Scan Queue" in scanner_section_titles
         assert window.start_scan_button.parentWidget() is not None
         assert window.runs_page.isAncestorOf(window.start_scan_button)
         assert window.start_scan_button.isEnabled()
@@ -452,13 +466,13 @@ def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: 
     window = _make_window(tmp_path)
 
     try:
-        assert window.body_split.count() == 2
+        assert window.workflow_tabs.count() == 7
         assert window.workspace_content_split.count() == 3
-        assert window.runs_page_split.count() == 2
+        assert not hasattr(window, "runs_page_split")
         assert window.runs_body_split.count() == 2
         assert window.output_tab.main_split.count() == 2
         assert window.assets_tab.main_split.count() == 2
-        assert window.settings_split.count() == 2
+        assert window.settings_split.count() == 3
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -572,7 +586,7 @@ def test_assets_workspace_is_available_in_navigation_and_tracks_selected_run(tmp
         window._update_output_snapshot(snapshot.run_id)
         window._navigate_to("assets")
 
-        assert window.section_stack.currentWidget() is window.assets_tab
+        assert window.workflow_tabs.currentWidget() is window.assets_tab
         assert window.assets_tab._snapshot is not None
         assert window.assets_tab._snapshot.scan_name == "Workspace Asset Inventory"
         assert window.assets_tab.assets_model.rowCount() == 2
@@ -588,7 +602,7 @@ def test_extensions_page_bootstraps_default_theme_extension(tmp_path: Path) -> N
     window = _make_window(tmp_path)
 
     try:
-        tabs = [window.nav_list.item(idx).text() for idx in range(window.nav_list.count())]
+        tabs = [window.workflow_tabs.tabText(idx) for idx in range(window.workflow_tabs.count())]
         assert "Extensions" in tabs
         assert window.extensions_tab.extension_list.count() >= 1
         first_item = window.extensions_tab.extension_list.item(0)
@@ -628,7 +642,6 @@ def test_responsive_layout_uses_horizontal_splits_on_wide_width(tmp_path: Path) 
         window.assets_tab.sync_responsive_mode(1560)
 
         assert window.workspace_content_split.orientation() == Qt.Horizontal
-        assert window.runs_page_split.orientation() == Qt.Horizontal
         assert window.runs_body_split.orientation() == Qt.Horizontal
         assert window.output_tab.main_split.orientation() == Qt.Horizontal
     finally:
@@ -647,7 +660,7 @@ def test_scanner_launch_action_stays_visible_across_responsive_widths(tmp_path: 
             window._sync_responsive_layouts()
             QApplication.processEvents()
 
-            assert window.section_stack.currentWidget() is window.runs_page
+            assert window.workflow_tabs.currentWidget() is window.runs_page
             assert window.runs_page.isAncestorOf(window.start_scan_button)
             assert window.start_scan_button.isVisible()
             assert window.start_scan_button.isEnabled()
@@ -667,22 +680,21 @@ def test_responsive_layout_keeps_navigation_and_inspectors_compact(tmp_path: Pat
         window.output_tab.sync_responsive_mode(1560)
         window.assets_tab.sync_responsive_mode(1560)
 
-        body_sizes = window.body_split.sizes()
         workspace_sizes = window.workspace_content_split.sizes()
-        runs_sizes = window.runs_page_split.sizes()
+        runs_sizes = window.runs_body_split.sizes()
         findings_sizes = window.output_tab.main_split.sizes()
         assets_sizes = window.assets_tab.main_split.sizes()
 
-        assert PAGE_SECTION_SPACING == 10
-        assert PANEL_CONTENT_PADDING == 10
-        assert BUTTON_MIN_HEIGHT == 34
-        assert TABLE_ROW_HEIGHT == 30
-        assert body_sizes[0] <= 220
-        assert body_sizes[1] > body_sizes[0] * 2
+        assert PAGE_SECTION_SPACING == 6
+        assert PANEL_CONTENT_PADDING == 7
+        assert BUTTON_MIN_HEIGHT == 30
+        assert TABLE_ROW_HEIGHT == 26
+        assert not window.findChildren(QFrame, "navRail")
         assert len(workspace_sizes) == 3
         assert workspace_sizes[1] >= workspace_sizes[0]
         assert workspace_sizes[1] >= workspace_sizes[2]
-        assert runs_sizes[0] < runs_sizes[1]
+        assert len(runs_sizes) == 2
+        assert all(size > 0 for size in runs_sizes)
         assert findings_sizes[1] < findings_sizes[0]
         assert assets_sizes[1] < assets_sizes[0]
     finally:
@@ -701,9 +713,9 @@ def test_saved_splitter_layout_restores_on_reopen(tmp_path: Path) -> None:
     try:
         first.resize(1560, 980)
         first._sync_responsive_layouts()
-        first.body_split.setSizes([330, 1110])
-        saved_sizes = list(first.body_split.sizes())
-        controller = first._splitter_controllers["body_split"]
+        first.workspace_content_split.setSizes([300, 720, 360])
+        saved_sizes = list(first.workspace_content_split.sizes())
+        controller = first._splitter_controllers["workspace_overview_split"]
         controller._schedule_save(0, 0)
         controller._flush_save()
     finally:
@@ -714,9 +726,9 @@ def test_saved_splitter_layout_restores_on_reopen(tmp_path: Path) -> None:
     try:
         second.resize(1560, 980)
         second._sync_responsive_layouts()
-        restored = workspace_store.load_ui_layout("body_split", "horizontal")
+        restored = workspace_store.load_ui_layout("workspace_overview_split", "horizontal")
         assert restored == saved_sizes
-        assert second.body_split.sizes() == saved_sizes
+        assert second.workspace_content_split.sizes() == saved_sizes
     finally:
         second._refresh_timer.stop()
         second.close()
@@ -767,6 +779,48 @@ def test_findings_workspace_surfaces_scanner_issue_summary(tmp_path: Path) -> No
         window.close()
 
 
+def test_findings_inspector_keeps_selected_row_across_snapshot_refresh(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    window = _make_window(tmp_path)
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-findings-refresh",
+            scan_name="Findings Refresh Run",
+            run_dir=str(tmp_path / "run-findings-refresh"),
+            state="running",
+            elapsed_seconds=15.0,
+            eta_seconds=45.0,
+            current_task="Nmap",
+            total_tasks=3,
+            completed_tasks=1,
+            findings=[
+                {
+                    "finding_id": "finding-refresh-1",
+                    "title": "Original Finding Title",
+                    "severity": "medium",
+                    "category": "exposure",
+                }
+            ],
+        )
+        window._run_snapshots[snapshot.run_id] = snapshot
+        window._selected_run_id = snapshot.run_id
+        window._update_output_snapshot(snapshot.run_id)
+
+        window.output_tab._finding_selected(window.output_tab.findings_model.index(0, 0))
+        assert "Original Finding Title" in window.output_tab.detail_text.toPlainText()
+
+        snapshot.findings[0]["title"] = "Refreshed Finding Title"
+        window._update_output_snapshot(snapshot.run_id)
+
+        assert "Refreshed Finding Title" in window.output_tab.detail_text.toPlainText()
+        assert window.output_tab.findings_view.selectionModel().currentIndex().row() == 0
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
 def test_open_health_selects_scanner_health_tab(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
@@ -789,7 +843,7 @@ def test_open_health_selects_scanner_health_tab(tmp_path: Path) -> None:
 
         window._focus_health_panel()
 
-        assert window.section_stack.currentWidget() is window.runs_page
+        assert window.workflow_tabs.currentWidget() is window.runs_page
         assert window.scanner_panel.tabs.tabText(window.scanner_panel.tabs.currentIndex()) == "Health"
     finally:
         window._refresh_timer.stop()
@@ -845,7 +899,7 @@ def test_worker_ready_navigates_to_scanner_and_focuses_tasks(tmp_path: Path, mon
             WorkerEvent(event="worker.ready", payload={"run_dir": str(tmp_path / "run-ready")}),
         )
 
-        assert window.section_stack.currentWidget() is window.runs_page
+        assert window.workflow_tabs.currentWidget() is window.runs_page
         assert window.scanner_panel.tabs.tabText(window.scanner_panel.tabs.currentIndex()) == "Tasks"
         assert window._selected_run_id == snapshot.run_id
     finally:
@@ -877,7 +931,7 @@ def test_worker_completed_keeps_current_section(tmp_path: Path, monkeypatch: pyt
             WorkerEvent(event="worker.completed", payload={"run_dir": str(tmp_path / "run-complete"), "scan_name": snapshot.scan_name}),
         )
 
-        assert window.section_stack.currentWidget() is window.assets_tab
+        assert window.workflow_tabs.currentWidget() is window.assets_tab
         assert window._selected_run_id == snapshot.run_id
     finally:
         window._refresh_timer.stop()
@@ -1187,11 +1241,33 @@ def test_main_window_surfaces_tooltips_on_primary_controls(tmp_path: Path) -> No
     window = _make_window(tmp_path)
 
     try:
-        assert "workflow areas" in window.nav_list.toolTip().lower()
+        assert "workflow areas" in window.workflow_tabs.toolTip().lower()
         assert "active workspace" in window.start_scan_button.toolTip().lower()
         assert "double-click" in window.workspace_run_table.toolTip().lower()
-        assert "selected running job" in window.pause_button.toolTip().lower()
+        assert "right-click for controls" in window.run_table.toolTip().lower()
         assert "active for this gui session" in window.settings_workspace_combo.toolTip().lower()
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_resource_limit_unmet_alert_is_cooled_down(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        warnings: list[str] = []
+        monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(str(args[2])) or QMessageBox.Ok)
+        payload = {
+            "sample": {"cpu_percent": 75.0, "memory_used_percent": 12.0},
+            "limits": {"cpu_limit_percent": 50, "memory_limit_percent": 100},
+            "running_tasks": ["Run Nmap"],
+        }
+
+        window._show_resource_limit_unmet_alert("run-a", "Run A", payload)
+        window._show_resource_limit_unmet_alert("run-a", "Run A", payload)
+
+        assert len(warnings) == 1
+        assert "still above your CPU/RAM limit" in warnings[0]
     finally:
         window._refresh_timer.stop()
         window.close()

@@ -91,6 +91,15 @@ def _pending_candidate_web_signature(run_data: RunData, fact_key: str) -> str:
     return _signature(pending)
 
 
+def _pending_candidate_web_targets(run_data: RunData, fact_key: str) -> list[str]:
+    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    return [
+        str(item.get("url") or "").strip()
+        for item in collect_web_targets(run_data)
+        if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
+    ]
+
+
 def _pending_confirmed_web_signature(run_data: RunData, fact_key: str) -> str:
     scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
     pending = [
@@ -101,6 +110,15 @@ def _pending_confirmed_web_signature(run_data: RunData, fact_key: str) -> str:
     return _signature(pending)
 
 
+def _pending_confirmed_web_targets(run_data: RunData, fact_key: str) -> list[str]:
+    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    return [
+        str(item.get("url") or "").strip()
+        for item in collect_confirmed_web_targets(run_data)
+        if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
+    ]
+
+
 def _pending_wordpress_signature(run_data: RunData) -> str:
     scanned = {str(item).strip() for item in run_data.facts.get("wpscan.scanned_urls", []) if str(item).strip()}
     pending = [
@@ -109,6 +127,15 @@ def _pending_wordpress_signature(run_data: RunData) -> str:
         if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
     ]
     return _signature(pending)
+
+
+def _pending_wordpress_targets(run_data: RunData) -> list[str]:
+    scanned = {str(item).strip() for item in run_data.facts.get("wpscan.scanned_urls", []) if str(item).strip()}
+    return [
+        str(item.get("url") or "").strip()
+        for item in collect_wordpress_targets(run_data)
+        if str(item.get("url") or "").strip() and str(item.get("url") or "").strip() not in scanned
+    ]
 
 
 def has_network_scan_targets(run_data: RunData) -> tuple[bool, str]:
@@ -217,4 +244,10 @@ INPUT_SIGNATURE_MAP = {
 
 INPUT_ITEMS_MAP = {
     "run-nmap": _pending_host_targets,
+    "check-websites": lambda run_data: _pending_candidate_web_targets(run_data, "web_probe.scanned_urls"),
+    "discover-web": lambda run_data: _pending_confirmed_web_targets(run_data, "web_discovery.scanned_urls"),
+    "fingerprint-web": lambda run_data: _pending_confirmed_web_targets(run_data, "whatweb.scanned_urls"),
+    "assess-web": lambda run_data: _pending_confirmed_web_targets(run_data, "nikto.scanned_urls"),
+    "run-nuclei": lambda run_data: _pending_confirmed_web_targets(run_data, "nuclei.scanned_urls"),
+    "run-wpscan": _pending_wordpress_targets,
 }

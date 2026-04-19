@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 
 from attackcastle.gui.common import (
+    PAGE_CARD_SPACING,
+    PANEL_CONTENT_PADDING,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
@@ -72,8 +74,8 @@ class ExtensionsTab(QWidget):
         action_panel.setProperty("surface", "primary")
         self.action_panel = action_panel
         action_layout = QHBoxLayout(action_panel)
-        action_layout.setContentsMargins(8, 8, 8, 8)
-        action_layout.setSpacing(6)
+        action_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        action_layout.setSpacing(PAGE_CARD_SPACING)
 
         self.new_button = self._build_icon_button(
             "New Extension",
@@ -136,8 +138,8 @@ class ExtensionsTab(QWidget):
         rail.setObjectName("sidebarPanel")
         self.library_panel = rail
         rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(10, 10, 10, 10)
-        rail_layout.setSpacing(8)
+        rail_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        rail_layout.setSpacing(PAGE_SECTION_SPACING)
         rail_title = QLabel("Extension Library")
         rail_title.setObjectName("sectionTitle")
         self.search_edit = QLineEdit()
@@ -168,8 +170,8 @@ class ExtensionsTab(QWidget):
         editor_panel.setObjectName("toolbarPanel")
         editor_panel.setProperty("surface", "primary")
         editor_layout = QVBoxLayout(editor_panel)
-        editor_layout.setContentsMargins(10, 10, 10, 10)
-        editor_layout.setSpacing(8)
+        editor_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        editor_layout.setSpacing(PAGE_SECTION_SPACING)
         editor_title = QLabel("Raw Manifest Editor")
         editor_title.setObjectName("sectionTitle")
         self.editor_status_label = QLabel("JSON editor ready.")
@@ -223,8 +225,8 @@ class ExtensionsTab(QWidget):
         button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         button.setIcon(self.style().standardIcon(icon))
         button.setIconSize(QSize(16, 16))
-        button.setFixedSize(36, 36)
-        style_button(button, role=role, min_height=36)
+        button.setFixedSize(32, 32)
+        style_button(button, role=role, min_height=32)
         button.clicked.connect(handler)
         button.setToolTip(tooltip)
         button.setStatusTip(tooltip)

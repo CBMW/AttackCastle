@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from PySide6.QtCore import QModelIndex, QPoint, Qt
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, Qt
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -117,7 +117,7 @@ class AssetsTab(QWidget):
             object_name="toolbarStrip",
             surface=SURFACE_FLAT,
             padding=0,
-            spacing=8,
+            spacing=PAGE_SECTION_SPACING,
         )
         search_row = QHBoxLayout()
         search_row.addWidget(QLabel("Search"))
@@ -265,7 +265,7 @@ class AssetsTab(QWidget):
         detail_body = QWidget()
         detail_body_layout = QVBoxLayout(detail_body)
         detail_body_layout.setContentsMargins(0, 0, 0, 0)
-        detail_body_layout.setSpacing(10)
+        detail_body_layout.setSpacing(PAGE_SECTION_SPACING)
         card_header = QHBoxLayout()
         self.detail_title = QLabel("Asset Details")
         self.detail_title.setObjectName("sectionTitle")
@@ -282,21 +282,21 @@ class AssetsTab(QWidget):
         detail_body_layout.addWidget(self.detail_summary)
         self.detail_action_row = QHBoxLayout()
         self.detail_action_row.setContentsMargins(0, 0, 0, 0)
-        self.detail_action_row.setSpacing(8)
+        self.detail_action_row.setSpacing(PAGE_SECTION_SPACING)
         self.graph_expand_button = QPushButton("Expand")
-        style_button(self.graph_expand_button, role="secondary", min_height=34)
+        style_button(self.graph_expand_button, role="secondary")
         self.graph_expand_button.clicked.connect(self._expand_graph_selection)
         self.detail_action_row.addWidget(self.graph_expand_button)
         self.graph_lineage_button = QPushButton("Show Lineage")
-        style_button(self.graph_lineage_button, role="secondary", min_height=34)
+        style_button(self.graph_lineage_button, role="secondary")
         self.graph_lineage_button.clicked.connect(self._show_graph_lineage)
         self.detail_action_row.addWidget(self.graph_lineage_button)
         self.graph_reveal_button = QPushButton("Reveal in Inventory")
-        style_button(self.graph_reveal_button, role="secondary", min_height=34)
+        style_button(self.graph_reveal_button, role="secondary")
         self.graph_reveal_button.clicked.connect(self._reveal_graph_selection_in_inventory)
         self.detail_action_row.addWidget(self.graph_reveal_button)
         self.graph_scan_button = QPushButton("Scan Asset")
-        style_button(self.graph_scan_button, role="secondary", min_height=34)
+        style_button(self.graph_scan_button, role="secondary")
         self.graph_scan_button.clicked.connect(self._scan_graph_selection)
         self.detail_action_row.addWidget(self.graph_scan_button)
         self.detail_action_row.addStretch(1)
@@ -446,12 +446,17 @@ class AssetsTab(QWidget):
             self.main_split_controller.apply([max(int(self.height() * 0.68), 420), max(int(self.height() * 0.32), 220)])
 
     def set_snapshot(self, snapshot: RunSnapshot | None) -> None:
+        previous_workspace_id = self._snapshot.workspace_id if self._snapshot is not None else ""
+        next_workspace_id = snapshot.workspace_id if snapshot is not None else ""
+        workspace_changed = bool(previous_workspace_id and next_workspace_id and previous_workspace_id != next_workspace_id)
         self._snapshot = snapshot
         self._notes = self._load_notes(snapshot.workspace_id if snapshot is not None else "") if snapshot is not None else {}
-        self._active_graph_selection = {}
-        self._hide_detail_card()
+        if snapshot is None or workspace_changed:
+            self._hide_detail_card()
         self.graph_view.set_snapshot(snapshot)
         self._refresh_models()
+        if snapshot is not None and not workspace_changed:
+            self._restore_active_detail()
 
     def _refresh_models(self) -> None:
         snapshot = self._snapshot
@@ -503,6 +508,42 @@ class AssetsTab(QWidget):
         self.login_surfaces_model.set_rows(filtered_login_surfaces)
         self.site_map_model.set_rows(filtered_routes)
         self.technologies_model.set_rows(filtered_technologies)
+
+    def _detail_sources(self) -> dict[str, tuple[QTableView, MappingTableModel]]:
+        return {
+            "asset": (self.assets_view, self.assets_model),
+            "service": (self.services_view, self.services_model),
+            "web_app": (self.web_apps_view, self.web_apps_model),
+            "endpoint": (self.endpoints_view, self.endpoints_model),
+            "parameter": (self.parameters_view, self.parameters_model),
+            "form": (self.forms_view, self.forms_model),
+            "login_surface": (self.login_surfaces_view, self.login_surfaces_model),
+            "site_map": (self.site_map_view, self.site_map_model),
+            "technology": (self.technologies_view, self.technologies_model),
+        }
+
+    def _restore_active_detail(self) -> None:
+        if self._active_detail_signature and self._active_detail_kind:
+            source = self._detail_sources().get(self._active_detail_kind)
+            if source is None:
+                return
+            table, model = source
+            for row_index in range(model.rowCount()):
+                index = model.index(row_index, 0)
+                row = index.data(Qt.UserRole) or {}
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("__signature") or "") != self._active_detail_signature:
+                    continue
+                selection = table.selectionModel()
+                if selection is not None:
+                    selection.setCurrentIndex(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+                table.setCurrentIndex(index)
+                table.selectRow(row_index)
+                self._show_detail(self._active_detail_kind, row, table)
+                return
+        if self._active_graph_selection:
+            self._handle_graph_node_selected(self._active_graph_selection)
 
     def _enrich_rows(self, entity_kind: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         snapshot = self._snapshot

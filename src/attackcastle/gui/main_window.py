@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -34,7 +33,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSplitter,
-    QStackedWidget,
     QTabWidget,
     QTableView,
     QTextEdit,
@@ -43,12 +41,12 @@ from PySide6.QtWidgets import (
 )
 
 from attackcastle.gui.common import (
+    Card,
     FlowButtonRow,
     MappingTableModel,
     PAGE_CARD_SPACING,
     PAGE_SECTION_SPACING,
     PANEL_CONTENT_PADDING,
-    PANEL_COMPACT_PADDING,
     PersistentSplitterController,
     RUN_STATE_ORDER,
     SURFACE_FLAT,
@@ -64,7 +62,6 @@ from attackcastle.gui.common import (
     ensure_table_defaults,
     format_duration,
     format_progress,
-    progress_percent,
     refresh_widget_style,
     style_button,
     set_tooltip,
@@ -103,7 +100,7 @@ from attackcastle.gui.overview_checklist import OverviewChecklistPanel
 from attackcastle.gui.output_tab import OutputTab
 from attackcastle.gui.performance import (
     PerformanceGuardSettings,
-    SystemUsageSampler,
+    ProcessTreeUsageSampler,
     load_performance_guard_settings,
     save_performance_guard_settings,
 )
@@ -156,9 +153,10 @@ class MainWindow(QMainWindow):
         self._splitter_controllers: dict[str, PersistentSplitterController] = {}
         self._switch_in_progress = False
         self.performance_guard_settings = load_performance_guard_settings()
-        self._system_usage_sampler = SystemUsageSampler()
-        self._last_performance_prompt_at = 0.0
-        self._performance_prompt_active = False
+        self._system_usage_sampler = ProcessTreeUsageSampler()
+        self._resource_pressure_active = False
+        self._last_resource_action = "No resource action yet."
+        self._resource_unmet_alerts: dict[str, float] = {}
         self._init_ui()
         self._apply_initial_geometry()
 
@@ -171,7 +169,7 @@ class MainWindow(QMainWindow):
         self._overview_notes_timer.setInterval(300)
         self._overview_notes_timer.timeout.connect(self._persist_overview_state)
         self._performance_timer = QTimer(self)
-        self._performance_timer.setInterval(5000)
+        self._performance_timer.setInterval(max(1000, int(self.performance_guard_settings.sample_interval_seconds) * 1000))
         self._performance_timer.timeout.connect(self._check_performance_guard)
         self._performance_timer.start()
         self._apply_styles()
@@ -202,7 +200,6 @@ class MainWindow(QMainWindow):
         else:
             mode = "stacked"
 
-        self.nav_hint.setVisible(mode != "compact")
         if mode == "stacked":
             self.workspace_content_split.setOrientation(Qt.Vertical)
             self._apply_splitter_layout(
@@ -219,31 +216,11 @@ class MainWindow(QMainWindow):
                 "workspace_overview_split",
                 [max(int(width * 0.25), 260), max(int(width * 0.50), 520), max(int(width * 0.25), 280)],
             )
-        if mode == "stacked":
-            self._apply_splitter_layout("body_split", [170, max(width - 170, 680)])
-        elif mode == "compact":
-            self._apply_splitter_layout("body_split", [180, max(width - 180, 760)])
-        else:
-            self._apply_splitter_layout("body_split", [196, max(width - 196, 900)])
-
         self._arrange_run_filters(width)
-        if hasattr(self, "runs_page_split"):
-            if width >= 1360:
-                self.runs_page_split.setOrientation(Qt.Horizontal)
-                self._apply_splitter_layout(
-                    "runs_page_split",
-                    [max(int(width * 0.18), 260), max(int(width * 0.82), 980)],
-                )
-            else:
-                self.runs_page_split.setOrientation(Qt.Vertical)
-                self._apply_splitter_layout(
-                    "runs_page_split",
-                    [max(int(self.height() * 0.34), 280), max(int(self.height() * 0.66), 480)],
-                )
         if hasattr(self, "runs_body_split"):
             if width >= 1240:
                 self.runs_body_split.setOrientation(Qt.Horizontal)
-                content_width = max(int(width * (0.82 if width >= 1360 else 0.96)), 960)
+                content_width = max(int(width * 0.96), 960)
                 self._apply_splitter_layout(
                     "runs_body_split",
                     [max(int(content_width * 0.62), 620), max(int(content_width * 0.38), 360)],
@@ -255,17 +232,17 @@ class MainWindow(QMainWindow):
                     [max(int(self.height() * 0.42), 300), max(int(self.height() * 0.42), 320)],
                 )
         if hasattr(self, "settings_split"):
-            if width >= 1260:
+            if width >= 1040:
                 self.settings_split.setOrientation(Qt.Horizontal)
                 self._apply_splitter_layout(
                     "settings_split",
-                    [max(int(width * 0.46), 420), max(int(width * 0.54), 500)],
+                    [max(int(width * 0.22), 260), max(int(width * 0.78), 780)],
                 )
             else:
                 self.settings_split.setOrientation(Qt.Vertical)
                 self._apply_splitter_layout(
                     "settings_split",
-                    [max(int(self.height() * 0.28), 220), max(int(self.height() * 0.42), 320)],
+                    [max(int(self.height() * 0.24), 180), max(int(self.height() * 0.76), 520)],
                 )
         self.output_tab.sync_responsive_mode(width)
         self.scanner_panel.sync_responsive_mode(width)
@@ -313,39 +290,25 @@ class MainWindow(QMainWindow):
         central = QWidget()
         central.setObjectName("appRoot")
         root = QVBoxLayout(central)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(PAGE_SECTION_SPACING)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(0)
 
         self.general_status = QLabel("Ready")
         self.general_status_detail = QLabel("Workspace, run actions, and findings stay in sync across every section.")
 
-        body_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (0, 1))
-        self.body_split = body_split
-        self._register_splitter(self.body_split, "body_split")
-        self.nav_rail = QFrame()
-        self.nav_rail.setObjectName("navRail")
-        nav_layout = QVBoxLayout(self.nav_rail)
-        nav_layout.setContentsMargins(10, 10, 10, 10)
-        nav_layout.setSpacing(8)
-        nav_title = QLabel("Workflow")
-        nav_title.setObjectName("sectionTitle")
-        nav_layout.addWidget(nav_title)
-        self.nav_list = configure_scroll_surface(QListWidget())
-        self.nav_list.setObjectName("navList")
-        self.nav_list.currentRowChanged.connect(self._nav_row_changed)
-        for label in ("Overview", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"):
-            self.nav_list.addItem(QListWidgetItem(label))
-        set_tooltip(self.nav_list, "Switch between the main workflow areas of the GUI.")
-        nav_layout.addWidget(self.nav_list, 1)
-        self.nav_hint = QLabel("Ctrl+1..7 switches sections.")
-        self.nav_hint.setObjectName("helperText")
-        self.nav_hint.setWordWrap(True)
-        nav_layout.addWidget(self.nav_hint)
-        body_split.addWidget(self.nav_rail)
-
-        self.section_stack = QStackedWidget()
-        self.section_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
-        self.section_stack.setMinimumHeight(0)
+        self.workflow_tabs = QTabWidget()
+        self.workflow_tabs.setObjectName("workflowTabs")
+        self.workflow_tabs.setDocumentMode(True)
+        self.workflow_tabs.setUsesScrollButtons(True)
+        self.workflow_tabs.setElideMode(Qt.ElideRight)
+        self.workflow_tabs.currentChanged.connect(self._workflow_tab_changed)
+        self.workflow_tabs.tabBar().setObjectName("workflowTabBar")
+        self.workflow_tabs.tabBar().setExpanding(True)
+        self.workflow_tabs.tabBar().setUsesScrollButtons(True)
+        self.workflow_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
+        self.workflow_tabs.setMinimumHeight(0)
+        set_tooltip(self.workflow_tabs, "Switch between the main workflow areas of the GUI. Ctrl+1..7 switches sections.")
+        set_tooltip(self.workflow_tabs.tabBar(), "Switch between the main workflow areas of the GUI. Ctrl+1..7 switches sections.")
         self.workspace_page = self._build_workspace_page()
         self.runs_page = self._build_runs_page()
         self.assets_tab = AssetsTab(
@@ -389,9 +352,8 @@ class MainWindow(QMainWindow):
             ("extensions", self.extensions_tab),
             ("settings", self.settings_page),
         ):
-            self._page_indices[key] = self.section_stack.addWidget(page)
-        body_split.addWidget(self.section_stack)
-        root.addWidget(body_split, 1)
+            self._page_indices[key] = self.workflow_tabs.addTab(page, self._workflow_label_for_key(key))
+        root.addWidget(self.workflow_tabs, 1)
         self.setCentralWidget(central)
 
     def _build_workspace_page(self) -> QWidget:
@@ -411,10 +373,7 @@ class MainWindow(QMainWindow):
         left_top_panel = QWidget()
         left_top_layout = QVBoxLayout(left_top_panel)
         left_top_layout.setContentsMargins(0, 0, 0, 0)
-        left_top_layout.setSpacing(10)
-        left_title = QLabel("Overview")
-        left_title.setObjectName("sectionTitle")
-        left_top_layout.addWidget(left_title)
+        left_top_layout.setSpacing(PAGE_SECTION_SPACING)
         self.workspace_tab_context_label = QLabel("Active session workspace")
         self.workspace_tab_context_label.setObjectName("infoBanner")
         self.workspace_tab_context_label.setWordWrap(True)
@@ -482,19 +441,7 @@ class MainWindow(QMainWindow):
         workspace_runs = QWidget()
         workspace_runs_layout = QVBoxLayout(workspace_runs)
         workspace_runs_layout.setContentsMargins(0, 0, 0, 0)
-        workspace_runs_layout.setSpacing(10)
-        filter_row = QHBoxLayout()
-        filter_row.setContentsMargins(0, 0, 0, 0)
-        filter_row.setSpacing(10)
-        self.workspace_run_search_edit = QLineEdit()
-        self.workspace_run_search_edit.setPlaceholderText("Search current session runs")
-        self.workspace_run_search_edit.textChanged.connect(self._sync_workspace_run_table)
-        set_tooltip(self.workspace_run_search_edit, "Filter current-session runs by scan name, state, task, or progress.")
-        filter_row.addWidget(QLabel("Search"))
-        filter_row.addWidget(self.workspace_run_search_edit, 1)
-        self.workspace_run_results_label = QLabel("Showing 0/0 runs")
-        self.workspace_run_results_label.setObjectName("helperText")
-        self.workspace_run_results_label.setWordWrap(True)
+        workspace_runs_layout.setSpacing(PAGE_SECTION_SPACING)
         self.workspace_run_model = MappingTableModel(
             [("Scan Name", "scan_name"), ("State", "state"), ("Current Task", "current_task"), ("Progress", lambda row: row.get("progress") or "--")]
         )
@@ -519,20 +466,10 @@ class MainWindow(QMainWindow):
         )
         set_tooltip(self.workspace_run_table, "Select a run to inspect it, or double-click to jump into Findings.")
         workspace_runs_layout.addWidget(self.workspace_run_table, 1)
-        workspace_toolbar, workspace_toolbar_layout = build_surface_frame(
-            surface=SURFACE_FLAT,
-            padding=0,
-            spacing=8,
-        )
-        workspace_toolbar.setObjectName("toolbarStrip")
-        workspace_toolbar_layout.setContentsMargins(0, 0, 0, 0)
-        workspace_toolbar_layout.addLayout(filter_row)
         runs_panel, _runs_title, _runs_summary = build_table_section(
-            "Runs In Workspace",
+            "Scans Overview",
             workspace_runs,
             surface=SURFACE_PRIMARY,
-            toolbar=workspace_toolbar,
-            status_label=self.workspace_run_results_label,
         )
         center_layout.addWidget(runs_panel, 1)
         content_split.addWidget(center_panel)
@@ -540,7 +477,7 @@ class MainWindow(QMainWindow):
         inspector_body = QWidget()
         inspector_layout = QVBoxLayout(inspector_body)
         inspector_layout.setContentsMargins(0, 0, 0, 0)
-        inspector_layout.setSpacing(10)
+        inspector_layout.setSpacing(PAGE_SECTION_SPACING)
 
         self.overview_checklist_panel = OverviewChecklistPanel()
         self.overview_checklist_panel.add_requested.connect(self._add_overview_checklist_item)
@@ -551,8 +488,8 @@ class MainWindow(QMainWindow):
         notes_panel, notes_layout = build_surface_frame(
             object_name="sectionPanel",
             surface=SURFACE_SECONDARY,
-            padding=12,
-            spacing=10,
+            padding=PANEL_CONTENT_PADDING,
+            spacing=PAGE_SECTION_SPACING,
         )
         notes_header = QLabel("Notes")
         notes_header.setObjectName("sectionTitle")
@@ -568,7 +505,7 @@ class MainWindow(QMainWindow):
         inspector_panel, inspector_panel_layout = build_surface_frame(
             object_name="inspectorPanel",
             surface=SURFACE_PRIMARY,
-            spacing=10,
+            spacing=PAGE_SECTION_SPACING,
         )
         inspector_panel_layout.addWidget(inspector_body, 1)
 
@@ -591,19 +528,9 @@ class MainWindow(QMainWindow):
         launch_strip_layout.addWidget(self._build_scanner_launch_card())
         layout.addWidget(launch_strip, 0)
 
-        # Keep selected-run actions in the control area, independent from the launch strip.
-        runs_control_panel = QFrame()
-        runs_control_panel.setObjectName("scannerConsoleLeftColumn")
-        runs_control_panel.setProperty("surface", SURFACE_PRIMARY)
-        runs_control_panel.setMinimumWidth(240)
-        runs_control_layout = QVBoxLayout(runs_control_panel)
-        runs_control_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
-        runs_control_layout.setSpacing(PAGE_SECTION_SPACING)
-        runs_control_layout.addWidget(self._wrap_group("Active Run", self._build_selected_run_control_card()), 1)
-
         self.run_filter_grid = QGridLayout()
-        self.run_filter_grid.setHorizontalSpacing(10)
-        self.run_filter_grid.setVerticalSpacing(10)
+        self.run_filter_grid.setHorizontalSpacing(PAGE_SECTION_SPACING)
+        self.run_filter_grid.setVerticalSpacing(PAGE_SECTION_SPACING)
         self.run_search_edit = QLineEdit()
         self.run_search_edit.setPlaceholderText("Search runs, targets, or current task")
         self.run_search_edit.textChanged.connect(self._sync_run_table)
@@ -612,7 +539,7 @@ class MainWindow(QMainWindow):
         self.run_state_filter.currentTextChanged.connect(self._sync_run_table)
         set_tooltips(
             (
-                (self.run_search_edit, "Filter the run queue by scan name, targets, or current task."),
+                (self.run_search_edit, "Filter the scan queue by scan name, targets, or current task."),
                 (self.run_state_filter, "Show only runs in the selected state."),
             )
         )
@@ -623,7 +550,7 @@ class MainWindow(QMainWindow):
         run_toolbar, run_toolbar_layout = build_surface_frame(
             surface=SURFACE_FLAT,
             padding=0,
-            spacing=8,
+            spacing=PAGE_CARD_SPACING,
         )
         run_toolbar.setObjectName("toolbarStrip")
         run_toolbar_layout.setContentsMargins(0, 0, 0, 0)
@@ -664,13 +591,13 @@ class MainWindow(QMainWindow):
         self.run_table.customContextMenuRequested.connect(
             lambda point, view=self.run_table: self._open_run_context_menu(view, point)
         )
-        set_tooltip(self.run_table, "Select a run to enable controls, or double-click to open it in Findings.")
+        set_tooltip(self.run_table, "Select a scan to inspect it, right-click for controls, or double-click to open it in Findings.")
         self.scanner_panel = ScannerPanel(layout_loader=self._load_ui_layout, layout_saver=self._save_ui_layout)
         self.scanner_panel.set_context_menu_handler(self._handle_scanner_context_menu)
         self.runs_body_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (3, 4))
         self._register_splitter(self.runs_body_split, "runs_body_split")
         run_queue_panel, _queue_title, _queue_summary = build_table_section(
-            "Run Queue",
+            "Scan Queue",
             self.run_table,
             summary_text="",
             surface=SURFACE_PRIMARY,
@@ -685,11 +612,7 @@ class MainWindow(QMainWindow):
         )
         self.runs_body_split.addWidget(run_queue_panel)
         self.runs_body_split.addWidget(scanner_detail_panel)
-        self.runs_page_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (2, 5))
-        self._register_splitter(self.runs_page_split, "runs_page_split")
-        self.runs_page_split.addWidget(runs_control_panel)
-        self.runs_page_split.addWidget(self.runs_body_split)
-        layout.addWidget(self.runs_page_split, 1)
+        layout.addWidget(self.runs_body_split, 1)
         return page
 
     def _build_scanner_launch_card(self) -> QWidget:
@@ -703,135 +626,13 @@ class MainWindow(QMainWindow):
         self.start_scan_button.setObjectName("scannerStartButton")
         self.start_scan_button.clicked.connect(self._start_scan)
         self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
-        style_button(self.start_scan_button, min_height=48)
+        style_button(self.start_scan_button, min_height=38)
         self.start_scan_button.setMinimumWidth(190)
         self.start_scan_button.setMaximumWidth(280)
         self.start_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout.addWidget(self.start_scan_button, 0, Qt.AlignLeft)
         return card
-
-    def _build_selected_run_control_card(self) -> QWidget:
-        card = QWidget()
-        card.setObjectName("scannerRunCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PAGE_CARD_SPACING)
-
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(0, 0, 0, 0)
-        header_row.setSpacing(10)
-        header_text = QVBoxLayout()
-        header_text.setContentsMargins(0, 0, 0, 0)
-        header_text.setSpacing(4)
-
-        self.selected_run_name_label = QLabel("No run selected")
-        self.selected_run_name_label.setObjectName("scannerRunName")
-        self.selected_run_name_label.setWordWrap(True)
-        self.selected_run_target_label = QLabel("Choose a run from the queue to inspect and control it here.")
-        self.selected_run_target_label.setObjectName("scannerRunContext")
-        self.selected_run_target_label.setWordWrap(True)
-        header_text.addWidget(self.selected_run_name_label)
-        header_text.addWidget(self.selected_run_target_label)
-
-        self.selected_run_state_badge = QLabel("Idle")
-        self.selected_run_state_badge.setObjectName("statusBadge")
-        self.selected_run_state_badge.setProperty("state", "idle")
-        self.selected_run_state_badge.setAlignment(Qt.AlignCenter)
-
-        header_row.addLayout(header_text, 1)
-        header_row.addWidget(self.selected_run_state_badge, 0, Qt.AlignTop)
-        layout.addLayout(header_row)
-
-        self.selected_run_status_label = QLabel("No run selected. Choose a run from the table before using Scanner controls.")
-        self.selected_run_status_label.setObjectName("scannerRunSummaryText")
-        self.selected_run_status_label.setWordWrap(True)
-        layout.addWidget(self.selected_run_status_label)
-
-        summary_grid = QGridLayout()
-        summary_grid.setContentsMargins(0, 0, 0, 0)
-        summary_grid.setHorizontalSpacing(10)
-        summary_grid.setVerticalSpacing(10)
-        progress_tile, self.selected_run_progress_value = self._build_scanner_summary_tile("Progress")
-        task_tile, self.selected_run_task_value = self._build_scanner_summary_tile("Current Task")
-        elapsed_tile, self.selected_run_elapsed_value = self._build_scanner_summary_tile("Elapsed")
-        eta_tile, self.selected_run_eta_value = self._build_scanner_summary_tile("ETA")
-        summary_grid.addWidget(progress_tile, 0, 0)
-        summary_grid.addWidget(task_tile, 0, 1)
-        summary_grid.addWidget(elapsed_tile, 1, 0)
-        summary_grid.addWidget(eta_tile, 1, 1)
-        layout.addLayout(summary_grid)
-
-        self.pause_button = QPushButton("Pause")
-        self.pause_button.clicked.connect(lambda: self._send_control_action("pause"))
-        self.resume_button = QPushButton("Resume")
-        self.resume_button.clicked.connect(lambda: self._send_control_action("resume"))
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.clicked.connect(lambda: self._send_control_action("stop"))
-        self.skip_button = QPushButton("Skip Task")
-        self.skip_button.clicked.connect(lambda: self._send_control_action("skip"))
-        self.retry_button = QPushButton("Retry Run")
-        self.retry_button.clicked.connect(self._retry_selected_run)
-
-        set_tooltips(
-            (
-                (self.pause_button, "Pause the selected running job. Shortcut: Ctrl+P."),
-                (self.resume_button, "Resume the selected paused run."),
-                (self.stop_button, "Stop the selected run."),
-                (self.skip_button, "Skip the current task for the selected run."),
-                (self.retry_button, "Relaunch the selected run configuration. Shortcut: Ctrl+R."),
-            )
-        )
-
-        for button in (
-            self.pause_button,
-            self.resume_button,
-            self.skip_button,
-            self.retry_button,
-        ):
-            button.setObjectName("scannerActionButton")
-            style_button(button, role="secondary", min_height=38)
-        self.stop_button.setObjectName("scannerDangerButton")
-        style_button(self.stop_button, role="danger", min_height=38)
-
-        layout.addWidget(
-            self._build_scanner_action_section("Run Control", (self.pause_button, self.resume_button, self.stop_button))
-        )
-        layout.addWidget(
-            self._build_scanner_action_section("Task Flow", (self.skip_button, self.retry_button))
-        )
-        layout.addStretch(1)
-        return card
-
-    def _build_scanner_summary_tile(self, label: str) -> tuple[QFrame, QLabel]:
-        tile = QFrame()
-        tile.setObjectName("scannerMetricTile")
-        tile_layout = QVBoxLayout(tile)
-        tile_layout.setContentsMargins(PANEL_COMPACT_PADDING, PANEL_COMPACT_PADDING - 2, PANEL_COMPACT_PADDING, PANEL_COMPACT_PADDING - 2)
-        tile_layout.setSpacing(4)
-        key_label = QLabel(label)
-        key_label.setObjectName("scannerMetricLabel")
-        value_label = QLabel("--")
-        value_label.setObjectName("scannerMetricValue")
-        value_label.setWordWrap(True)
-        tile_layout.addWidget(key_label)
-        tile_layout.addWidget(value_label)
-        return tile, value_label
-
-    def _build_scanner_action_section(self, title: str, buttons: tuple[QPushButton, ...]) -> QWidget:
-        section = QWidget()
-        section.setObjectName("scannerActionSection")
-        section_layout = QVBoxLayout(section)
-        section_layout.setContentsMargins(0, 0, 0, 0)
-        section_layout.setSpacing(6)
-        section_label = QLabel(title.upper())
-        section_label.setObjectName("scannerActionGroupLabel")
-        button_row = FlowButtonRow(h_spacing=8, v_spacing=8)
-        for button in buttons:
-            button_row.addWidget(button)
-        section_layout.addWidget(section_label)
-        section_layout.addWidget(button_row)
-        return section
 
     def _build_performance_slider_row(
         self,
@@ -840,34 +641,149 @@ class MainWindow(QMainWindow):
         value_label: QLabel,
         tooltip: str,
     ) -> QWidget:
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(10)
+        row = QFrame()
+        row.setObjectName("settingsControlGroup")
+        row_layout = QVBoxLayout(row)
+        row_layout.setContentsMargins(12, 10, 12, 10)
+        row_layout.setSpacing(8)
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
         name = QLabel(label)
-        name.setMinimumWidth(190)
+        name.setObjectName("settingsFieldLabel")
         slider.setOrientation(Qt.Horizontal)
         slider.setToolTip(tooltip)
+        slider.setMinimumHeight(28)
         value_label.setMinimumWidth(72)
         value_label.setObjectName("monoLabel")
-        row_layout.addWidget(name)
-        row_layout.addWidget(slider, 1)
-        row_layout.addWidget(value_label)
+        header_layout.addWidget(name)
+        header_layout.addStretch(1)
+        header_layout.addWidget(value_label)
+        helper = QLabel(tooltip)
+        helper.setObjectName("helperText")
+        helper.setWordWrap(True)
+        row_layout.addWidget(header)
+        row_layout.addWidget(helper)
+        row_layout.addWidget(slider)
         return row
+
+    def _build_settings_card(
+        self,
+        title: str,
+        *,
+        summary: str = "",
+        danger: bool = False,
+    ) -> tuple[Card, QVBoxLayout]:
+        card = Card(
+            title,
+            summary=summary,
+            object_name="settingsDangerCard" if danger else "settingsCard",
+            padding=18,
+            spacing=12,
+        )
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        return card, card.content_layout
+
+    def _build_settings_divider(self) -> QFrame:
+        divider = QFrame()
+        divider.setObjectName("settingsDivider")
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Plain)
+        return divider
+
+    def _scroll_to_settings_section(self, row: int) -> None:
+        if row < 0:
+            return
+        sections = getattr(self, "_settings_section_widgets", [])
+        if row >= len(sections):
+            return
+        self.settings_scroll_area.ensureWidgetVisible(sections[row], 0, 14)
+
+    def _sync_settings_nav_to_scroll(self, value: int) -> None:
+        sections = getattr(self, "_settings_section_widgets", [])
+        if not sections or not hasattr(self, "settings_nav_list"):
+            return
+        active_row = 0
+        for index, section in enumerate(sections):
+            if section.pos().y() <= value + 40:
+                active_row = index
+            else:
+                break
+        if self.settings_nav_list.currentRow() == active_row:
+            return
+        self.settings_nav_list.blockSignals(True)
+        self.settings_nav_list.setCurrentRow(active_row)
+        self.settings_nav_list.blockSignals(False)
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PAGE_SECTION_SPACING)
+        layout.setSpacing(0)
 
-        session_panel, session_layout = build_surface_frame(spacing=12)
-        session_header, _session_title, _session_summary = build_section_header("Session")
-        session_layout.addWidget(session_header)
+        self.settings_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (1, 4))
+        self._register_splitter(self.settings_split, "settings_split")
+
+        rail = QFrame()
+        rail.setObjectName("sidebarPanel")
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        rail_layout.setSpacing(PAGE_SECTION_SPACING)
+        rail_title = QLabel("Settings")
+        rail_title.setObjectName("sectionTitle")
+        rail_helper = QLabel("Jump to session, resource, storage, and cleanup controls.")
+        rail_helper.setObjectName("helperText")
+        rail_helper.setWordWrap(True)
+        self.settings_nav_list = QListWidget()
+        self.settings_nav_list.setObjectName("sidebarList")
+        self.settings_nav_list.currentRowChanged.connect(self._scroll_to_settings_section)
+        for section_title in (
+            "Session",
+            "Workspace Controls",
+            "Resource Limits",
+            "Metadata Paths",
+            "Storage & Utilities",
+            "Danger Zone",
+        ):
+            self.settings_nav_list.addItem(QListWidgetItem(section_title))
+        rail_layout.addWidget(rail_title)
+        rail_layout.addWidget(rail_helper)
+        rail_layout.addWidget(self.settings_nav_list, 1)
+        self.settings_split.addWidget(rail)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        self.settings_scroll_area = configure_scroll_surface(QScrollArea())
+        self.settings_scroll_area.setObjectName("settingsScroll")
+        self.settings_scroll_area.setWidgetResizable(True)
+        self.settings_scroll_area.setFrameShape(QFrame.NoFrame)
+        self.settings_scroll_area.verticalScrollBar().valueChanged.connect(self._sync_settings_nav_to_scroll)
+        content = QWidget()
+        content.setObjectName("settingsContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, PAGE_CARD_SPACING, 0)
+        content_layout.setSpacing(18)
+
+        session_panel, session_layout = self._build_settings_card(
+            "Session",
+            summary="Current runtime scope for this GUI session.",
+        )
+        self._settings_section_widgets = [session_panel]
         self.active_workspace_status_label = QLabel("Session workspace: Ad-Hoc")
         self.active_workspace_status_label.setObjectName("infoBanner")
         self.active_workspace_status_label.setWordWrap(True)
         set_tooltip(self.active_workspace_status_label, "Shows the workspace currently bound to this GUI session.")
+        session_layout.addWidget(self.active_workspace_status_label)
+        content_layout.addWidget(session_panel)
+
+        workspace_panel, workspace_layout = self._build_settings_card(
+            "Workspace Controls",
+            summary="Switch between saved workspace state and ad-hoc operation.",
+        )
+        self._settings_section_widgets.append(workspace_panel)
         self.settings_workspace_combo = QComboBox()
         self.settings_workspace_combo.setObjectName("workspaceSwitchCombo")
         self.settings_workspace_combo.currentIndexChanged.connect(lambda _index: self._update_settings_workspace_switch_actions())
@@ -887,85 +803,90 @@ class MainWindow(QMainWindow):
         )
         session_actions.addWidget(self.apply_workspace_button)
         session_actions.addWidget(self.settings_ad_hoc_button)
-        session_layout.addWidget(self.active_workspace_status_label)
-        session_layout.addWidget(QLabel("Active workspace"))
-        session_layout.addWidget(self.settings_workspace_combo)
-        session_layout.addWidget(session_actions)
-        self.settings_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (2, 3))
-        self._register_splitter(self.settings_split, "settings_split")
-        self.settings_split.addWidget(session_panel)
+        workspace_label = QLabel("Active workspace")
+        workspace_label.setObjectName("settingsFieldLabel")
+        workspace_layout.addWidget(workspace_label)
+        workspace_layout.addWidget(self.settings_workspace_combo)
+        workspace_layout.addWidget(session_actions)
+        content_layout.addWidget(workspace_panel)
 
-        performance_panel, performance_layout = build_surface_frame(spacing=12)
-        performance_header, _performance_title, _performance_summary = build_section_header("Performance Guard")
-        performance_layout.addWidget(performance_header)
-        self.performance_guard_enabled_checkbox = QCheckBox("Alert when host CPU or memory is high")
+        performance_panel, performance_layout = self._build_settings_card(
+            "Resource Limits",
+            summary="Keep worker processes inside the CPU and memory envelope you choose.",
+        )
+        performance_panel.setObjectName("settingsPrimaryCard")
+        self._settings_section_widgets.append(performance_panel)
+        self.performance_guard_enabled_checkbox = QCheckBox("Limit AttackCastle CPU and memory usage")
         self.performance_guard_enabled_checkbox.setChecked(self.performance_guard_settings.enabled)
         self.performance_guard_enabled_checkbox.toggled.connect(lambda _checked: self._persist_performance_guard_settings())
         self.performance_guard_status_label = QLabel(
-            "When pressure is detected, AttackCastle can cap workers, heavy tooling, threads, and request pacing for running scans."
+            "Defaults are max. Lower a limit to have AttackCastle throttle, pause queued work, and gracefully cancel one running task if pressure persists."
         )
         self.performance_guard_status_label.setObjectName("infoBanner")
         self.performance_guard_status_label.setWordWrap(True)
-        cpu_count = max(1, int(os.cpu_count() or 1))
         self.performance_cpu_slider = QSlider(Qt.Horizontal)
-        self.performance_cpu_slider.setRange(1, cpu_count)
-        self.performance_cpu_slider.setValue(
-            max(1, min(cpu_count, int(self.performance_guard_settings.throttle_cpu_cores or 1)))
-        )
+        self.performance_cpu_slider.setRange(1, 100)
+        self.performance_cpu_slider.setValue(int(self.performance_guard_settings.cpu_limit_percent))
         self.performance_cpu_value_label = QLabel("")
         self.performance_cpu_slider.valueChanged.connect(lambda _value: self._persist_performance_guard_settings())
         self.performance_memory_slider = QSlider(Qt.Horizontal)
-        self.performance_memory_slider.setRange(50, 98)
-        self.performance_memory_slider.setValue(int(self.performance_guard_settings.memory_alert_percent))
+        self.performance_memory_slider.setRange(1, 100)
+        self.performance_memory_slider.setValue(int(self.performance_guard_settings.memory_limit_percent))
         self.performance_memory_value_label = QLabel("")
         self.performance_memory_slider.valueChanged.connect(lambda _value: self._persist_performance_guard_settings())
-        self.performance_test_throttle_button = QPushButton("Throttle Running Scans Now")
-        style_button(self.performance_test_throttle_button, role="secondary")
+        self.performance_test_throttle_button = QPushButton("Apply Limits To Running Scans")
+        style_button(self.performance_test_throttle_button)
         self.performance_test_throttle_button.clicked.connect(lambda: self._throttle_live_runs("operator_requested"))
         set_tooltips(
             (
                 (
                     self.performance_guard_enabled_checkbox,
-                    "Enable the host pressure alert and automatic offer to throttle running scans.",
+                    "Enable process-scoped CPU and memory limits for AttackCastle worker and tool processes.",
                 ),
                 (
                     self.performance_test_throttle_button,
-                    "Immediately apply the performance guard limits to all live running scans.",
+                    "Immediately send the current resource limits to all live running scans.",
                 ),
             )
         )
         performance_layout.addWidget(self.performance_guard_enabled_checkbox)
         performance_layout.addWidget(self.performance_guard_status_label)
+        performance_layout.addWidget(self._build_settings_divider())
         performance_layout.addWidget(
             self._build_performance_slider_row(
-                "Throttle CPU cores",
+                "CPU limit",
                 self.performance_cpu_slider,
                 self.performance_cpu_value_label,
-                "Maximum workers and tool threads AttackCastle may use after throttling.",
+                "Maximum percentage of total system CPU capacity AttackCastle should use.",
             )
         )
         performance_layout.addWidget(
             self._build_performance_slider_row(
-                "RAM alert threshold",
+                "Memory limit",
                 self.performance_memory_slider,
                 self.performance_memory_value_label,
-                "Prompt when system memory usage reaches this percentage; also tightens adaptive memory pressure.",
+                "Maximum percentage of total system RAM AttackCastle should use.",
             )
         )
-        performance_layout.addWidget(self.performance_test_throttle_button, 0, Qt.AlignLeft)
-        self.settings_split.addWidget(performance_panel)
+        performance_layout.addWidget(self._build_settings_divider())
+        performance_layout.addWidget(self.performance_test_throttle_button)
+        content_layout.addWidget(performance_panel)
 
-        store_panel, store_layout = build_surface_frame(spacing=12)
-        store_header, _store_title, _store_summary = build_section_header("Storage & Utilities")
-        store_layout.addWidget(store_header)
+        paths_panel, paths_layout = self._build_settings_card(
+            "Metadata Paths",
+            summary="Local files used for profiles, workspace metadata, audit state, and run registry data.",
+        )
+        self._settings_section_widgets.append(paths_panel)
         self.profile_store_path_label = QLabel("")
         self.profile_store_path_label.setObjectName("monoLabel")
+        self.profile_store_path_label.setProperty("variant", "path")
         self.profile_store_path_label.setWordWrap(True)
         open_profiles = QPushButton("Open Profile Store Folder")
         style_button(open_profiles, role="secondary")
         open_profiles.clicked.connect(lambda: self._open_local_path(str(self.store.path.parent)))
         self.workspace_store_path_label = QLabel("")
         self.workspace_store_path_label.setObjectName("monoLabel")
+        self.workspace_store_path_label.setProperty("variant", "path")
         self.workspace_store_path_label.setWordWrap(True)
         open_workspace = QPushButton("Open Workspace Store Folder")
         style_button(open_workspace, role="secondary")
@@ -980,24 +901,39 @@ class MainWindow(QMainWindow):
                 (about_button, "Show a short description of the GUI."),
             )
         )
+        profile_label = QLabel("Profile store path")
+        profile_label.setObjectName("settingsFieldLabel")
+        workspace_store_label = QLabel("Workspace store path")
+        workspace_store_label.setObjectName("settingsFieldLabel")
+        paths_layout.addWidget(profile_label)
+        paths_layout.addWidget(self.profile_store_path_label)
+        paths_layout.addWidget(open_profiles)
+        paths_layout.addWidget(self._build_settings_divider())
+        paths_layout.addWidget(workspace_store_label)
+        paths_layout.addWidget(self.workspace_store_path_label)
+        paths_layout.addWidget(open_workspace)
+        content_layout.addWidget(paths_panel)
+
+        store_panel, store_layout = self._build_settings_card(
+            "Storage & Utilities",
+            summary="Application shortcuts and supporting actions.",
+        )
+        self._settings_section_widgets.append(store_panel)
         self.shortcut_summary_label = QLabel(
             "Shortcuts: Ctrl+1..7 navigate sections, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder."
         )
         self.shortcut_summary_label.setObjectName("infoBanner")
         self.shortcut_summary_label.setWordWrap(True)
-        store_layout.addWidget(QLabel("Profile store path"))
-        store_layout.addWidget(self.profile_store_path_label)
-        store_layout.addWidget(open_profiles, 0, Qt.AlignLeft)
-        store_layout.addWidget(QLabel("Workspace store path"))
-        store_layout.addWidget(self.workspace_store_path_label)
-        store_layout.addWidget(open_workspace, 0, Qt.AlignLeft)
-        store_layout.addWidget(about_button, 0, Qt.AlignLeft)
         store_layout.addWidget(self.shortcut_summary_label)
-        self.settings_split.addWidget(store_panel)
-        layout.addWidget(self.settings_split, 1)
+        store_layout.addWidget(about_button)
+        content_layout.addWidget(store_panel)
 
-        danger_panel, danger_layout = build_surface_frame(spacing=10)
-        danger_header, _danger_title, _danger_summary = build_section_header("Danger Zone")
+        danger_panel, danger_layout = self._build_settings_card(
+            "Danger Zone",
+            summary="Destructive workspace cleanup actions live here deliberately.",
+            danger=True,
+        )
+        self._settings_section_widgets.append(danger_panel)
         self.danger_zone_status_label = QLabel("No workspace deletion is currently armed.")
         self.danger_zone_status_label.setObjectName("attentionBanner")
         self.danger_zone_status_label.setProperty("tone", "alert")
@@ -1023,10 +959,16 @@ class MainWindow(QMainWindow):
         danger_actions = FlowButtonRow()
         danger_actions.addWidget(self.delete_active_workspace_data_button)
         danger_actions.addWidget(self.delete_all_workspaces_data_button)
-        danger_layout.addWidget(danger_header)
         danger_layout.addWidget(self.danger_zone_status_label)
         danger_layout.addWidget(danger_actions)
-        layout.addWidget(danger_panel)
+        content_layout.addWidget(danger_panel)
+        content_layout.addStretch(1)
+
+        self.settings_scroll_area.setWidget(content)
+        right_layout.addWidget(self.settings_scroll_area, 1)
+        self.settings_split.addWidget(right)
+        self.settings_nav_list.setCurrentRow(0)
+        layout.addWidget(self.settings_split, 1)
         return page
 
     def _setup_shortcuts(self) -> None:
@@ -1040,28 +982,34 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+P"), self).activated.connect(self._toggle_pause_resume)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self._open_context_path)
 
-    def _nav_row_changed(self, row: int) -> None:
+    def _workflow_label_for_key(self, key: str) -> str:
+        labels = {
+            "workspaces": "Overview",
+            "runs": "Scanner",
+            "assets": "Assets",
+            "findings": "Findings",
+            "profiles": "Profiles",
+            "extensions": "Extensions",
+            "settings": "Settings",
+        }
+        return labels.get(key, title_case_label(key))
+
+    def _workflow_tab_changed(self, row: int) -> None:
         if 0 <= row < len(self._nav_order):
-            self.section_stack.setCurrentIndex(self._page_indices[self._nav_order[row]])
+            return
 
     def _navigate_to(self, key: str) -> None:
         if key not in self._page_indices:
             return
-        row = self._nav_order.index(key)
-        self.nav_list.blockSignals(True)
-        self.nav_list.setCurrentRow(row)
-        self.nav_list.blockSignals(False)
-        self.section_stack.setCurrentIndex(self._page_indices[key])
+        self.workflow_tabs.setCurrentIndex(self._page_indices[key])
 
     def _workspace_run_selected(self, index: QModelIndex) -> None:
         self._run_selected(index)
 
     def _sync_workspace_run_table(self) -> None:
-        search = self.workspace_run_search_edit.text().strip().lower()
         rows = []
         total = 0
         for snapshot in sorted(self._run_snapshots.values(), key=lambda item: (RUN_STATE_ORDER.get(item.state, 99), item.scan_name.lower())):
-            total += 1
             row = {
                 "run_id": snapshot.run_id,
                 "scan_name": snapshot.scan_name,
@@ -1069,14 +1017,12 @@ class MainWindow(QMainWindow):
                 "current_task": snapshot.current_task,
                 "progress": format_progress(snapshot.completed_tasks, snapshot.total_tasks),
             }
-            if search and search not in json.dumps(row, sort_keys=True).lower():
-                continue
             rows.append(row)
         self.workspace_run_model.set_rows(rows)
-        self.workspace_run_results_label.setText(f"Showing {len(rows)}/{total} runs")
 
     def _focus_active_search(self) -> None:
-        current_key = self._nav_order[self.nav_list.currentRow()] if self.nav_list.currentRow() >= 0 else "workspaces"
+        current_index = self.workflow_tabs.currentIndex()
+        current_key = self._nav_order[current_index] if 0 <= current_index < len(self._nav_order) else "workspaces"
         if current_key == "findings":
             self.output_tab.focus_search()
         elif current_key == "assets":
@@ -1084,9 +1030,8 @@ class MainWindow(QMainWindow):
         elif current_key == "runs":
             self.run_search_edit.setFocus()
             self.run_search_edit.selectAll()
-        else:
-            self.workspace_run_search_edit.setFocus()
-            self.workspace_run_search_edit.selectAll()
+        elif current_key == "workspaces":
+            self.workspace_run_table.setFocus()
 
     def _focus_findings_search(self) -> None:
         self._navigate_to("findings")
@@ -1102,7 +1047,7 @@ class MainWindow(QMainWindow):
             self._send_control_action("pause")
 
     def _open_context_path(self) -> None:
-        if self.section_stack.currentWidget() is self.output_tab and self.output_tab.has_current_artifact():
+        if self.workflow_tabs.currentWidget() is self.output_tab and self.output_tab.has_current_artifact():
             self.output_tab.open_current_artifact()
             return
         self._open_selected_run_folder()
@@ -1155,9 +1100,9 @@ class MainWindow(QMainWindow):
         group.setObjectName("panelGroup" if title else "panelGroupUntitled")
         group_layout = QVBoxLayout(group)
         if title:
-            group_layout.setContentsMargins(14, 18, 14, 14)
+            group_layout.setContentsMargins(8, 10, 8, 8)
         else:
-            group_layout.setContentsMargins(14, 14, 14, 14)
+            group_layout.setContentsMargins(8, 8, 8, 8)
         group_layout.setSpacing(0)
         group_layout.addWidget(widget)
         return group
@@ -1202,22 +1147,24 @@ class MainWindow(QMainWindow):
             {
                 **self.performance_guard_settings.to_dict(),
                 "enabled": self.performance_guard_enabled_checkbox.isChecked(),
-                "throttle_cpu_cores": self.performance_cpu_slider.value(),
-                "memory_alert_percent": self.performance_memory_slider.value(),
+                "cpu_limit_percent": self.performance_cpu_slider.value(),
+                "memory_limit_percent": self.performance_memory_slider.value(),
             }
         )
 
     def _sync_performance_guard_controls(self) -> None:
         if not hasattr(self, "performance_cpu_value_label"):
             return
-        self.performance_cpu_value_label.setText(f"{self.performance_cpu_slider.value()} core(s)")
+        self.performance_cpu_value_label.setText(f"{self.performance_cpu_slider.value()}%")
         self.performance_memory_value_label.setText(f"{self.performance_memory_slider.value()}%")
         self.performance_test_throttle_button.setEnabled(bool(self._live_running_snapshots()))
+        self._performance_timer.setInterval(max(1000, int(self.performance_guard_settings.sample_interval_seconds) * 1000))
 
     def _persist_performance_guard_settings(self) -> None:
         self.performance_guard_settings = self._performance_guard_from_controls()
         save_performance_guard_settings(self.performance_guard_settings)
         self._sync_performance_guard_controls()
+        self._send_resource_limit_update_to_live_runs()
 
     def _live_running_snapshots(self) -> list[RunSnapshot]:
         terminal_states = {"completed", "failed", "cancelled", "blocked"}
@@ -1233,82 +1180,191 @@ class MainWindow(QMainWindow):
 
     def _check_performance_guard(self) -> None:
         settings = self.performance_guard_settings
-        if not settings.enabled or self._performance_prompt_active:
+        if not settings.enabled:
             return
         live_runs = self._live_running_snapshots()
         if not live_runs:
+            self._resource_pressure_active = False
             return
-        sample = self._system_usage_sampler.sample()
-        cpu_high = sample.cpu_percent is not None and sample.cpu_percent >= settings.cpu_alert_percent
+        sample = self._system_usage_sampler.sample(self._live_running_process_ids())
+        cpu_high = sample.cpu_percent is not None and sample.cpu_percent > settings.cpu_limit_percent
         memory_high = (
             sample.memory_used_percent is not None
-            and sample.memory_used_percent >= settings.memory_alert_percent
+            and sample.memory_used_percent > settings.memory_limit_percent
         )
         if not cpu_high and not memory_high:
+            self.performance_guard_status_label.setText(
+                self._resource_status_text(sample, "Within configured limits.")
+            )
+            if self._resource_pressure_active:
+                self._resource_pressure_active = False
+                self._send_resource_relief_to_live_runs(sample)
             return
-        now = monotonic()
-        if now - self._last_performance_prompt_at < 120.0:
-            return
-        self._last_performance_prompt_at = now
-        self._performance_prompt_active = True
-        details: list[str] = []
-        if sample.cpu_percent is not None:
-            details.append(f"CPU {sample.cpu_percent:.1f}%")
-        if sample.memory_used_percent is not None:
-            details.append(f"RAM {sample.memory_used_percent:.1f}%")
-        detail_text = ", ".join(details) if details else "host pressure detected"
-        decision = QMessageBox.question(
-            self,
-            "High Resource Usage",
-            (
-                "Warning: High Memory/CPU usage detected, would you like to throttle AttackCastle?\n\n"
-                f"Current pressure: {detail_text}"
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
+
+        reasons: list[str] = []
+        if cpu_high and sample.cpu_percent is not None:
+            reasons.append(f"CPU {sample.cpu_percent:.1f}% > {settings.cpu_limit_percent}%")
+        if memory_high and sample.memory_used_percent is not None:
+            reasons.append(f"RAM {sample.memory_used_percent:.1f}% > {settings.memory_limit_percent}%")
+        reason = ", ".join(reasons) or "resource_pressure"
+        self._resource_pressure_active = True
+        self._last_resource_action = f"Pressure detected: {reason}"
+        self.performance_guard_status_label.setText(self._resource_status_text(sample, self._last_resource_action))
+        self._send_resource_pressure_to_live_runs(sample, reason)
+
+    def _resource_status_text(self, sample, action: str) -> str:  # noqa: ANN001
+        cpu_text = "--" if sample.cpu_percent is None else f"{sample.cpu_percent:.1f}%"
+        memory_text = "--" if sample.memory_used_percent is None else f"{sample.memory_used_percent:.1f}%"
+        return (
+            f"AttackCastle usage: CPU {cpu_text}, RAM {memory_text}, processes {sample.process_count}. "
+            f"Limits: CPU {self.performance_guard_settings.cpu_limit_percent}%, RAM {self.performance_guard_settings.memory_limit_percent}%. "
+            f"{action}"
         )
-        self._performance_prompt_active = False
-        if decision == QMessageBox.Yes:
-            self._throttle_live_runs("operator_confirmed_high_resource_alert")
+
+    def _live_running_process_ids(self) -> list[int]:
+        pids: list[int] = []
+        for snapshot in self._live_running_snapshots():
+            process = self._run_processes.get(snapshot.run_id)
+            if process is None or process.state() == QProcess.NotRunning:
+                continue
+            pid = int(process.processId() or 0)
+            if pid > 0:
+                pids.append(pid)
+        return pids
 
     def _throttle_live_runs(self, reason: str = "operator_requested") -> None:
         settings = self.performance_guard_settings
         payload = settings.throttle_payload()
+        payload["sample"] = {}
         live_runs = self._live_running_snapshots()
         if not live_runs:
-            self.general_status.setText("No running scans to throttle.")
+            self.general_status.setText("No running scans to update.")
             self._sync_performance_guard_controls()
             return
-        throttled = 0
-        for snapshot in live_runs:
+        updated = self._write_resource_control_to_live_runs(
+            "resource_limit_update",
+            {"reason": reason, "limits": settings.to_dict(), "throttle": payload, "timestamp_monotonic": monotonic()},
+            audit_action="control.resource_limits_updated",
+            audit_summary="Resource limits updated",
+        )
+        if updated:
+            self.general_status.setText(f"Resource limits sent to {updated} running scan(s).")
+        self._sync_performance_guard_controls()
+
+    def _send_resource_limit_update_to_live_runs(self) -> None:
+        if not self._live_running_snapshots():
+            return
+        payload = {
+            "reason": "settings_changed",
+            "limits": self.performance_guard_settings.to_dict(),
+            "throttle": self.performance_guard_settings.throttle_payload(),
+            "timestamp_monotonic": monotonic(),
+        }
+        self._write_resource_control_to_live_runs(
+            "resource_limit_update",
+            payload,
+            audit_action="control.resource_limits_updated",
+            audit_summary="Resource limits updated",
+            show_errors=False,
+        )
+
+    def _send_resource_pressure_to_live_runs(self, sample, reason: str) -> None:  # noqa: ANN001
+        payload = {
+            "reason": reason,
+            "limits": self.performance_guard_settings.to_dict(),
+            "throttle": self.performance_guard_settings.throttle_payload(),
+            "sample": sample.as_dict(),
+            "timestamp_monotonic": monotonic(),
+        }
+        updated = self._write_resource_control_to_live_runs(
+            "resource_pressure",
+            payload,
+            audit_action="control.resource_pressure",
+            audit_summary="Resource pressure detected",
+            show_errors=False,
+        )
+        if updated:
+            self.general_status.setText(f"Resource pressure sent to {updated} running scan(s).")
+
+    def _send_resource_relief_to_live_runs(self, sample) -> None:  # noqa: ANN001
+        payload = {
+            "reason": "usage_below_limits",
+            "limits": self.performance_guard_settings.to_dict(),
+            "sample": sample.as_dict(),
+            "timestamp_monotonic": monotonic(),
+        }
+        updated = self._write_resource_control_to_live_runs(
+            "resource_relief",
+            payload,
+            audit_action="control.resource_relief",
+            audit_summary="Resource pressure relieved",
+            show_errors=False,
+        )
+        if updated:
+            self.general_status.setText(f"Resource limits healthy for {updated} running scan(s).")
+
+    def _write_resource_control_to_live_runs(
+        self,
+        action: str,
+        payload: dict[str, Any],
+        *,
+        audit_action: str,
+        audit_summary: str,
+        show_errors: bool = True,
+    ) -> int:
+        updated = 0
+        for snapshot in self._live_running_snapshots():
             run_dir_text = str(snapshot.run_dir or "").strip()
             if not run_dir_text:
                 continue
             try:
-                RunStore.from_existing(Path(run_dir_text)).write_control(
-                    "throttle",
-                    {
-                        "reason": reason,
-                        "throttle": payload,
-                    },
-                )
-                throttled += 1
+                RunStore.from_existing(Path(run_dir_text)).write_control(action, payload)
+                updated += 1
                 self._append_audit(
-                    "control.throttle_requested",
-                    f"Throttle requested for {snapshot.scan_name}",
+                    audit_action,
+                    f"{audit_summary} for {snapshot.scan_name}",
                     run_id=snapshot.run_id,
                     workspace_id=snapshot.workspace_id,
                     details=payload,
                 )
             except Exception as exc:  # noqa: BLE001
-                QMessageBox.warning(
-                    self,
-                    "Throttle Request Failed",
-                    f"Could not throttle {snapshot.scan_name}.\n\n{exc}",
-                )
-        if throttled:
-            self.general_status.setText(f"Throttle requested for {throttled} running scan(s).")
-        self._sync_performance_guard_controls()
+                if show_errors:
+                    QMessageBox.warning(
+                        self,
+                        "Resource Limit Update Failed",
+                        f"Could not update {snapshot.scan_name}.\n\n{exc}",
+                    )
+        return updated
+
+    def _show_resource_limit_unmet_alert(self, key: str, scan_name: str, payload: dict[str, Any]) -> None:
+        now = monotonic()
+        last_alert = self._resource_unmet_alerts.get(key, 0.0)
+        cooldown = float(self.performance_guard_settings.cooldown_seconds)
+        if now - last_alert < cooldown:
+            return
+        self._resource_unmet_alerts[key] = now
+        sample = payload.get("sample", {}) if isinstance(payload.get("sample"), dict) else {}
+        limits = payload.get("limits", {}) if isinstance(payload.get("limits"), dict) else {}
+        running_tasks = payload.get("running_tasks", [])
+        cpu_text = sample.get("cpu_percent", "--")
+        memory_text = sample.get("memory_used_percent", "--")
+        cpu_limit = limits.get("cpu_limit_percent", self.performance_guard_settings.cpu_limit_percent)
+        memory_limit = limits.get("memory_limit_percent", self.performance_guard_settings.memory_limit_percent)
+        if isinstance(running_tasks, list) and running_tasks:
+            task_text = ", ".join(str(item) for item in running_tasks[:4])
+        else:
+            task_text = "No cancellable running task was reported."
+        QMessageBox.warning(
+            self,
+            "Resource Limit Still Exceeded",
+            (
+                "AttackCastle is still above your CPU/RAM limit after pausing all safe work.\n\n"
+                f"Run: {scan_name}\n"
+                f"Current CPU/RAM: {cpu_text}% / {memory_text}%\n"
+                f"Configured limits: {cpu_limit}% CPU / {memory_limit}% RAM\n"
+                f"Running work: {task_text}"
+            ),
+        )
 
     def _sync_settings_workspace_switcher(self) -> None:
         if not hasattr(self, "settings_workspace_combo"):
@@ -1503,6 +1559,58 @@ class MainWindow(QMainWindow):
                     workspace_id=snapshot.workspace_id,
                     details=payload,
                 )
+        elif event.event == "worker.resource_pressure":
+            run_id = self._process_run_ids.get(process) or str(payload.get("run_id") or "")
+            if run_id and run_id in self._run_snapshots:
+                snapshot = self._run_snapshots[run_id]
+                snapshot.state = "running"
+                snapshot.live_process = True
+                self._sync_run_registry_for_snapshot(snapshot)
+                reason = str(payload.get("reason") or "resource pressure")
+                self._last_resource_action = f"Pressure active for {snapshot.scan_name}: {reason}"
+                self.general_status.setText(f"Resource pressure: {snapshot.scan_name}")
+                self.performance_guard_status_label.setText(self._last_resource_action)
+                self._append_audit(
+                    "worker.resource_pressure",
+                    f"Resource pressure active for {snapshot.scan_name}",
+                    run_id=run_id,
+                    workspace_id=snapshot.workspace_id,
+                    details=payload,
+                )
+        elif event.event == "worker.resource_relief":
+            run_id = self._process_run_ids.get(process) or str(payload.get("run_id") or "")
+            if run_id and run_id in self._run_snapshots:
+                snapshot = self._run_snapshots[run_id]
+                snapshot.state = "running"
+                snapshot.live_process = True
+                self._sync_run_registry_for_snapshot(snapshot)
+                self._last_resource_action = f"Resource limits healthy for {snapshot.scan_name}."
+                self.general_status.setText(f"Resource limits healthy: {snapshot.scan_name}")
+                self.performance_guard_status_label.setText(self._last_resource_action)
+                self._append_audit(
+                    "worker.resource_relief",
+                    f"Resource limits healthy for {snapshot.scan_name}",
+                    run_id=run_id,
+                    workspace_id=snapshot.workspace_id,
+                    details=payload,
+                )
+        elif event.event == "worker.resource_limit_unmet":
+            run_id = self._process_run_ids.get(process) or str(payload.get("run_id") or "")
+            snapshot = self._run_snapshots.get(run_id) if run_id else None
+            scan_name = snapshot.scan_name if snapshot is not None else str(payload.get("scan_name") or "run")
+            workspace_id = snapshot.workspace_id if snapshot is not None else ""
+            self.general_status.setText(f"Resource limit unmet: {scan_name}")
+            self.performance_guard_status_label.setText(
+                f"AttackCastle is still above the configured CPU/RAM limit for {scan_name}."
+            )
+            self._append_audit(
+                "worker.resource_limit_unmet",
+                f"Resource limit unmet for {scan_name}",
+                run_id=run_id,
+                workspace_id=workspace_id,
+                details=payload,
+            )
+            self._show_resource_limit_unmet_alert(run_id or scan_name, scan_name, payload)
         elif event.event == "worker.error":
             message = str(payload.get("message", "Worker failed"))
             self.general_status.setText(message)
@@ -1937,6 +2045,31 @@ class MainWindow(QMainWindow):
     def _can_stop_snapshot(self, snapshot: RunSnapshot) -> bool:
         return snapshot.state in {"running", "paused"} or snapshot.resume_required
 
+    def _can_skip_snapshot(self, snapshot: RunSnapshot) -> bool:
+        if snapshot.state != "running" or snapshot.pause_requested or snapshot.resume_required:
+            return False
+        return bool(self._current_task_key(snapshot))
+
+    @staticmethod
+    def _can_retry_snapshot(snapshot: RunSnapshot) -> bool:
+        return bool(str(snapshot.run_dir or "").strip())
+
+    def _current_task_key(self, snapshot: RunSnapshot) -> str:
+        current_task = str(snapshot.current_task or "").strip()
+        for row in snapshot.tasks:
+            if not isinstance(row, dict):
+                continue
+            key = str(row.get("key") or row.get("task_key") or "").strip()
+            label = str(row.get("label") or row.get("name") or "").strip()
+            if current_task and current_task in {key, label}:
+                return key or current_task
+        for row in snapshot.tasks:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("status") or "").strip().lower() in {"running", "in_progress", "started"}:
+                return str(row.get("key") or row.get("task_key") or row.get("label") or "").strip()
+        return current_task
+
     def _has_debug_data(self, snapshot: RunSnapshot) -> bool:
         if any(
             (
@@ -1996,7 +2129,7 @@ class MainWindow(QMainWindow):
         self,
         parent: QWidget,
         snapshot: RunSnapshot,
-    ) -> tuple[QMenu, Any, Any, Any, Any, Any]:
+    ) -> tuple[QMenu, Any, Any, Any, Any, Any, Any, Any]:
         menu = QMenu(parent)
         pause_action = menu.addAction("Pause Scan")
         pause_action.setEnabled(self._can_pause_snapshot(snapshot))
@@ -2004,13 +2137,17 @@ class MainWindow(QMainWindow):
         resume_action.setEnabled(self._can_resume_snapshot(snapshot))
         stop_action = menu.addAction("Stop")
         stop_action.setEnabled(self._can_stop_snapshot(snapshot))
+        skip_task_action = menu.addAction("Skip Current Task")
+        skip_task_action.setEnabled(self._can_skip_snapshot(snapshot))
+        retry_action = menu.addAction("Relaunch Scan")
+        retry_action.setEnabled(self._can_retry_snapshot(snapshot))
         menu.addSeparator()
         debug_action = menu.addAction("View Debug Log")
         current_task_action = menu.addAction("View Current Task Debug Log")
         has_debug_data = self._has_debug_data(snapshot)
         debug_action.setEnabled(has_debug_data)
         current_task_action.setEnabled(has_debug_data)
-        return menu, pause_action, resume_action, stop_action, debug_action, current_task_action
+        return menu, pause_action, resume_action, stop_action, skip_task_action, retry_action, debug_action, current_task_action
 
     def _open_run_context_menu(self, table: QTableView, point: QPoint) -> None:
         index = table.indexAt(point)
@@ -2034,7 +2171,16 @@ class MainWindow(QMainWindow):
             return
         self._select_run_by_id(snapshot.run_id)
         self._set_run_table_current_row(table, snapshot.run_id, index)
-        menu, pause_action, resume_action, stop_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
+        (
+            menu,
+            pause_action,
+            resume_action,
+            stop_action,
+            skip_task_action,
+            retry_action,
+            debug_action,
+            current_task_action,
+        ) = self._build_run_context_menu(table, snapshot)
         action = self._exec_menu(menu, table.viewport().mapToGlobal(point))
         self._set_run_table_current_row(table, snapshot.run_id, index)
         if action is pause_action:
@@ -2043,6 +2189,10 @@ class MainWindow(QMainWindow):
             self._send_control_action("resume")
         elif action is stop_action:
             self._send_control_action("stop")
+        elif action is skip_task_action:
+            self._send_skip_current_task_action()
+        elif action is retry_action:
+            self._retry_selected_run()
         elif action is debug_action:
             self._show_debug_log_dialog(snapshot, initial_tab=1)
         elif action is current_task_action:
@@ -2058,7 +2208,16 @@ class MainWindow(QMainWindow):
         snapshot = self._selected_snapshot()
         if snapshot is None:
             return
-        menu, pause_action, resume_action, stop_action, debug_action, current_task_action = self._build_run_context_menu(table, snapshot)
+        (
+            menu,
+            pause_action,
+            resume_action,
+            stop_action,
+            skip_task_action,
+            retry_action,
+            debug_action,
+            current_task_action,
+        ) = self._build_run_context_menu(table, snapshot)
         action = self._exec_menu(menu, table.viewport().mapToGlobal(point))
         if action is pause_action:
             self._send_control_action("pause")
@@ -2066,6 +2225,10 @@ class MainWindow(QMainWindow):
             self._send_control_action("resume")
         elif action is stop_action:
             self._send_control_action("stop")
+        elif action is skip_task_action:
+            self._send_skip_current_task_action()
+        elif action is retry_action:
+            self._retry_selected_run()
         elif action is debug_action:
             self._show_debug_log_dialog(snapshot, initial_tab=1)
         elif action is current_task_action:
@@ -2138,6 +2301,34 @@ class MainWindow(QMainWindow):
         self._sync_run_registry_for_snapshot(snapshot)
         self.general_status.setText(f"Requested {action} for {snapshot.scan_name}")
         self._append_audit("control.requested", f"{action.title()} requested for {snapshot.scan_name}", run_id=snapshot.run_id, workspace_id=snapshot.workspace_id)
+        self._update_run_action_state()
+
+    def _send_skip_current_task_action(self) -> None:
+        selected = self._selected_run_directory("skip the current task")
+        if selected is None:
+            return
+        snapshot, run_dir = selected
+        task_key = self._current_task_key(snapshot)
+        if not task_key:
+            QMessageBox.information(self, "No Current Task", f"{snapshot.scan_name} does not have a current task to skip.")
+            return
+        try:
+            RunStore.from_existing(run_dir).write_control(
+                "skip_task",
+                {"task_key": task_key, "reason": "operator_requested_skip"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            message = f"AttackCastle could not request a task skip for {snapshot.scan_name}."
+            self.general_status.setText(message)
+            QMessageBox.warning(self, "Control Request Failed", f"{message}\n\n{exc}")
+            return
+        self.general_status.setText(f"Requested skip for {task_key} on {snapshot.scan_name}")
+        self._append_audit(
+            "control.requested",
+            f"Skip requested for {task_key} on {snapshot.scan_name}",
+            run_id=snapshot.run_id,
+            workspace_id=snapshot.workspace_id,
+        )
         self._update_run_action_state()
 
     def _resume_selected_run(self) -> None:
@@ -2798,58 +2989,13 @@ class MainWindow(QMainWindow):
     def _refresh_header_context(self) -> None:
         return
 
-    def _set_selected_run_badge(self, state: str) -> None:
-        normalized = str(state or "idle").strip().lower() or "idle"
-        self.selected_run_state_badge.setText(title_case_label(normalized))
-        self.selected_run_state_badge.setProperty("state", normalized)
-        refresh_widget_style(self.selected_run_state_badge)
-
-    def _selected_run_context_text(self, snapshot: RunSnapshot) -> str:
-        target_summary = summarize_target_input(snapshot.target_input)
-        workspace_label = snapshot.workspace_name or "Ad-Hoc Session"
-        return f"{target_summary} | {workspace_label}"
-
     def _update_run_action_state(self) -> None:
         snapshot = self._selected_snapshot()
-        has_snapshot = snapshot is not None
         if snapshot is None:
-            for button in (
-                self.pause_button,
-                self.resume_button,
-                self.stop_button,
-                self.skip_button,
-                self.retry_button,
-            ):
-                button.setEnabled(False)
-            self.selected_run_name_label.setText("No run selected")
-            self.selected_run_target_label.setText("Choose a run from the queue to inspect and control it here.")
-            self.selected_run_progress_value.setText("--")
-            self.selected_run_task_value.setText("--")
-            self.selected_run_elapsed_value.setText("--")
-            self.selected_run_eta_value.setText("--")
-            self._set_selected_run_badge("idle")
-            self.selected_run_status_label.setText(
-                "No run selected. Choose a run from the table before using Scanner controls."
-            )
             self.general_status_detail.setText(
                 "Select a run to review context, health, and findings for the current session."
             )
             return
-        self.selected_run_name_label.setText(snapshot.scan_name or snapshot.run_id)
-        self.selected_run_target_label.setText(self._selected_run_context_text(snapshot))
-        self.selected_run_progress_value.setText(format_progress(snapshot.completed_tasks, snapshot.total_tasks))
-        self.selected_run_task_value.setText(snapshot.current_task or "--")
-        self.selected_run_elapsed_value.setText(format_duration(snapshot.elapsed_seconds))
-        self.selected_run_eta_value.setText(format_duration(snapshot.eta_seconds))
-        self._set_selected_run_badge(snapshot.state)
-        self.selected_run_status_label.setText(
-            f"{snapshot.scan_name} is {title_case_label(snapshot.state)} and {progress_percent(snapshot.completed_tasks, snapshot.total_tasks)}% complete."
-        )
-        self.pause_button.setEnabled(self._can_pause_snapshot(snapshot))
-        self.resume_button.setEnabled(self._can_resume_snapshot(snapshot))
-        self.stop_button.setEnabled(self._can_stop_snapshot(snapshot))
-        self.skip_button.setEnabled(snapshot.state == "running" and not snapshot.pause_requested and not snapshot.resume_required)
-        self.retry_button.setEnabled(bool(str(snapshot.run_dir or "").strip()))
         issue_count = int(snapshot.execution_issues_summary.get("total_count", 0) or 0)
         self.general_status_detail.setText(
             f"Focused on {snapshot.workspace_name or 'the ad-hoc session'} with {issue_count} execution issue(s). "

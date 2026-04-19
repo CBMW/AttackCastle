@@ -321,6 +321,32 @@ def test_assets_tab_reopening_same_row_keeps_detail_panel_visible(tmp_path: Path
         tab.close()
 
 
+def test_assets_tab_keeps_open_detail_panel_across_snapshot_refresh(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _launched, _notes = _make_tab()
+
+    try:
+        tab.set_snapshot(_make_snapshot(tmp_path))
+        app.processEvents()
+        index = tab.services_model.index(0, 0)
+
+        tab._open_detail_for_index(tab.services_view, index)
+        assert tab.main_split.sizes()[1] > 0
+
+        updated = _make_snapshot(tmp_path)
+        updated.services[0]["banner"] = "nginx refreshed banner"
+        tab.set_snapshot(updated)
+        app.processEvents()
+
+        assert tab.main_split.sizes()[1] > 0
+        assert tab._active_detail_signature
+        assert "nginx refreshed banner" in tab.detail_text.toPlainText()
+        assert tab.services_view.selectionModel().currentIndex().row() == 0
+    finally:
+        tab.close()
+
+
 def test_assets_tab_loads_workspace_notes_for_matching_entity_signatures(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app

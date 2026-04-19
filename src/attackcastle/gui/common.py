@@ -51,15 +51,15 @@ CHANGE_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["change"])
 TOOL_STATUS_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["tool_status"])
 
 PAGE_CONTENT_MARGIN = 0
-PAGE_SECTION_SPACING = 10
-PAGE_CARD_SPACING = 8
-PANEL_CONTENT_PADDING = 10
-PANEL_COMPACT_PADDING = 8
-TOOLBAR_SPACING = 8
-INSPECTOR_SPACING = 8
-BUTTON_MIN_HEIGHT = 34
-BUTTON_CHIP_MIN_HEIGHT = 28
-TABLE_ROW_HEIGHT = 30
+PAGE_SECTION_SPACING = 6
+PAGE_CARD_SPACING = 5
+PANEL_CONTENT_PADDING = 7
+PANEL_COMPACT_PADDING = 6
+TOOLBAR_SPACING = 5
+INSPECTOR_SPACING = 5
+BUTTON_MIN_HEIGHT = 30
+BUTTON_CHIP_MIN_HEIGHT = 24
+TABLE_ROW_HEIGHT = 26
 SURFACE_PRIMARY = "primary"
 SURFACE_SECONDARY = "secondary"
 SURFACE_FLAT = "flat"
@@ -170,6 +170,31 @@ def build_section_header(
     return header, title_label, summary_label
 
 
+class Card(QFrame):
+    def __init__(
+        self,
+        title: str = "",
+        *,
+        summary: str = "",
+        object_name: str = "card",
+        surface: str = SURFACE_PRIMARY,
+        padding: int = 18,
+        spacing: int = 12,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName(object_name)
+        self.setProperty("surface", surface)
+        self.content_layout = QVBoxLayout(self)
+        self.content_layout.setContentsMargins(padding, padding, padding, padding)
+        self.content_layout.setSpacing(spacing)
+        self.title_label: QLabel | None = None
+        self.summary_label: QLabel | None = None
+        if title:
+            header, self.title_label, self.summary_label = build_section_header(title, summary=summary)
+            self.content_layout.addWidget(header)
+
+
 def build_table_section(
     title: str,
     table: QWidget,
@@ -229,9 +254,9 @@ def build_inspector_panel(
 
 def apply_form_layout_defaults(form: QFormLayout) -> None:
     form.setContentsMargins(0, 0, 0, 0)
-    form.setSpacing(10)
-    form.setHorizontalSpacing(14)
-    form.setVerticalSpacing(10)
+    form.setSpacing(7)
+    form.setHorizontalSpacing(10)
+    form.setVerticalSpacing(7)
     form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
     form.setLabelAlignment(Qt.AlignLeft | Qt.AlignTop)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import math
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -9,8 +10,12 @@ from typing import Any
 
 from attackcastle.orchestration.adaptive_execution import detect_host_resources
 
+try:
+    import psutil
+except Exception:  # pragma: no cover - dependency is declared, fallback keeps old installs openable.
+    psutil = None  # type: ignore[assignment]
 
-SETTINGS_VERSION = 1
+SETTINGS_VERSION = 2
 
 
 def _coerce_int(value: Any, default: int, minimum: int, maximum: int | None = None) -> int:
@@ -43,39 +48,48 @@ def default_performance_settings_path() -> Path:
 
 
 @dataclass(slots=True)
-class PerformanceGuardSettings:
+class ResourceLimitSettings:
     enabled: bool = True
-    cpu_alert_percent: int = 90
-    memory_alert_percent: int = 90
-    throttle_cpu_cores: int = 0
+    cpu_limit_percent: int = 100
+    memory_limit_percent: int = 100
+    sample_interval_seconds: int = 5
+    grace_samples: int = 3
+    cooldown_seconds: int = 60
+    enforcement_mode: str = "graceful"
     throttle_min_request_delay_ms: int = 500
     throttle_tool_rate_ceiling: int = 250
 
     @classmethod
-    def defaults(cls) -> "PerformanceGuardSettings":
-        cpu_count = max(1, int(os.cpu_count() or 1))
-        return cls(throttle_cpu_cores=max(1, min(cpu_count, max(1, cpu_count // 2))))
+    def defaults(cls) -> "ResourceLimitSettings":
+        return cls()
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any] | None) -> "PerformanceGuardSettings":
+    def from_dict(cls, payload: dict[str, Any] | None) -> "ResourceLimitSettings":
         defaults = cls.defaults()
         payload = payload or {}
-        cpu_count = max(1, int(os.cpu_count() or 1))
+        legacy_cpu = payload.get("cpu_alert_percent")
+        legacy_memory = payload.get("memory_alert_percent")
+        cpu_limit = payload.get("cpu_limit_percent", legacy_cpu if legacy_cpu is not None else defaults.cpu_limit_percent)
+        memory_limit = payload.get(
+            "memory_limit_percent",
+            legacy_memory if legacy_memory is not None else defaults.memory_limit_percent,
+        )
+        mode = str(payload.get("enforcement_mode", defaults.enforcement_mode)).strip().lower()
+        if mode not in {"graceful"}:
+            mode = defaults.enforcement_mode
         return cls(
             enabled=_coerce_bool(payload.get("enabled"), defaults.enabled),
-            cpu_alert_percent=_coerce_int(payload.get("cpu_alert_percent"), defaults.cpu_alert_percent, 50, 100),
-            memory_alert_percent=_coerce_int(
-                payload.get("memory_alert_percent"),
-                defaults.memory_alert_percent,
-                50,
-                98,
-            ),
-            throttle_cpu_cores=_coerce_int(
-                payload.get("throttle_cpu_cores"),
-                defaults.throttle_cpu_cores,
+            cpu_limit_percent=_coerce_int(cpu_limit, defaults.cpu_limit_percent, 1, 100),
+            memory_limit_percent=_coerce_int(memory_limit, defaults.memory_limit_percent, 1, 100),
+            sample_interval_seconds=_coerce_int(
+                payload.get("sample_interval_seconds"),
+                defaults.sample_interval_seconds,
                 1,
-                cpu_count,
+                60,
             ),
+            grace_samples=_coerce_int(payload.get("grace_samples"), defaults.grace_samples, 1, 20),
+            cooldown_seconds=_coerce_int(payload.get("cooldown_seconds"), defaults.cooldown_seconds, 5, 600),
+            enforcement_mode=mode,
             throttle_min_request_delay_ms=_coerce_int(
                 payload.get("throttle_min_request_delay_ms"),
                 defaults.throttle_min_request_delay_ms,
@@ -93,34 +107,48 @@ class PerformanceGuardSettings:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def cpu_core_cap(self, cpu_count: int | None = None) -> int:
+        detected_cpu_count = max(1, int(cpu_count or os.cpu_count() or 1))
+        return max(1, min(detected_cpu_count, int(math.ceil(detected_cpu_count * (self.cpu_limit_percent / 100.0)))))
+
     def throttle_payload(self) -> dict[str, Any]:
+        cpu_cores = self.cpu_core_cap()
         return {
-            "cpu_cores": self.throttle_cpu_cores,
-            "max_workers": self.throttle_cpu_cores,
-            "max_tool_threads": self.throttle_cpu_cores,
-            "memory_usage_limit_percent": self.memory_alert_percent,
+            "cpu_cores": cpu_cores,
+            "max_workers": cpu_cores,
+            "max_tool_threads": cpu_cores,
+            "max_heavy_processes": max(1, min(2, cpu_cores)),
+            "memory_usage_limit_percent": self.memory_limit_percent,
             "rate_limit_mode": "careful",
             "min_request_delay_ms": self.throttle_min_request_delay_ms,
             "tool_rate_ceiling": self.throttle_tool_rate_ceiling,
+            "cpu_limit_percent": self.cpu_limit_percent,
+            "memory_limit_percent": self.memory_limit_percent,
+            "grace_samples": self.grace_samples,
+            "cooldown_seconds": self.cooldown_seconds,
+            "enforcement_mode": self.enforcement_mode,
         }
 
 
-def load_performance_guard_settings(path: Path | None = None) -> PerformanceGuardSettings:
+PerformanceGuardSettings = ResourceLimitSettings
+
+
+def load_performance_guard_settings(path: Path | None = None) -> ResourceLimitSettings:
     settings_path = path or default_performance_settings_path()
     if not settings_path.exists():
-        return PerformanceGuardSettings.defaults()
+        return ResourceLimitSettings.defaults()
     try:
         payload = json.loads(settings_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return PerformanceGuardSettings.defaults()
+        return ResourceLimitSettings.defaults()
     if not isinstance(payload, dict):
-        return PerformanceGuardSettings.defaults()
+        return ResourceLimitSettings.defaults()
     guard = payload.get("performance_guard", payload)
-    return PerformanceGuardSettings.from_dict(guard if isinstance(guard, dict) else {})
+    return ResourceLimitSettings.from_dict(guard if isinstance(guard, dict) else {})
 
 
 def save_performance_guard_settings(
-    settings: PerformanceGuardSettings,
+    settings: ResourceLimitSettings,
     path: Path | None = None,
 ) -> Path:
     settings_path = path or default_performance_settings_path()
@@ -138,6 +166,26 @@ class SystemUsageSample:
     total_memory_bytes: int | None
     available_memory_bytes: int | None
     memory_source: str
+
+
+@dataclass(slots=True)
+class ProcessTreeUsageSample:
+    cpu_percent: float | None
+    memory_used_percent: float | None
+    memory_used_bytes: int
+    total_memory_bytes: int | None
+    process_count: int
+    pids: list[int]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "cpu_percent": self.cpu_percent,
+            "memory_used_percent": self.memory_used_percent,
+            "memory_used_bytes": self.memory_used_bytes,
+            "total_memory_bytes": self.total_memory_bytes,
+            "process_count": self.process_count,
+            "pids": list(self.pids),
+        }
 
 
 def _read_proc_cpu_times() -> tuple[int, int] | None:
@@ -227,4 +275,92 @@ class SystemUsageSampler:
             total_memory_bytes=resources.total_memory_bytes,
             available_memory_bytes=resources.available_memory_bytes,
             memory_source=resources.memory_source,
+        )
+
+
+class ProcessTreeUsageSampler:
+    def __init__(self) -> None:
+        self._previous_cpu_time: float | None = None
+        self._previous_sample_time: float | None = None
+        self._cpu_count = max(1, int(os.cpu_count() or 1))
+
+    def _total_memory_bytes(self) -> int | None:
+        if psutil is not None:
+            try:
+                return int(psutil.virtual_memory().total)
+            except Exception:
+                pass
+        resources = detect_host_resources(hard_worker_ceiling=max(1, int(os.cpu_count() or 1)))
+        return resources.total_memory_bytes
+
+    def _collect_processes(self, root_pids: list[int]) -> list[Any]:
+        if psutil is None:
+            return []
+        processes: list[Any] = []
+        seen: set[int] = set()
+        for raw_pid in root_pids:
+            try:
+                pid = int(raw_pid)
+            except (TypeError, ValueError):
+                continue
+            if pid <= 0 or pid in seen:
+                continue
+            try:
+                root = psutil.Process(pid)
+            except Exception:
+                continue
+            stack = [root]
+            try:
+                stack.extend(root.children(recursive=True))
+            except Exception:
+                pass
+            for process in stack:
+                try:
+                    process_pid = int(process.pid)
+                except Exception:
+                    continue
+                if process_pid in seen:
+                    continue
+                seen.add(process_pid)
+                processes.append(process)
+        return processes
+
+    def sample(self, root_pids: list[int]) -> ProcessTreeUsageSample:
+        import time
+
+        now = time.monotonic()
+        processes = self._collect_processes(root_pids)
+        total_process_cpu = 0.0
+        total_rss = 0
+        pids: list[int] = []
+        for process in processes:
+            try:
+                with process.oneshot():
+                    times = process.cpu_times()
+                    memory = process.memory_info()
+                    total_process_cpu += float(getattr(times, "user", 0.0)) + float(getattr(times, "system", 0.0))
+                    total_rss += int(getattr(memory, "rss", 0) or 0)
+                    pids.append(int(process.pid))
+            except Exception:
+                continue
+
+        cpu_percent = None
+        if self._previous_cpu_time is not None and self._previous_sample_time is not None:
+            elapsed = max(now - self._previous_sample_time, 0.001)
+            cpu_delta = max(total_process_cpu - self._previous_cpu_time, 0.0)
+            cpu_percent = round(min(100.0, (cpu_delta / elapsed / float(self._cpu_count)) * 100.0), 1)
+        self._previous_cpu_time = total_process_cpu
+        self._previous_sample_time = now
+
+        total_memory = self._total_memory_bytes()
+        memory_percent = None
+        if total_memory and total_memory > 0:
+            memory_percent = round(min(100.0, (float(total_rss) / float(total_memory)) * 100.0), 1)
+        return ProcessTreeUsageSample(
+            cpu_percent=cpu_percent,
+            memory_used_percent=memory_percent,
+            memory_used_bytes=total_rss,
+            total_memory_bytes=total_memory,
+            process_count=len(pids),
+            pids=sorted(pids),
         )

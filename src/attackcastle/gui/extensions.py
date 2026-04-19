@@ -136,17 +136,17 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
         "section_title_size": "15px",
     },
     "radii": {
-        "badge": "8px",
-        "button": "6px",
-        "input": "7px",
-        "panel": "8px",
-        "section": "6px",
-        "surface": "8px",
+        "badge": "4px",
+        "button": "3px",
+        "input": "3px",
+        "panel": "3px",
+        "section": "3px",
+        "surface": "3px",
     },
     "spacing": {
-        "button_padding": "8px 12px",
-        "chip_padding": "5px 10px",
-        "status_padding": "6px 10px",
+        "button_padding": "5px 9px",
+        "chip_padding": "3px 8px",
+        "status_padding": "4px 8px",
     },
     "semantic_colors": {
         "change": {
@@ -256,7 +256,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         background: {palette['chip_bg']};
         border: 1px solid {palette['border_soft']};
         border-radius: {radii['surface']};
-        padding: 10px;
+        padding: 7px;
     }}
     QFrame, QWidget[surface], QFrame[surface] {{
         background: transparent;
@@ -266,7 +266,6 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QFrame#headerPanel,
     QFrame#heroPanel,
     QFrame#statusPanel,
-    QFrame#navRail,
     QFrame#sidebarPanel,
     QFrame#inspectorPanel,
     QFrame[surface="primary"] {{
@@ -290,6 +289,102 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 0;
         border-radius: 0;
     }}
+    QWidget#settingsContent {{
+        background: transparent;
+    }}
+    QScrollArea#settingsScroll {{
+        background: transparent;
+        border: 0;
+    }}
+    QFrame#settingsCard,
+    QFrame#settingsPrimaryCard {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['panel']['start']}, stop:0.58 {gradients['panel']['mid']}, stop:1 {gradients['panel']['end']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: 9px;
+    }}
+    QFrame#settingsPrimaryCard {{
+        border-color: {palette['border']};
+    }}
+    QFrame#settingsDangerCard {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['chip_bg']}, stop:1 {palette['panel_bottom']});
+        border: 1px solid #8b2e3f;
+        border-radius: 9px;
+    }}
+    QFrame#settingsControlGroup {{
+        background: rgba(10, 16, 24, 0.62);
+        border: 1px solid {palette['border_soft']};
+        border-radius: 8px;
+    }}
+    QFrame#settingsDivider {{
+        background: transparent;
+        border: 0;
+        border-top: 1px solid {palette['border_soft']};
+        min-height: 1px;
+        max-height: 1px;
+    }}
+    QFrame#profileSummaryCard,
+    QFrame#profileCard,
+    QFrame#profileActionCard {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['panel']['start']}, stop:0.58 {gradients['panel']['mid']}, stop:1 {gradients['panel']['end']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: 10px;
+    }}
+    QFrame#profileSummaryCard {{
+        border-color: {palette['border']};
+    }}
+    QFrame#profileActionCard {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
+        border-color: {palette['border']};
+    }}
+    QFrame#profileSubCard,
+    QFrame#toolFamilyCard {{
+        background: rgba(10, 16, 24, 0.58);
+        border: 1px solid {palette['border_soft']};
+        border-radius: 8px;
+    }}
+    QWidget#profilePresetPanel,
+    QWidget#profileBrowseRow,
+    QWidget#expertToolPanel,
+    QFrame#profileLibraryActions {{
+        background: transparent;
+    }}
+    QLabel#profileSummaryName {{
+        color: {palette['text_strong']};
+        font-size: 20px;
+        font-weight: 700;
+        background: transparent;
+    }}
+    QLabel#profileSummaryDescription {{
+        color: {palette['text_primary']};
+        background: transparent;
+    }}
+    QLabel#profileChip {{
+        padding: 4px 8px;
+        background: {palette['chip_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 6px;
+        color: {palette['text_muted']};
+        font-size: 11px;
+        font-weight: 700;
+    }}
+    QLabel#profileGroupTitle {{
+        color: {palette['text_strong']};
+        font-size: 13px;
+        font-weight: 700;
+        background: transparent;
+    }}
+    QLabel#profileToolSummary {{
+        padding: 4px 8px;
+        background: rgba(21, 38, 60, 0.72);
+        border: 1px solid {palette['border_soft']};
+        border-radius: 6px;
+        color: {palette['accent_soft']};
+        font-weight: 700;
+    }}
+    QLabel#profileToolList {{
+        color: {palette['text_soft']};
+        background: transparent;
+    }}
     QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0; }}
     QLabel#appSubtitle {{ color: {palette['text_muted']}; font-size: 12px; font-weight: 600; background: transparent; }}
     QLabel#headerMeta {{ color: {palette['text_muted']}; background: transparent; }}
@@ -306,7 +401,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#statusBadge[state="idle"] {{ background: {run_states['idle'][0]}; color: {run_states['idle'][1]}; }}
     QLabel#sectionTitle {{ font-size: {typography['section_title_size']}; font-weight: 700; color: {palette['text_strong']}; padding-bottom: 2px; background: transparent; }}
     QLabel#outputSummary, QLabel#warningBanner, QLabel#statusBanner {{
-        padding: 8px 0 8px 12px;
+        padding: 5px 0 5px 8px;
         background: rgba(15, 20, 28, 0.84);
         border: 0;
         border-left: 3px solid {palette['border']};
@@ -314,8 +409,20 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border-radius: 0;
     }}
     QLabel#helperText, QLabel#sectionHelper {{ color: {palette['text_soft']}; background: transparent; }}
+    QLabel#settingsFieldLabel {{
+        color: {palette['text_primary']};
+        font-weight: 700;
+        background: transparent;
+    }}
+    QLabel#monoLabel[variant="path"] {{
+        background: rgba(10, 16, 24, 0.72);
+        border: 1px solid {palette['border_soft']};
+        border-radius: 6px;
+        color: {palette['text_soft']};
+        padding: 7px 8px;
+    }}
     QLabel#infoBanner {{
-        padding: 8px 12px;
+        padding: 5px 8px;
         background: rgba(16, 23, 32, 0.88);
         border: 1px solid {palette['border_soft']};
         color: {palette['text_primary']};
@@ -326,7 +433,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#scannerRunSummaryText {{ color: {palette['text_primary']}; background: transparent; }}
     QLabel#scannerActionGroupLabel {{ color: {palette['text_muted']}; font-size: 11px; font-weight: 700; letter-spacing: 0; background: transparent; }}
     QLabel#attentionBanner {{
-        padding: 9px 12px;
+        padding: 6px 8px;
         border-radius: {radii['section']};
         border: 1px solid {palette['border_soft']};
         background: rgba(16, 23, 32, 0.92);
@@ -347,9 +454,9 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         padding: 0;
     }}
     QGroupBox#panelGroup {{
-        margin-top: 10px;
+        margin-top: 6px;
         border-top: 1px solid {palette['border_soft']};
-        padding-top: 8px;
+        padding-top: 5px;
         font-weight: 700;
         color: {palette['text_strong']};
     }}
@@ -367,49 +474,104 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 0;
         background: transparent;
         padding: 0;
-        margin-top: 5px;
+        margin-top: 3px;
     }}
     QTabBar::tab {{
-        padding: 6px 10px;
-        margin: 1px 4px 1px 0;
+        padding: 4px 8px;
+        margin: 1px 3px 1px 0;
         border-radius: {radii['button']};
         background: rgba(16, 22, 31, 0.72);
         border: 1px solid transparent;
         color: {palette['text_muted']};
         font-weight: 600;
-        min-height: 18px;
+        min-height: 16px;
     }}
     QTabBar::tab:selected {{ background: {palette['chip_hover']}; border-color: {palette['accent_border']}; color: {palette['text_strong']}; }}
     QTabBar::tab:hover {{ border-color: {palette['border_soft']}; color: {palette['text_strong']}; }}
-    QPushButton {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']}); color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 18px; }}
-    QPushButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_soft']}, stop:1 {palette['accent_primary']}); }}
+    QTabWidget#workflowTabs::pane {{
+        border: 0;
+        background: transparent;
+        margin-top: 6px;
+        padding: 0;
+    }}
+    QTabBar#workflowTabBar {{
+        qproperty-drawBase: 0;
+    }}
+    QTabBar#workflowTabBar::tab {{
+        background: transparent;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        color: {palette['text_muted']};
+        padding: 7px 12px 6px 12px;
+        margin: 0 8px 0 0;
+        min-height: 20px;
+        font-weight: 700;
+    }}
+    QTabBar#workflowTabBar::tab:selected {{
+        background: transparent;
+        border-bottom-color: {palette['accent_border']};
+        color: {palette['text_strong']};
+    }}
+    QTabBar#workflowTabBar::tab:hover {{
+        background: transparent;
+        border-bottom-color: {palette['border']};
+        color: {palette['text_strong']};
+    }}
+    QPushButton {{ background: {palette['accent_primary']}; color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 18px; }}
+    QPushButton:hover {{ background: {palette['accent_soft']}; }}
     QPushButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
-    QPushButton#scannerStartButton {{ min-height: 28px; font-size: 14px; padding: 8px 18px; }}
-    QPushButton#scannerActionButton, QPushButton#scannerDangerButton {{ padding: 6px 10px; }}
+    QPushButton#scannerStartButton {{ min-height: 24px; font-size: 14px; padding: 6px 14px; }}
+    QPushButton#scannerActionButton, QPushButton#scannerDangerButton {{ padding: 4px 8px; }}
     QPushButton[variant="secondary"] {{ background: rgba(16, 22, 31, 0.88); color: {palette['text_primary']}; border: 1px solid {palette['border_soft']}; }}
     QPushButton[variant="secondary"]:hover {{ background: {palette['chip_hover']}; border-color: {palette['border']}; }}
-    QPushButton[variant="danger"] {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {severity['critical'][0]}, stop:1 #571924); color: {severity['critical'][1]}; border: 1px solid #8b2e3f; }}
-    QPushButton[variant="danger"]:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4a1822, stop:1 #6a2030); border-color: #b64058; color: {palette['text_strong']}; }}
+    QPushButton[variant="danger"] {{ background: {severity['critical'][0]}; color: {severity['critical'][1]}; border: 1px solid #8b2e3f; }}
+    QPushButton[variant="danger"]:hover {{ background: #4a1822; border-color: #b64058; color: {palette['text_strong']}; }}
     QPushButton[variant="chip"] {{ background: {palette['chip_bg']}; color: {palette['text_muted']}; border: 1px solid {palette['border']}; padding: {spacing['chip_padding']}; }}
     QPushButton[variant="chip"]:hover {{ background: {palette['chip_hover']}; color: {palette['text_strong']}; }}
     QPushButton[variant="chip"]:checked {{ background: {palette['selection_bg']}; color: {palette['selection_fg']}; border-color: {palette['accent_soft']}; }}
-    QToolButton {{ background: rgba(16, 22, 31, 0.84); color: {palette['text_strong']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['button']}; padding: 6px 10px; font-weight: 600; min-height: 18px; }}
+    QFrame#settingsCard QPushButton,
+    QFrame#settingsPrimaryCard QPushButton,
+    QFrame#settingsDangerCard QPushButton {{
+        border-radius: 6px;
+        min-height: 24px;
+    }}
+    QPushButton#browseButton {{
+        min-width: 74px;
+        max-width: 92px;
+        border-radius: 6px;
+    }}
+    QPushButton[libraryAction="true"] {{
+        min-width: 36px;
+        max-width: 36px;
+        min-height: 32px;
+        max-height: 32px;
+        padding: 0;
+        border-radius: 7px;
+    }}
+    QPushButton#profilePrimaryAction {{
+        min-height: 32px;
+    }}
+    QPushButton#profileDangerAction {{
+        min-height: 32px;
+    }}
+    QToolButton {{ background: rgba(16, 22, 31, 0.84); color: {palette['text_strong']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['button']}; padding: 4px 8px; font-weight: 600; min-height: 16px; }}
     QToolButton:hover {{ border-color: {palette['border']}; }}
     QToolButton#sectionToggle {{
         background: transparent;
         border: 0;
         border-top: 1px solid {palette['border_soft']};
         border-radius: 0;
-        padding: 10px 0 0 0;
+        padding: 6px 0 0 0;
         text-align: left;
         color: {palette['text_strong']};
     }}
     QToolButton::menu-indicator {{ image: none; }}
-    QMenu {{ background: {palette['surface_top']}; color: {palette['text_primary']}; border: 1px solid {palette['border']}; padding: 6px; }}
-    QMenu::item {{ padding: 6px 12px; border-radius: 6px; }}
+    QMenu {{ background: {palette['surface_top']}; color: {palette['text_primary']}; border: 1px solid {palette['border']}; padding: 4px; }}
+    QMenu::item {{ padding: 4px 10px; border-radius: {radii['section']}; }}
     QMenu::item:selected {{ background: {palette['chip_hover']}; }}
     QTableView, QListWidget, QTextEdit, QPlainTextEdit, QLineEdit, QComboBox, QSpinBox {{
-        background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; padding: 4px; alternate-background-color: {palette['chip_bg']}; selection-background-color: {palette['selection_bg']}; selection-color: {palette['selection_fg']}; gridline-color: {palette['border_soft']};
+        background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; padding: 3px; alternate-background-color: {palette['chip_bg']}; selection-background-color: {palette['selection_bg']}; selection-color: {palette['selection_fg']}; gridline-color: {palette['border_soft']};
     }}
     QTableView#dataGrid, QTextEdit#consoleText, QLabel#monoLabel, QPlainTextEdit#extensionEditor {{
         font-family: {typography['mono_family']};
@@ -421,30 +583,68 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QTextEdit#consoleText, QPlainTextEdit#extensionEditor {{ background: {palette['input_bg']}; }}
     QLabel#previewSurface {{ background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; color: {palette['text_soft']}; }}
-    QListWidget#sidebarList, QListWidget#navList {{
+    QListWidget#sidebarList {{
         background: transparent;
         border: 0;
         padding: 0;
     }}
-    QListWidget#sidebarList::item, QListWidget#navList::item {{ margin: 2px 0; padding: 7px 10px; border-radius: 6px; border: 1px solid transparent; }}
-    QListWidget#sidebarList::item:selected, QListWidget#navList::item:selected {{ background: {palette['selection_bg']}; border-color: {palette['accent_soft']}; color: {palette['text_strong']}; }}
-    QHeaderView::section {{ background: {palette['panel_top']}; padding: 8px 10px; border: 0; border-bottom: 1px solid {palette['border_soft']}; font-weight: 700; color: {palette['text_muted']}; }}
-    QProgressBar {{ background: {palette['surface_bottom']}; border: 1px solid {palette['border_soft']}; border-radius: 8px; min-height: 10px; }}
-    QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {palette['progress_start']}, stop:0.55 {palette['progress_mid']}, stop:1 {palette['progress_end']}); border-radius: 8px; }}
+    QListWidget#sidebarList::item {{ margin: 1px 0; padding: 5px 8px; border-radius: 7px; border: 1px solid transparent; }}
+    QListWidget#sidebarList::item:hover {{ background: {palette['chip_hover']}; border-color: {palette['border_soft']}; color: {palette['text_strong']}; }}
+    QListWidget#sidebarList::item:selected {{ background: {palette['selection_bg']}; border-color: {palette['accent_soft']}; color: {palette['text_strong']}; }}
+    QFrame#profileCard QLineEdit,
+    QFrame#profileCard QComboBox,
+    QFrame#profileCard QSpinBox {{
+        min-height: 24px;
+        padding: 4px 6px;
+    }}
+    QFrame#profileCard QCheckBox {{
+        spacing: 9px;
+        min-height: 24px;
+    }}
+    QHeaderView::section {{ background: {palette['panel_top']}; padding: 5px 8px; border: 0; border-bottom: 1px solid {palette['border_soft']}; font-weight: 700; color: {palette['text_muted']}; }}
+    QProgressBar {{ background: {palette['surface_bottom']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['section']}; min-height: 10px; }}
+    QProgressBar::chunk {{ background: {palette['progress_mid']}; border-radius: {radii['section']}; }}
     QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 1px 2px 1px; }}
-    QScrollBar::handle:vertical {{ background: {palette['scrollbar']}; min-height: 28px; border-radius: 5px; }}
+    QScrollBar::handle:vertical {{ background: {palette['scrollbar']}; min-height: 28px; border-radius: {radii['section']}; }}
     QScrollBar::handle:vertical:hover {{ background: {palette['scrollbar_hover']}; }}
     QScrollBar::handle:vertical:pressed {{ background: {palette['scrollbar_pressed']}; }}
     QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 1px 2px 1px 2px; }}
-    QScrollBar::handle:horizontal {{ background: {palette['scrollbar']}; min-width: 28px; border-radius: 5px; }}
+    QScrollBar::handle:horizontal {{ background: {palette['scrollbar']}; min-width: 28px; border-radius: {radii['section']}; }}
     QScrollBar::handle:horizontal:hover {{ background: {palette['scrollbar_hover']}; }}
     QScrollBar::handle:horizontal:pressed {{ background: {palette['scrollbar_pressed']}; }}
     QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page {{ background: none; border: none; }}
-    QComboBox::drop-down {{ border: 0; width: 22px; }}
+    QComboBox::drop-down {{ border: 0; width: 18px; }}
     QComboBox QAbstractItemView {{ background: {palette['surface_top']}; border: 1px solid {palette['border']}; selection-background-color: {palette['chip_hover']}; }}
     QCheckBox {{ spacing: 8px; background: transparent; }}
-    QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 6px; border: 1px solid {palette['border']}; background: {palette['input_bg']}; }}
+    QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: {radii['badge']}; border: 1px solid {palette['border']}; background: {palette['input_bg']}; }}
     QCheckBox::indicator:checked {{ background: {palette['accent_primary']}; border-color: {palette['accent_border']}; }}
+    QSlider::groove:horizontal {{
+        height: 6px;
+        background: {palette['input_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 4px;
+    }}
+    QSlider::sub-page:horizontal {{
+        background: {palette['accent_primary']};
+        border: 1px solid {palette['accent_border']};
+        border-radius: 4px;
+    }}
+    QSlider::add-page:horizontal {{
+        background: {palette['chip_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 4px;
+    }}
+    QSlider::handle:horizontal {{
+        width: 18px;
+        height: 18px;
+        margin: -7px 0;
+        background: {palette['text_strong']};
+        border: 2px solid {palette['accent_border']};
+        border-radius: 9px;
+    }}
+    QSlider::handle:horizontal:hover {{
+        background: {palette['accent_soft']};
+    }}
     QWidget#overviewChecklistHeader, QWidget#overviewChecklistListContainer {{ background: transparent; }}
     QLabel#overviewChecklistTitle {{ color: {palette['text_strong']}; font-size: 16px; font-weight: 700; letter-spacing: 0; background: transparent; }}
     QLabel#overviewChecklistSummary {{ color: {palette['text_soft']}; background: transparent; }}
@@ -479,12 +679,12 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton#overviewChecklistAddButton {{
         min-height: 32px;
         padding: 0 14px;
-        border-radius: 6px;
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_secondary']});
+        border-radius: {radii['button']};
+        background: {palette['accent_primary']};
         color: {palette['window_bg']};
         border: 1px solid {palette['accent_border']};
     }}
-    QPushButton#overviewChecklistAddButton:hover {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_soft']}, stop:1 {palette['accent_primary']}); }}
+    QPushButton#overviewChecklistAddButton:hover {{ background: {palette['accent_soft']}; }}
     QPushButton#overviewChecklistAddButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
     QFrame#overviewChecklistListSurface {{ background: transparent; border: 0; border-radius: 0; }}
     QWidget#scannerLaunchCard, QWidget#scannerRunCard, QWidget#scannerActionSection {{
@@ -518,13 +718,13 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QCheckBox#overviewChecklistToggle::indicator {{
         width: 20px;
         height: 20px;
-        border-radius: 7px;
+        border-radius: {radii['badge']};
         border: 1px solid {palette['border']};
         background: {palette['window_bg']};
     }}
     QCheckBox#overviewChecklistToggle::indicator:hover {{ border-color: {palette['accent_border']}; background: {palette['chip_bg']}; }}
     QCheckBox#overviewChecklistToggle::indicator:checked {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['accent_primary']}, stop:1 {palette['accent_soft']});
+        background: {palette['accent_primary']};
         border-color: {palette['accent_border']};
     }}
     QLabel#overviewChecklistItemLabel {{ color: {palette['text_primary']}; background: transparent; }}
@@ -532,7 +732,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QPushButton#overviewChecklistDelete {{
         background: transparent;
         border: 1px solid transparent;
-        border-radius: 6px;
+        border-radius: {radii['button']};
         color: {palette['text_soft']};
         font-weight: 700;
         padding: 0;
@@ -548,7 +748,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         max-width: 44px;
         min-height: 44px;
         max-height: 44px;
-        border-radius: 22px;
+        border-radius: {radii['surface']};
         background: rgba(17, 24, 33, 0.86);
         border: 1px solid {palette['border_soft']};
         color: {palette['accent_soft']};
@@ -564,14 +764,14 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border: 0;
     }}
     QSplitter::handle:horizontal {{
-        margin: 8px 1px;
+        margin: 4px 1px;
         border-radius: 1px;
         background: rgba(54, 67, 84, 0.14);
     }}
     QSplitter::handle:horizontal:hover {{ background: rgba(98, 125, 159, 0.22); }}
     QSplitter::handle:horizontal:pressed {{ background: rgba(116, 150, 194, 0.3); }}
     QSplitter::handle:vertical {{
-        margin: 1px 8px;
+        margin: 1px 4px;
         border-radius: 1px;
         background: rgba(54, 67, 84, 0.14);
     }}

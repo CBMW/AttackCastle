@@ -25,8 +25,8 @@ from attackcastle.gui.common import (
 from attackcastle.gui.models import OverviewChecklistItem
 
 CHECKLIST_LIST_MIN_HEIGHT = 228
-CHECKLIST_LIST_PADDING = 12
-CHECKLIST_ITEM_SPACING = 10
+CHECKLIST_LIST_PADDING = 7
+CHECKLIST_ITEM_SPACING = 5
 
 
 class OverviewChecklistComposer(QFrame):
@@ -39,8 +39,8 @@ class OverviewChecklistComposer(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
+        layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        layout.setSpacing(TOOLBAR_SPACING)
 
         self.input = QLineEdit()
         self.input.setObjectName("overviewChecklistInput")
@@ -92,8 +92,8 @@ class OverviewChecklistItemCard(QFrame):
         self.setAttribute(Qt.WA_Hover, True)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
+        layout.setSpacing(TOOLBAR_SPACING)
 
         self.toggle_box = QCheckBox()
         self.toggle_box.setObjectName("overviewChecklistToggle")
@@ -109,7 +109,7 @@ class OverviewChecklistItemCard(QFrame):
         self.delete_button.setObjectName("overviewChecklistDelete")
         self.delete_button.setCursor(Qt.PointingHandCursor)
         self.delete_button.setToolTip("Delete checklist item")
-        self.delete_button.setFixedSize(28, 28)
+        self.delete_button.setFixedSize(24, 24)
         self.delete_button.setVisible(False)
         self.delete_button.clicked.connect(lambda _checked=False: self.delete_requested.emit(self.item_id))
 
@@ -157,7 +157,7 @@ class OverviewChecklistEmptyState(QFrame):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
-        layout.setSpacing(8)
+        layout.setSpacing(TOOLBAR_SPACING)
         layout.setAlignment(Qt.AlignCenter)
 
         icon = QLabel("+")
@@ -200,7 +200,7 @@ class OverviewChecklistPanel(QFrame):
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(10)
+        title_row.setSpacing(TOOLBAR_SPACING)
 
         self.title_label = QLabel("Checklist")
         self.title_label.setObjectName("overviewChecklistTitle")

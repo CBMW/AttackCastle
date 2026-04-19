@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from attackcastle.gui.common import FlowButtonRow, set_tooltip, set_tooltips
+from attackcastle.gui.common import Card, FlowButtonRow, PAGE_CARD_SPACING, PANEL_CONTENT_PADDING, set_tooltip, set_tooltips
 from attackcastle.gui.common import apply_form_layout_defaults, style_button
 from attackcastle.gui.models import GuiProfile
 
@@ -149,7 +149,7 @@ class CollapsibleSection(QFrame):
         self.setObjectName("collapsibleSection")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(PAGE_CARD_SPACING)
         self.toggle_button = QToolButton()
         self.toggle_button.setObjectName("sectionToggle")
         self.toggle_button.setText(title)
@@ -177,21 +177,19 @@ class CollapsibleSection(QFrame):
 
 class ProfileFieldsMixin:
     def _form_section(self, title: str, description: str, widget: QWidget) -> QWidget:
-        # Form sections stay visually light so the page reads as one workspace instead of stacked cards.
-        group = QWidget()
-        group.setObjectName("sectionBlock")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        title_label = QLabel(title)
-        title_label.setObjectName("sectionTitle")
-        helper = QLabel(description)
-        helper.setObjectName("sectionHelper")
-        helper.setWordWrap(True)
-        layout.addWidget(title_label)
-        layout.addWidget(helper)
-        layout.addWidget(widget)
-        return group
+        return self._profile_card(title, description, widget)
+
+    def _profile_card(self, title: str, description: str, widget: QWidget, *, surface: str = "primary") -> Card:
+        card = Card(
+            title,
+            summary=description,
+            object_name="profileCard",
+            surface=surface,
+            padding=18,
+            spacing=12,
+        )
+        card.content_layout.addWidget(widget)
+        return card
 
     def _profile_form(
         self,
@@ -205,47 +203,55 @@ class ProfileFieldsMixin:
         container.setObjectName("formContainer")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(PANEL_CONTENT_PADDING)
 
         self._build_profile_fields()
-
-        if preset_header:
-            layout.addWidget(self._build_preset_panel(preset_header, preset_helper))
 
         sections: list[tuple[str, str, QWidget, bool]] = []
         if include_identity:
             sections.append(
                 (
-                    "Profile Identity",
-                    "Give the preset a clear name and describe when operators should use it.",
-                    self._build_identity_form(),
+                    "Profile Posture",
+                    "Define the operator-facing identity, baseline posture, risk mode, rate mode, and default output location.",
+                    self._build_identity_posture_form(),
                     True,
-                )
+                ),
             )
-        sections.extend(
-            [
+        else:
+            sections.append(
                 (
                     "Profile Posture",
                     "Define the built-in baseline, stored risk posture, rate mode, and where run artifacts should be written.",
                     self._build_scope_form(),
                     True,
-                ),
+                )
+            )
+        if preset_header:
+            sections.append((preset_header, preset_helper, self._build_preset_panel_body(), True))
+        sections.extend(
+            [
                 (
                     "Performance",
-                    "Tune scan speed and breadth. Lower values reduce noise, higher values finish faster but increase pressure.",
+                    "Tune scan speed and resource pressure. Lower values reduce noise, higher values finish faster but increase load.",
                     self._build_performance_form(),
                     False,
                 ),
                 (
                     "Proxy",
-                    "Route AttackCastle HTTP tooling through Burp or another HTTP(S) proxy. Raw TCP, DNS socket, and TLS handshake stages stay direct.",
+                    "Route supported HTTP tooling through Burp or another HTTP(S) proxy while raw network discovery remains direct.",
                     self._build_proxy_form(),
                     False,
                 ),
                 (
                     "Active Validation",
-                    "Control request replay, validation posture, and preset libraries for automated OWASP-style checks.",
+                    "Control validation posture, request replay, budget, target revisit windows, and strategic behavior.",
                     self._build_active_validation_form(),
+                    True,
+                ),
+                (
+                    "Playbooks / Preset Libraries",
+                    "Choose the investigation lanes and optional preset files that guide deeper validation.",
+                    self._build_playbook_libraries_form(),
                     True,
                 ),
                 (
@@ -261,7 +267,7 @@ class ProfileFieldsMixin:
                     False,
                 ),
                 (
-                    "Exports",
+                    "Run Output Exports",
                     "Decide which analyst-facing outputs should be written automatically at the end of each run.",
                     self._build_export_form(),
                     False,
@@ -273,7 +279,7 @@ class ProfileFieldsMixin:
             if collapsible_sections:
                 layout.addWidget(CollapsibleSection(title, description, widget, expanded=expanded))
             else:
-                layout.addWidget(self._form_section(title, description, widget))
+                layout.addWidget(self._profile_card(title, description, widget))
 
         layout.addStretch(1)
         self._update_tool_family_cards()
@@ -513,17 +519,14 @@ class ProfileFieldsMixin:
             checkbox.toggled.connect(self._tool_settings_changed)
 
     def _build_preset_panel(self, title: str, helper: str) -> QWidget:
-        panel = QFrame()
-        panel.setObjectName("toolbarPanel")
-        panel.setProperty("surface", "secondary")
+        return self._profile_card(title, helper, self._build_preset_panel_body(), surface="secondary")
+
+    def _build_preset_panel_body(self) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("profilePresetPanel")
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-        title_label = QLabel(title)
-        title_label.setObjectName("sectionTitle")
-        helper_label = QLabel(helper)
-        helper_label.setObjectName("helperText")
-        helper_label.setWordWrap(True)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(PANEL_CONTENT_PADDING)
         chip_row = FlowButtonRow()
         for name in PROFILE_RECIPES:
             button = QPushButton(name)
@@ -536,8 +539,6 @@ class ProfileFieldsMixin:
         self.profile_preset_summary = QLabel("Custom posture. Use a preset to quickly align tools and guardrails.")
         self.profile_preset_summary.setObjectName("infoBanner")
         self.profile_preset_summary.setWordWrap(True)
-        layout.addWidget(title_label)
-        layout.addWidget(helper_label)
         layout.addWidget(chip_row)
         layout.addWidget(self.profile_preset_summary)
         return panel
@@ -550,14 +551,32 @@ class ProfileFieldsMixin:
         identity_layout.addRow("Description", self.description_edit)
         return identity_form
 
+    def _build_identity_posture_form(self) -> QWidget:
+        identity_posture_form = QWidget()
+        identity_posture_layout = QFormLayout(identity_posture_form)
+        apply_form_layout_defaults(identity_posture_layout)
+        identity_posture_layout.addRow("Name", self.profile_name_edit)
+        identity_posture_layout.addRow("Description", self.description_edit)
+        identity_posture_layout.addRow("Base Profile", self.base_profile_combo)
+        identity_posture_layout.addRow("Risk Mode", self.risk_mode_combo)
+        identity_posture_layout.addRow("Rate Mode", self.rate_mode_combo)
+        identity_posture_layout.addRow(
+            "Output Directory",
+            self._directory_row(self.output_dir_edit, self._browse_output_dir),
+        )
+        return identity_posture_form
+
     def _build_scope_form(self) -> QWidget:
         browse_button = QPushButton("Browse")
+        browse_button.setObjectName("browseButton")
         browse_button.clicked.connect(self._browse_output_dir)
+        style_button(browse_button, role="secondary")
         set_tooltip(browse_button, "Choose the folder where AttackCastle should write run artifacts and reports for this profile.")
         output_row = QWidget()
+        output_row.setObjectName("profileBrowseRow")
         output_layout = QHBoxLayout(output_row)
         output_layout.setContentsMargins(0, 0, 0, 0)
-        output_layout.setSpacing(8)
+        output_layout.setSpacing(PAGE_CARD_SPACING)
         output_layout.addWidget(self.output_dir_edit)
         output_layout.addWidget(browse_button)
 
@@ -597,94 +616,168 @@ class ProfileFieldsMixin:
 
     def _build_active_validation_form(self) -> QWidget:
         active_validation_form = QWidget()
-        active_validation_layout = QFormLayout(active_validation_form)
-        apply_form_layout_defaults(active_validation_layout)
-        active_validation_layout.addRow("Validation Mode", self.active_validation_mode_combo)
-        active_validation_layout.addRow(self.request_replay_enabled_checkbox)
-        active_validation_layout.addRow("Budget Per Target", self.validation_budget_spin)
-        active_validation_layout.addRow("Target Duration (Hours)", self.target_duration_spin)
-        active_validation_layout.addRow(self.revisit_enabled_checkbox)
-        active_validation_layout.addRow(self.breadth_first_checkbox)
-        active_validation_layout.addRow(self.unauthenticated_only_checkbox)
-        group_helper = QLabel(
-            "Enable web, TLS, and service playbook groups so AttackCastle opens coverage lanes for every relevant external surface, not just HTTP."
-        )
-        group_helper.setObjectName("helperText")
-        group_helper.setWordWrap(True)
-        active_validation_layout.addRow("", group_helper)
-        active_validation_layout.addRow(self.web_playbooks_checkbox)
-        active_validation_layout.addRow(self.tls_playbooks_checkbox)
-        active_validation_layout.addRow(self.service_playbooks_checkbox)
-        playbook_helper = QLabel(
-            "Playbooks drive pentester-style investigation loops. Keep them on by default and use preset families as advanced tuning."
-        )
-        playbook_helper.setObjectName("helperText")
-        playbook_helper.setWordWrap(True)
-        active_validation_layout.addRow("", playbook_helper)
-        active_validation_layout.addRow(self.object_access_playbook_checkbox)
-        active_validation_layout.addRow(self.input_reflection_playbook_checkbox)
-        active_validation_layout.addRow(self.api_expansion_playbook_checkbox)
-        active_validation_layout.addRow(self.admin_debug_playbook_checkbox)
-        active_validation_layout.addRow(self.client_artifact_playbook_checkbox)
-        active_validation_layout.addRow(self.framework_component_playbook_checkbox)
-        active_validation_layout.addRow(self.web_misconfiguration_playbook_checkbox)
-        active_validation_layout.addRow(self.use_default_validation_presets_checkbox)
-        active_validation_layout.addRow(
-            "Injection Presets",
-            self._file_row(self.injection_preset_edit, lambda: self._browse_file(self.injection_preset_edit, "Select injection preset list")),
-        )
-        active_validation_layout.addRow(
-            "XSS Presets",
-            self._file_row(self.xss_preset_edit, lambda: self._browse_file(self.xss_preset_edit, "Select XSS preset list")),
-        )
-        active_validation_layout.addRow(
-            "SQLi Presets",
-            self._file_row(self.sqli_preset_edit, lambda: self._browse_file(self.sqli_preset_edit, "Select SQLi preset list")),
-        )
-        active_validation_layout.addRow(
-            "Auth / Rate Limit",
-            self._file_row(
-                self.auth_rate_limit_preset_edit,
-                lambda: self._browse_file(self.auth_rate_limit_preset_edit, "Select auth and rate-limit preset list"),
-            ),
-        )
-        active_validation_layout.addRow(
-            "Misconfig Presets",
-            self._file_row(self.misconfig_preset_edit, lambda: self._browse_file(self.misconfig_preset_edit, "Select misconfiguration preset list")),
-        )
-        active_validation_layout.addRow(
-            "Data Exposure",
-            self._file_row(self.data_exposure_preset_edit, lambda: self._browse_file(self.data_exposure_preset_edit, "Select data-exposure preset list")),
-        )
-        active_validation_layout.addRow(
-            "API / IDOR",
-            self._file_row(self.api_idor_preset_edit, lambda: self._browse_file(self.api_idor_preset_edit, "Select API or IDOR preset list")),
-        )
-        active_validation_layout.addRow(
-            "Upload Presets",
-            self._file_row(self.upload_preset_edit, lambda: self._browse_file(self.upload_preset_edit, "Select upload preset list")),
-        )
-        active_validation_layout.addRow(
-            "Component Presets",
-            self._file_row(self.component_preset_edit, lambda: self._browse_file(self.component_preset_edit, "Select component preset list")),
-        )
-        active_validation_layout.addRow(
-            "Infra Presets",
-            self._file_row(self.infra_preset_edit, lambda: self._browse_file(self.infra_preset_edit, "Select infrastructure preset list")),
+        active_validation_layout = QVBoxLayout(active_validation_form)
+        active_validation_layout.setContentsMargins(0, 0, 0, 0)
+        active_validation_layout.setSpacing(PANEL_CONTENT_PADDING)
+
+        posture_form = QWidget()
+        posture_layout = QFormLayout(posture_form)
+        apply_form_layout_defaults(posture_layout)
+        posture_layout.addRow("Validation Mode", self.active_validation_mode_combo)
+        posture_layout.addRow(self.request_replay_enabled_checkbox)
+        posture_layout.addRow("Budget Per Target", self.validation_budget_spin)
+        posture_layout.addRow("Target Duration (Hours)", self.target_duration_spin)
+        active_validation_layout.addWidget(posture_form)
+        active_validation_layout.addWidget(
+            self._checkbox_group(
+                "Strategic Behavior",
+                "Shape how validation spends attention before deeper playbooks run.",
+                (
+                    self.revisit_enabled_checkbox,
+                    self.breadth_first_checkbox,
+                    self.unauthenticated_only_checkbox,
+                ),
+            )
         )
         helper = QLabel(
             "Safe-active keeps replay focused on low-risk read-only checks. Aggressive enables replay-based injection probes and deeper confirmation where conditions justify them."
         )
         helper.setObjectName("helperText")
         helper.setWordWrap(True)
-        active_validation_layout.addRow("", helper)
+        active_validation_layout.addWidget(helper)
         return active_validation_form
+
+    def _build_playbook_libraries_form(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(PANEL_CONTENT_PADDING)
+        layout.addWidget(
+            self._checkbox_group(
+                "Coverage Lanes",
+                "Open the broad playbook families needed for the surface under review.",
+                (
+                    self.web_playbooks_checkbox,
+                    self.tls_playbooks_checkbox,
+                    self.service_playbooks_checkbox,
+                ),
+            )
+        )
+        layout.addWidget(
+            self._checkbox_group(
+                "Web Investigation",
+                "Compact investigation loops for access control, injection signals, APIs, and web misconfiguration.",
+                (
+                    self.object_access_playbook_checkbox,
+                    self.input_reflection_playbook_checkbox,
+                    self.api_expansion_playbook_checkbox,
+                    self.web_misconfiguration_playbook_checkbox,
+                ),
+            )
+        )
+        layout.addWidget(
+            self._checkbox_group(
+                "Exposure Review",
+                "Focused checks for debug surfaces, client artifacts, and framework or component exposure.",
+                (
+                    self.admin_debug_playbook_checkbox,
+                    self.client_artifact_playbook_checkbox,
+                    self.framework_component_playbook_checkbox,
+                ),
+            )
+        )
+
+        preset_card = QFrame()
+        preset_card.setObjectName("profileSubCard")
+        preset_layout = QVBoxLayout(preset_card)
+        preset_layout.setContentsMargins(14, 14, 14, 14)
+        preset_layout.setSpacing(PANEL_CONTENT_PADDING)
+        preset_title = QLabel("Preset Libraries")
+        preset_title.setObjectName("profileGroupTitle")
+        preset_helper = QLabel("Use bundled validation presets by default, or point specific lanes at local files.")
+        preset_helper.setObjectName("helperText")
+        preset_helper.setWordWrap(True)
+        preset_form = QWidget()
+        preset_form_layout = QFormLayout(preset_form)
+        apply_form_layout_defaults(preset_form_layout)
+        preset_form_layout.addRow(self.use_default_validation_presets_checkbox)
+        preset_form_layout.addRow(
+            "Injection Presets",
+            self._file_row(self.injection_preset_edit, lambda: self._browse_file(self.injection_preset_edit, "Select injection preset list")),
+        )
+        preset_form_layout.addRow(
+            "XSS Presets",
+            self._file_row(self.xss_preset_edit, lambda: self._browse_file(self.xss_preset_edit, "Select XSS preset list")),
+        )
+        preset_form_layout.addRow(
+            "SQLi Presets",
+            self._file_row(self.sqli_preset_edit, lambda: self._browse_file(self.sqli_preset_edit, "Select SQLi preset list")),
+        )
+        preset_form_layout.addRow(
+            "Auth / Rate Limit",
+            self._file_row(
+                self.auth_rate_limit_preset_edit,
+                lambda: self._browse_file(self.auth_rate_limit_preset_edit, "Select auth and rate-limit preset list"),
+            ),
+        )
+        preset_form_layout.addRow(
+            "Misconfig",
+            self._file_row(self.misconfig_preset_edit, lambda: self._browse_file(self.misconfig_preset_edit, "Select misconfiguration preset list")),
+        )
+        preset_form_layout.addRow(
+            "Data Exposure",
+            self._file_row(self.data_exposure_preset_edit, lambda: self._browse_file(self.data_exposure_preset_edit, "Select data-exposure preset list")),
+        )
+        preset_form_layout.addRow(
+            "API / IDOR",
+            self._file_row(self.api_idor_preset_edit, lambda: self._browse_file(self.api_idor_preset_edit, "Select API or IDOR preset list")),
+        )
+        preset_form_layout.addRow(
+            "Upload Presets",
+            self._file_row(self.upload_preset_edit, lambda: self._browse_file(self.upload_preset_edit, "Select upload preset list")),
+        )
+        preset_form_layout.addRow(
+            "Component Presets",
+            self._file_row(self.component_preset_edit, lambda: self._browse_file(self.component_preset_edit, "Select component preset list")),
+        )
+        preset_form_layout.addRow(
+            "Infra Presets",
+            self._file_row(self.infra_preset_edit, lambda: self._browse_file(self.infra_preset_edit, "Select infrastructure preset list")),
+        )
+        preset_layout.addWidget(preset_title)
+        preset_layout.addWidget(preset_helper)
+        preset_layout.addWidget(preset_form)
+        layout.addWidget(preset_card)
+        return container
+
+    def _checkbox_group(self, title: str, helper: str, checkboxes: tuple[QCheckBox, ...]) -> QWidget:
+        group = QFrame()
+        group.setObjectName("profileSubCard")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(PAGE_CARD_SPACING)
+        title_label = QLabel(title)
+        title_label.setObjectName("profileGroupTitle")
+        helper_label = QLabel(helper)
+        helper_label.setObjectName("helperText")
+        helper_label.setWordWrap(True)
+        grid_host = QWidget()
+        grid_layout = QGridLayout(grid_host)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setHorizontalSpacing(PANEL_CONTENT_PADDING)
+        grid_layout.setVerticalSpacing(PAGE_CARD_SPACING)
+        for index, checkbox in enumerate(checkboxes):
+            grid_layout.addWidget(checkbox, index // 2, index % 2)
+        layout.addWidget(title_label)
+        layout.addWidget(helper_label)
+        layout.addWidget(grid_host)
+        return group
 
     def _build_tool_form(self) -> QWidget:
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(PANEL_CONTENT_PADDING)
 
         actions = FlowButtonRow()
         self.enable_recommended_button = QPushButton("Enable Recommended")
@@ -709,28 +802,33 @@ class ProfileFieldsMixin:
         actions.addWidget(self.expert_toggle_button)
         layout.addWidget(actions)
 
+        helper = QLabel("Coverage is grouped by operator outcome so enabled tools read as a scan posture, not a raw checklist.")
+        helper.setObjectName("helperText")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
+
         self.tool_family_grid = QGridLayout()
-        self.tool_family_grid.setHorizontalSpacing(12)
-        self.tool_family_grid.setVerticalSpacing(12)
+        self.tool_family_grid.setHorizontalSpacing(PANEL_CONTENT_PADDING)
+        self.tool_family_grid.setVerticalSpacing(PANEL_CONTENT_PADDING)
         self._tool_family_cards: list[QFrame] = []
         self._tool_family_summary_labels = []
         for idx, (title, description, entries) in enumerate(TOOL_GROUPS):
             card = QFrame()
-            card.setObjectName("summaryCard")
+            card.setObjectName("toolFamilyCard")
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(14, 14, 14, 14)
-            card_layout.setSpacing(6)
+            card_layout.setSpacing(PAGE_CARD_SPACING)
             title_label = QLabel(title)
-            title_label.setObjectName("summaryCardTitle")
+            title_label.setObjectName("profileGroupTitle")
             body_label = QLabel(description)
             body_label.setObjectName("helperText")
             body_label.setWordWrap(True)
             summary_label = QLabel("")
-            summary_label.setObjectName("summaryCardHint")
+            summary_label.setObjectName("profileToolSummary")
             summary_label.setWordWrap(True)
             self._tool_family_summary_labels.append(summary_label)
             checklist = QLabel("\n".join(f"- {name}: {detail}" for name, detail in entries))
-            checklist.setObjectName("helperText")
+            checklist.setObjectName("profileToolList")
             checklist.setWordWrap(True)
             card_layout.addWidget(title_label)
             card_layout.addWidget(body_label)
@@ -742,10 +840,11 @@ class ProfileFieldsMixin:
         layout.addLayout(self.tool_family_grid)
 
         self.expert_tool_panel = QWidget()
+        self.expert_tool_panel.setObjectName("expertToolPanel")
         self.expert_layout = QGridLayout(self.expert_tool_panel)
         self.expert_layout.setContentsMargins(0, 0, 0, 0)
-        self.expert_layout.setHorizontalSpacing(14)
-        self.expert_layout.setVerticalSpacing(10)
+        self.expert_layout.setHorizontalSpacing(PANEL_CONTENT_PADDING)
+        self.expert_layout.setVerticalSpacing(PANEL_CONTENT_PADDING)
         for idx, checkbox in enumerate(self._tool_checkboxes()):
             self.expert_layout.addWidget(checkbox, idx // 2, idx % 2)
         self.expert_tool_panel.setVisible(False)
@@ -883,8 +982,7 @@ class ProfileFieldsMixin:
         for summary_label, (_title, _description, entries) in zip(self._tool_family_summary_labels, TOOL_GROUPS, strict=False):
             enabled = [name for name, _detail in entries if active_names.get(name, False)]
             summary_label.setText(
-                (", ".join(enabled) if enabled else "No tools enabled")
-                + f" | {len(enabled)}/{len(entries)} active"
+                f"Active: {', '.join(enabled) if enabled else 'None'} | {len(enabled)}/{len(entries)} enabled"
             )
 
     def _mark_recipe_as_custom(self, *_args: object) -> None:
@@ -924,13 +1022,30 @@ class ProfileFieldsMixin:
         if selected:
             target_edit.setText(selected)
 
-    def _file_row(self, edit: QLineEdit, browse_callback: Callable[[], None]) -> QWidget:
+    def _directory_row(self, edit: QLineEdit, browse_callback: Callable[[], None]) -> QWidget:
         row = QWidget()
+        row.setObjectName("profileBrowseRow")
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
+        row_layout.setSpacing(PAGE_CARD_SPACING)
         row_layout.addWidget(edit)
         browse_button = QPushButton("Browse")
+        browse_button.setObjectName("browseButton")
+        browse_button.clicked.connect(browse_callback)
+        style_button(browse_button, role="secondary")
+        set_tooltip(browse_button, "Choose the folder where AttackCastle should write run artifacts and reports for this profile.")
+        row_layout.addWidget(browse_button)
+        return row
+
+    def _file_row(self, edit: QLineEdit, browse_callback: Callable[[], None]) -> QWidget:
+        row = QWidget()
+        row.setObjectName("profileBrowseRow")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(PAGE_CARD_SPACING)
+        row_layout.addWidget(edit)
+        browse_button = QPushButton("Browse")
+        browse_button.setObjectName("browseButton")
         browse_button.clicked.connect(browse_callback)
         style_button(browse_button, role="secondary")
         set_tooltip(browse_button, "Choose a file from disk and place its path into this field.")

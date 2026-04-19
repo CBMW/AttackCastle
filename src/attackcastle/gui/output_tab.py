@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import QModelIndex, Qt
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -73,6 +73,9 @@ class OutputTab(QWidget):
         self._current_finding_id = ""
         self._current_path = ""
         self._preview_path = ""
+        self._active_detail_kind = ""
+        self._active_detail_identity = ""
+        self._active_detail_table: QTableView | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
@@ -87,10 +90,10 @@ class OutputTab(QWidget):
         filter_panel.setProperty("surface", SURFACE_FLAT)
         filter_layout = QVBoxLayout(filter_panel)
         filter_layout.setContentsMargins(0, 0, 0, 0)
-        filter_layout.setSpacing(10)
+        filter_layout.setSpacing(PAGE_SECTION_SPACING)
         self.filter_grid = QGridLayout()
-        self.filter_grid.setHorizontalSpacing(10)
-        self.filter_grid.setVerticalSpacing(10)
+        self.filter_grid.setHorizontalSpacing(PAGE_SECTION_SPACING)
+        self.filter_grid.setVerticalSpacing(PAGE_SECTION_SPACING)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search findings, evidence, validation results, or report notes")
         self.search_edit.textChanged.connect(self._refresh_models)
@@ -278,7 +281,7 @@ class OutputTab(QWidget):
         findings_page = QWidget()
         findings_layout = QVBoxLayout(findings_page)
         findings_layout.setContentsMargins(0, 0, 0, 0)
-        findings_layout.setSpacing(12)
+        findings_layout.setSpacing(PAGE_SECTION_SPACING)
         self.findings_tabs = QTabWidget()
         self.findings_tabs.setObjectName("subTabs")
         self.findings_tabs.setDocumentMode(True)
@@ -368,7 +371,7 @@ class OutputTab(QWidget):
         section = QWidget()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(PAGE_SECTION_SPACING)
         label = QLabel(title)
         label.setObjectName("sectionTitle")
         layout.addWidget(label)
@@ -462,8 +465,19 @@ class OutputTab(QWidget):
         self.compare_combo.blockSignals(False)
 
     def set_snapshot(self, snapshot: RunSnapshot | None, finding_states: dict[str, FindingState] | None = None) -> None:
+        previous_run_id = self._snapshot.run_id if self._snapshot is not None else ""
+        next_run_id = snapshot.run_id if snapshot is not None else ""
+        run_changed = bool(previous_run_id and next_run_id and previous_run_id != next_run_id)
         self._snapshot = snapshot
         self._finding_states = finding_states or {}
+        if run_changed:
+            self._clear_active_detail()
+            self.detail_text.clear()
+            self.raw_text.clear()
+            self.inspector_summary.setText("Select an item to inspect technical details and artifacts.")
+            self._current_finding_id = ""
+            self._set_current_path("")
+            self._reset_finding_editor()
         self._refresh_models()
 
     def _refresh_models(self) -> None:
@@ -503,6 +517,7 @@ class OutputTab(QWidget):
             self.preview_meta_label.setText("No artifact selected")
             self._current_finding_id = ""
             self._set_current_path("")
+            self._clear_active_detail()
             self._reset_finding_editor()
             return
 
@@ -584,7 +599,9 @@ class OutputTab(QWidget):
             f"<p><b>Risk Picture:</b> {critical_high} critical/high findings and {len(report_rows)} report-ready findings are in active triage.</p>"
             f"<p><b>Execution Health:</b> {title_case_label(completeness_status)} with {issue_count} consolidated issue(s). Review Scanner &gt; Issues for impact and next actions.</p>"
         )
-        if not self.detail_text.toPlainText():
+        if self._active_detail_kind:
+            self._restore_active_detail()
+        elif not self.detail_text.toPlainText():
             self.detail_text.setPlainText("Select a finding, validation item, or artifact for details.")
 
     def _compare_changed(self, _index: int) -> None:
@@ -611,7 +628,7 @@ class OutputTab(QWidget):
             row["analyst_note"] = state.analyst_note if state else ""
             row["include_in_report"] = state.include_in_report if state else True
             row["severity_override"] = state.severity_override if state else ""
-            row["effective_severity"] = state.severity_override or base_severity
+            row["effective_severity"] = (state.severity_override if state else "") or base_severity
             row["reproduce_steps"] = state.reproduce_steps if state else ""
             rows.append(row)
         rows.sort(key=lambda row: (SEVERITY_ORDER.get(str(row.get("effective_severity") or "info").lower(), 99), str(row.get("title") or "")))
@@ -652,17 +669,17 @@ class OutputTab(QWidget):
             "related_services": [item for item in self._snapshot.services if str(item.get("asset_id") or "") == asset_id],
             "related_web_apps": [item for item in self._snapshot.web_apps if str(item.get("asset_id") or "") == asset_id],
         }
-        self._show_details(payload)
+        self._show_details(payload, kind="asset", table=self.assets_view, identity_row=row)
 
     def _service_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="service", table=self.services_view)
 
     def _finding_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(0)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="finding", table=self.findings_view)
         self._current_finding_id = str(row.get("finding_id") or "")
         self.finding_status_combo.setCurrentText(str(row.get("workflow_status") or "needs-validation"))
         self.finding_severity_combo.setCurrentText(str(row.get("severity_override") or ""))
@@ -673,42 +690,42 @@ class OutputTab(QWidget):
     def _web_app_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="web_app", table=self.web_apps_view)
 
     def _endpoint_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="endpoint", table=self.endpoints_view)
 
     def _parameter_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="parameter", table=self.parameters_view)
 
     def _form_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="form", table=self.forms_view)
 
     def _login_surface_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="login_surface", table=self.login_surfaces_view)
 
     def _technology_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="technology", table=self.technologies_view)
 
     def _site_map_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="site_map", table=self.site_map_view)
 
     def _evidence_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(2)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="evidence", table=self.evidence_view)
         path = str(row.get("artifact_path") or "")
         self._set_current_path(path)
         self._preview_if_possible(path)
@@ -716,7 +733,7 @@ class OutputTab(QWidget):
     def _artifact_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(2)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="artifact", table=self.artifacts_view)
         path = str(row.get("path") or "")
         self._set_current_path(path)
         self._preview_if_possible(path)
@@ -724,7 +741,7 @@ class OutputTab(QWidget):
     def _screenshot_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(2)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="screenshot", table=self.screenshots_view)
         path = str(row.get("path") or "")
         self._set_current_path(path)
         self._preview_path = path
@@ -734,44 +751,55 @@ class OutputTab(QWidget):
     def _hypothesis_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="hypothesis", table=self.hypotheses_view)
 
     def _surface_signal_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="surface_signal", table=self.surface_signals_view)
 
     def _attack_path_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="attack_path", table=self.attack_paths_view)
 
     def _investigation_step_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="investigation_step", table=self.investigation_steps_view)
 
     def _validation_task_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="validation_task", table=self.validation_tasks_view)
 
     def _replay_request_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="replay_request", table=self.replay_requests_view)
 
     def _validation_result_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="validation_result", table=self.validation_results_view)
 
     def _coverage_gap_selected(self, index: QModelIndex) -> None:
         self.primary_tabs.setCurrentIndex(1)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row)
+        self._show_details(row, kind="coverage_gap", table=self.coverage_gaps_view)
 
-    def _show_details(self, row: dict[str, Any]) -> None:
+    def _show_details(
+        self,
+        row: dict[str, Any],
+        *,
+        kind: str = "",
+        table: QTableView | None = None,
+        identity_row: dict[str, Any] | None = None,
+    ) -> None:
+        if kind:
+            self._active_detail_kind = kind
+            self._active_detail_identity = self._row_identity(kind, identity_row or row)
+            self._active_detail_table = table
         detail_keys = [title_case_label(str(key)) for key in row.keys()]
         if detail_keys:
             self.inspector_summary.setText(f"Inspecting {', '.join(detail_keys[:3])}{'...' if len(detail_keys) > 3 else ''}")
@@ -779,6 +807,125 @@ class OutputTab(QWidget):
             self.inspector_summary.setText("Select an item to inspect technical details and artifacts.")
         self.detail_text.setPlainText(self._build_technical_text(row))
         self.raw_text.setPlainText(json.dumps(row, indent=2, sort_keys=True))
+
+    def _clear_active_detail(self) -> None:
+        self._active_detail_kind = ""
+        self._active_detail_identity = ""
+        self._active_detail_table = None
+
+    def _row_identity(self, kind: str, row: dict[str, Any]) -> str:
+        primary_id_fields = {
+            "asset": "asset_id",
+            "service": "service_id",
+            "finding": "finding_id",
+            "web_app": "webapp_id",
+            "endpoint": "endpoint_id",
+            "parameter": "parameter_id",
+            "form": "form_id",
+            "login_surface": "login_surface_id",
+            "technology": "tech_id",
+            "hypothesis": "hypothesis_id",
+            "surface_signal": "signal_id",
+            "attack_path": "path_id",
+            "investigation_step": "step_id",
+            "validation_task": "task_id",
+            "replay_request": "request_id",
+            "validation_result": "result_id",
+            "coverage_gap": "gap_id",
+            "evidence": "evidence_id",
+            "artifact": "artifact_id",
+            "screenshot": "screenshot_id",
+        }
+        primary_id = row.get(primary_id_fields.get(kind, ""))
+        if primary_id not in (None, ""):
+            return f"{kind}:{primary_id}"
+        id_fields = {
+            "asset": ("asset_id", "kind", "name", "ip"),
+            "service": ("service_id", "asset_id", "port", "protocol", "name"),
+            "finding": ("finding_id", "title", "category"),
+            "web_app": ("webapp_id", "url"),
+            "endpoint": ("endpoint_id", "method", "url"),
+            "parameter": ("parameter_id", "endpoint_id", "name", "location"),
+            "form": ("form_id", "method", "action_url"),
+            "login_surface": ("login_surface_id", "url"),
+            "technology": ("tech_id", "asset_id", "webapp_id", "name", "version"),
+            "site_map": ("source", "url", "entity_id"),
+            "hypothesis": ("hypothesis_id", "title", "exploit_class"),
+            "surface_signal": ("signal_id", "signal_type", "summary", "entity_id", "parameter_name"),
+            "attack_path": ("path_id", "playbook_key", "wave", "next_action"),
+            "investigation_step": ("step_id", "step_key", "title"),
+            "validation_task": ("task_id", "title", "approval_class"),
+            "replay_request": ("request_id", "method", "url"),
+            "validation_result": ("result_id", "title", "family"),
+            "coverage_gap": ("gap_id", "title", "url", "source"),
+            "evidence": ("evidence_id", "artifact_path", "source_tool", "snippet"),
+            "artifact": ("artifact_id", "path", "kind", "source_tool"),
+            "screenshot": ("screenshot_id", "path", "caption", "source_tool"),
+        }
+        values = [str(row.get(field) or "") for field in id_fields.get(kind, ())]
+        identity = "|".join(values).strip("|")
+        return identity or json.dumps(row, sort_keys=True, default=str)
+
+    def _detail_sources(self) -> dict[str, tuple[QTableView, MappingTableModel]]:
+        return {
+            "asset": (self.assets_view, self.assets_model),
+            "service": (self.services_view, self.services_model),
+            "finding": (self.findings_view, self.findings_model),
+            "web_app": (self.web_apps_view, self.web_apps_model),
+            "endpoint": (self.endpoints_view, self.endpoints_model),
+            "parameter": (self.parameters_view, self.parameters_model),
+            "form": (self.forms_view, self.forms_model),
+            "login_surface": (self.login_surfaces_view, self.login_surfaces_model),
+            "technology": (self.technologies_view, self.technologies_model),
+            "site_map": (self.site_map_view, self.site_map_model),
+            "hypothesis": (self.hypotheses_view, self.hypotheses_model),
+            "surface_signal": (self.surface_signals_view, self.surface_signals_model),
+            "attack_path": (self.attack_paths_view, self.attack_paths_model),
+            "investigation_step": (self.investigation_steps_view, self.investigation_steps_model),
+            "validation_task": (self.validation_tasks_view, self.validation_tasks_model),
+            "replay_request": (self.replay_requests_view, self.replay_requests_model),
+            "validation_result": (self.validation_results_view, self.validation_results_model),
+            "coverage_gap": (self.coverage_gaps_view, self.coverage_gaps_model),
+            "evidence": (self.evidence_view, self.evidence_model),
+            "artifact": (self.artifacts_view, self.artifacts_model),
+            "screenshot": (self.screenshots_view, self.screenshots_model),
+        }
+
+    def _restore_active_detail(self) -> None:
+        if not self._active_detail_kind or not self._active_detail_identity:
+            return
+        source = self._detail_sources().get(self._active_detail_kind)
+        if source is None or self._snapshot is None:
+            return
+        table, model = source
+        for row_index in range(model.rowCount()):
+            index = model.index(row_index, 0)
+            row = index.data(Qt.UserRole) or {}
+            if not isinstance(row, dict):
+                continue
+            if self._row_identity(self._active_detail_kind, row) != self._active_detail_identity:
+                continue
+            selection = table.selectionModel()
+            if selection is not None:
+                selection.setCurrentIndex(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+            table.setCurrentIndex(index)
+            table.selectRow(row_index)
+            if self._active_detail_kind == "asset":
+                asset_id = str(row.get("asset_id") or "")
+                payload = {
+                    "asset": row,
+                    "related_services": [item for item in self._snapshot.services if str(item.get("asset_id") or "") == asset_id],
+                    "related_web_apps": [item for item in self._snapshot.web_apps if str(item.get("asset_id") or "") == asset_id],
+                }
+                self._show_details(payload, kind="asset", table=table, identity_row=row)
+            else:
+                self._show_details(row, kind=self._active_detail_kind, table=table)
+            if self._active_detail_kind in {"evidence", "artifact", "screenshot"}:
+                path = str(row.get("artifact_path") or row.get("path") or "")
+                self._set_current_path(path)
+                self._preview_path = path if self._active_detail_kind == "screenshot" or is_previewable_image(path) else ""
+                self._render_preview()
+            return
 
     def _build_technical_text(self, payload: dict[str, Any]) -> str:
         lines = []

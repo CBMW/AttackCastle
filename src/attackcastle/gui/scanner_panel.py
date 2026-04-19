@@ -3,14 +3,18 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from PySide6.QtCore import QModelIndex, Qt
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
     QLabel,
     QSizePolicy,
     QSplitter,
     QTabWidget,
     QTableView,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +31,7 @@ from attackcastle.gui.common import (
     title_case_label,
 )
 from attackcastle.gui.models import RunSnapshot
+from attackcastle.gui.runtime import resolve_current_task_debug_bundle
 
 
 class ScannerPanel(QWidget):
@@ -39,6 +44,9 @@ class ScannerPanel(QWidget):
         super().__init__(parent)
         self._snapshot: RunSnapshot | None = None
         self._context_menu_handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None = None
+        self._active_detail_kind = ""
+        self._active_detail_identity = ""
+        self._active_command_text = ""
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -129,7 +137,20 @@ class ScannerPanel(QWidget):
         self.raw_text = configure_scroll_surface(QTextEdit())
         self.raw_text.setObjectName("consoleText")
         self.raw_text.setReadOnly(True)
+        self.command_text = configure_scroll_surface(QTextEdit())
+        self.command_text.setObjectName("consoleText")
+        self.command_text.setReadOnly(True)
+        self.command_copy_button = QToolButton()
+        self.command_copy_button.setIcon(QIcon.fromTheme("edit-copy"))
+        self.command_copy_button.setText("Copy")
+        self.command_copy_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.command_copy_button.setEnabled(False)
+        self.command_copy_button.clicked.connect(self._copy_active_command)
+        self.command_status_label = QLabel("No command selected.")
+        self.command_status_label.setObjectName("helperText")
+        self.command_status_label.setWordWrap(True)
         self.inspector_tabs.addTab(self._tab_surface(self.detail_text), "Details")
+        self.inspector_tabs.addTab(self._command_tab_surface(), "Command")
         self.inspector_tabs.addTab(self._tab_surface(self.raw_text), "Raw")
         self.main_split.addWidget(self.inspector_tabs)
         self.sync_responsive_mode(self.width())
@@ -144,6 +165,21 @@ class ScannerPanel(QWidget):
 
     def _table_surface(self, _title: str, table: QTableView) -> QWidget:
         return self._tab_surface(table)
+
+    def _command_tab_surface(self) -> QWidget:
+        section = QWidget()
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        header_layout.addWidget(self.command_copy_button, 0)
+        header_layout.addWidget(self.command_status_label, 1)
+        layout.addWidget(header, 0)
+        layout.addWidget(self.command_text, 1)
+        return section
 
     def set_context_menu_handler(self, handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None) -> None:
         self._context_menu_handler = handler
@@ -165,6 +201,7 @@ class ScannerPanel(QWidget):
                 policies.append({"mode": "mixed", "min": 120, "width": 160})
         ensure_table_defaults(table, column_policies=policies, minimum_rows=8)
         table.clicked.connect(callback)
+        table.doubleClicked.connect(callback)
         if context_kind:
             table.setProperty("context_kind", context_kind)
             table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -180,8 +217,12 @@ class ScannerPanel(QWidget):
             self._main_split_controller.apply([max(int(self.height() * 0.56), 280), max(int(self.height() * 0.44), 220)])
 
     def set_snapshot(self, snapshot: RunSnapshot | None) -> None:
+        previous_run_id = self._snapshot.run_id if self._snapshot is not None else ""
+        next_run_id = snapshot.run_id if snapshot is not None else ""
+        run_changed = bool(previous_run_id and next_run_id and previous_run_id != next_run_id)
         self._snapshot = snapshot
         if snapshot is None:
+            self._clear_active_detail()
             self.tasks_model.set_rows([])
             self.tools_model.set_rows([])
             self.issues_model.set_rows([])
@@ -189,7 +230,10 @@ class ScannerPanel(QWidget):
             self.inspector_summary.setText("Select a task, tool run, issue, or audit entry to inspect details.")
             self.detail_text.clear()
             self.raw_text.clear()
+            self._set_command_rows([])
             return
+        if run_changed:
+            self._clear_active_detail()
 
         execution_issues = list(snapshot.execution_issues or [])
         issue_summary = dict(snapshot.execution_issues_summary or {})
@@ -209,12 +253,18 @@ class ScannerPanel(QWidget):
         self.tools_model.set_rows(snapshot.tool_executions)
         self.issues_model.set_rows(execution_issues)
         self.health_text.setPlainText(self._build_health_text(snapshot, execution_issues, issue_summary))
-        self.inspector_summary.setText("Select a task, tool run, issue, or audit entry to inspect details.")
-        self.detail_text.setPlainText("Select a task, tool run, issue, or audit entry for details.")
-        self.raw_text.clear()
+        if self._active_detail_kind in {"task", "tool", "issue"}:
+            self._restore_active_detail()
+        elif not self._active_detail_kind:
+            self.inspector_summary.setText("Select a task, tool run, issue, or audit entry to inspect details.")
+            self.detail_text.setPlainText("Select a task, tool run, issue, or audit entry for details.")
+            self.raw_text.clear()
+            self._set_command_rows([])
 
     def set_audit_rows(self, rows: list[dict[str, Any]]) -> None:
         self.audit_model.set_rows(rows)
+        if self._active_detail_kind == "audit":
+            self._restore_active_detail()
 
     def focus_tasks(self) -> None:
         self.tabs.setCurrentIndex(self.tasks_tab_index)
@@ -285,7 +335,10 @@ class ScannerPanel(QWidget):
             lines.append("- no tool executions recorded yet")
         return "\n".join(lines)
 
-    def _show_details(self, row: dict[str, Any]) -> None:
+    def _show_details(self, row: dict[str, Any], *, kind: str = "") -> None:
+        if kind:
+            self._active_detail_kind = kind
+            self._active_detail_identity = self._row_identity(kind, row)
         detail_keys = [title_case_label(str(key)) for key in row.keys()]
         if detail_keys:
             summary = f"Inspecting {', '.join(detail_keys[:3])}"
@@ -296,6 +349,73 @@ class ScannerPanel(QWidget):
             self.inspector_summary.setText("Select a task, tool run, issue, or audit entry to inspect details.")
         self.detail_text.setPlainText(self._build_technical_text(row))
         self.raw_text.setPlainText(json.dumps(row, indent=2, sort_keys=True))
+        self._set_command_rows(self._matched_command_rows(row, kind=kind))
+
+    def _clear_active_detail(self) -> None:
+        self._active_detail_kind = ""
+        self._active_detail_identity = ""
+
+    def _row_identity(self, kind: str, row: dict[str, Any]) -> str:
+        if kind == "task":
+            detail = row.get("detail", {})
+            if isinstance(detail, dict) and detail.get("instance_key"):
+                return f"task:{detail.get('instance_key')}"
+            return str(row.get("key") or row.get("task_key") or row.get("label") or "")
+        if kind == "tool":
+            execution_id = row.get("execution_id")
+            if execution_id not in (None, ""):
+                return f"tool:{execution_id}"
+            return "|".join(
+                str(row.get(key) or "")
+                for key in ("execution_id", "tool_name", "started_at", "stdout_path")
+            ).strip("|")
+        if kind == "issue":
+            issue_id = row.get("issue_id")
+            if issue_id not in (None, ""):
+                return f"issue:{issue_id}"
+            return "|".join(
+                str(row.get(key) or "")
+                for key in ("kind", "label", "message", "impact", "suggested_action")
+            ).strip("|")
+        if kind == "audit":
+            audit_id = row.get("audit_id")
+            if audit_id not in (None, ""):
+                return f"audit:{audit_id}"
+            return "|".join(
+                str(row.get(key) or "")
+                for key in ("timestamp", "action", "summary", "run_id", "workspace_id")
+            ).strip("|")
+        return json.dumps(row, sort_keys=True, default=str)
+
+    def _detail_sources(self) -> dict[str, tuple[QTableView, MappingTableModel]]:
+        return {
+            "task": (self.tasks_view, self.tasks_model),
+            "tool": (self.tools_view, self.tools_model),
+            "issue": (self.issues_view, self.issues_model),
+            "audit": (self.audit_view, self.audit_model),
+        }
+
+    def _restore_active_detail(self) -> None:
+        if not self._active_detail_kind or not self._active_detail_identity:
+            return
+        source = self._detail_sources().get(self._active_detail_kind)
+        if source is None:
+            return
+        table, model = source
+        for row_index in range(model.rowCount()):
+            index = model.index(row_index, 0)
+            row = index.data(Qt.UserRole) or {}
+            if not isinstance(row, dict):
+                continue
+            if self._row_identity(self._active_detail_kind, row) != self._active_detail_identity:
+                continue
+            selection = table.selectionModel()
+            if selection is not None:
+                selection.setCurrentIndex(index, QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+            table.setCurrentIndex(index)
+            table.selectRow(row_index)
+            self._show_details(row, kind=self._active_detail_kind)
+            return
 
     def _build_technical_text(self, payload: dict[str, Any]) -> str:
         lines = []
@@ -312,25 +432,88 @@ class ScannerPanel(QWidget):
                 lines.append(f"{title_case_label(str(key))}: {value}")
         return "\n".join(lines)
 
+    def _command_value(self, row: dict[str, Any]) -> str:
+        return str(row.get("raw_command") or row.get("command") or "").strip()
+
+    def _matched_command_rows(self, row: dict[str, Any], *, kind: str = "") -> list[dict[str, Any]]:
+        if self._snapshot is None or kind not in {"task", "tool"}:
+            return []
+        if kind == "tool":
+            return [row] if self._command_value(row) else []
+        bundle = resolve_current_task_debug_bundle(self._snapshot, task_row=row)
+        rows = [
+            item
+            for item in bundle.get("tool_executions", [])
+            if isinstance(item, dict) and self._command_value(item)
+        ]
+        if rows:
+            return rows
+        return [
+            item
+            for item in bundle.get("task_results", [])
+            if isinstance(item, dict) and self._command_value(item)
+        ]
+
+    def _set_command_rows(self, rows: list[dict[str, Any]]) -> None:
+        commands: list[str] = []
+        metadata: list[str] = []
+        for index, row in enumerate(rows, start=1):
+            command = self._command_value(row)
+            if not command:
+                continue
+            commands.append(command)
+            tool = str(row.get("tool_name") or row.get("task_type") or "command")
+            status = str(row.get("status") or "unknown")
+            exit_code = row.get("exit_code")
+            execution_id = str(row.get("execution_id") or row.get("task_id") or "").strip()
+            label = f"{index}. {tool} | status={status} | exit={exit_code if exit_code is not None else '-'}"
+            if execution_id:
+                label += f" | id={execution_id}"
+            metadata.append(label)
+        if not commands:
+            self._active_command_text = ""
+            self.command_copy_button.setEnabled(False)
+            self.command_status_label.setText("No raw command has been recorded for this selection yet.")
+            self.command_text.setPlainText("No command recorded.")
+            return
+        self._active_command_text = commands[0]
+        self.command_copy_button.setEnabled(True)
+        self.command_status_label.setText(
+            "Copy exact command." if len(commands) == 1 else f"Copy first exact command. {len(commands)} commands matched."
+        )
+        rendered: list[str] = []
+        for label, command in zip(metadata, commands):
+            rendered.extend([label, command, ""])
+        self.command_text.setPlainText("\n".join(rendered).strip())
+
+    def _copy_active_command(self) -> None:
+        if not self._active_command_text:
+            return
+        app = QApplication.instance()
+        if app is None:
+            return
+        app.clipboard().setText(self._active_command_text)
+        self.command_status_label.setText("Copied exact command to clipboard.")
+
     def _task_selected(self, index: QModelIndex) -> None:
         self.tabs.setCurrentIndex(self.tasks_tab_index)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row if isinstance(row, dict) else {})
+        self._show_details(row if isinstance(row, dict) else {}, kind="task")
 
     def _tool_selected(self, index: QModelIndex) -> None:
         self.tabs.setCurrentIndex(self.tools_tab_index)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row if isinstance(row, dict) else {})
+        self._show_details(row if isinstance(row, dict) else {}, kind="tool")
 
     def _issue_selected(self, index: QModelIndex) -> None:
         self.tabs.setCurrentIndex(self.issues_tab_index)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row if isinstance(row, dict) else {})
+        self._show_details(row if isinstance(row, dict) else {}, kind="issue")
 
     def _audit_selected(self, index: QModelIndex) -> None:
         self.tabs.setCurrentIndex(self.audit_tab_index)
         row = index.data(Qt.UserRole) or {}
-        self._show_details(row if isinstance(row, dict) else {})
+        self._show_details(row if isinstance(row, dict) else {}, kind="audit")
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

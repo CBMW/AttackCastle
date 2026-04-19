@@ -308,6 +308,67 @@ def test_scheduler_marks_adapter_results_with_errors_as_failed(tmp_path: Path):
     assert "subdomain enumeration failed" in str(states[0].error)
 
 
+def test_scheduler_resource_pressure_cancels_one_running_task(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-resource-pressure")
+    emitted: list[tuple[str, dict[str, object]]] = []
+    context = AdapterContext(
+        profile_name="standard",
+        config={
+            "orchestration": {"task_start_delay_seconds": 0.0},
+            "adaptive_execution": {
+                "resource_limits": {
+                    "grace_samples": 1,
+                    "cooldown_seconds": 5,
+                    "cpu_limit_percent": 50,
+                    "memory_limit_percent": 100,
+                }
+            },
+        },
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-resource-pressure"),
+        audit=_AuditStub(),
+        event_emitter=lambda event, payload: emitted.append((event, payload)),
+    )
+
+    def _runner(task_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        run_store.write_control(
+            "resource_pressure",
+            {
+                "reason": "CPU 75.0% > 50%",
+                "limits": {"grace_samples": 1, "cooldown_seconds": 5, "cpu_limit_percent": 50, "memory_limit_percent": 100},
+                "sample": {"cpu_percent": 75.0, "memory_used_percent": 10.0},
+                "throttle": {"cpu_cores": 1, "max_workers": 1, "max_tool_threads": 1, "max_heavy_processes": 1},
+            },
+        )
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            token = task_context.cancellation_token
+            if token is not None and token.is_set():
+                break
+            time.sleep(0.01)
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-nmap",
+                label="Running Nmap",
+                capability="network_port_scan",
+                stage="recon",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert states[0].status == "cancelled"
+    assert states[0].error == "cancelled_for_resource_limit"
+    assert "worker.resource_pressure" in {event for event, _payload in emitted}
+
+
 def test_scheduler_requeues_repeatable_task_when_new_frontier_appears(tmp_path: Path):
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-repeatable-frontier")
     context = AdapterContext(

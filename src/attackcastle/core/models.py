@@ -218,6 +218,9 @@ class ToolExecution:
     termination_reason: str | None = None
     termination_detail: str | None = None
     timed_out: bool = False
+    raw_command: str | None = None
+    task_instance_key: str | None = None
+    task_inputs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -272,6 +275,9 @@ class TaskResult:
     termination_reason: str | None = None
     termination_detail: str | None = None
     timed_out: bool = False
+    raw_command: str | None = None
+    task_instance_key: str | None = None
+    task_inputs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -999,6 +1005,11 @@ def _execution_from_dict(data: dict[str, Any]) -> ToolExecution:
         termination_reason=data.get("termination_reason"),
         termination_detail=data.get("termination_detail"),
         timed_out=bool(data.get("timed_out", False)),
+        raw_command=data.get("raw_command") or data.get("command", ""),
+        task_instance_key=data.get("task_instance_key"),
+        task_inputs=[str(item) for item in data.get("task_inputs", []) if str(item).strip()]
+        if isinstance(data.get("task_inputs", []), list)
+        else [],
     )
 
 
@@ -1057,6 +1068,11 @@ def _task_result_from_dict(data: dict[str, Any]) -> TaskResult:
         termination_reason=data.get("termination_reason"),
         termination_detail=data.get("termination_detail"),
         timed_out=bool(data.get("timed_out", False)),
+        raw_command=data.get("raw_command") or data.get("command", ""),
+        task_instance_key=data.get("task_instance_key"),
+        task_inputs=[str(item) for item in data.get("task_inputs", []) if str(item).strip()]
+        if isinstance(data.get("task_inputs", []), list)
+        else [],
     )
 
 

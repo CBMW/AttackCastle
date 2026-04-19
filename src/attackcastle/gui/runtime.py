@@ -20,24 +20,57 @@ def _performance_guard_overrides(profile: GuiProfile, settings: dict[str, Any] |
     if not isinstance(settings, dict) or not settings.get("enabled", True):
         return {}
     try:
-        cpu_cores = int(settings.get("throttle_cpu_cores") or 0)
+        cpu_limit_percent = int(
+            settings.get("cpu_limit_percent")
+            if settings.get("cpu_limit_percent") is not None
+            else settings.get("cpu_alert_percent", 100)
+        )
     except (TypeError, ValueError):
-        cpu_cores = 0
+        cpu_limit_percent = 100
     try:
-        memory_alert_percent = int(settings.get("memory_alert_percent") or 0)
+        memory_limit_percent = int(
+            settings.get("memory_limit_percent")
+            if settings.get("memory_limit_percent") is not None
+            else settings.get("memory_alert_percent", 100)
+        )
     except (TypeError, ValueError):
-        memory_alert_percent = 0
+        memory_limit_percent = 100
 
     overrides: dict[str, Any] = {}
-    if cpu_cores > 0:
+    cpu_limit_percent = max(1, min(100, cpu_limit_percent))
+    memory_limit_percent = max(1, min(100, memory_limit_percent))
+    legacy_throttle = "throttle_cpu_cores" in settings
+    if legacy_throttle:
+        try:
+            cpu_cores = int(settings.get("throttle_cpu_cores") or 0)
+        except (TypeError, ValueError):
+            cpu_cores = 0
+    else:
+        import math
+        import os
+
+        cpu_count = max(1, int(os.cpu_count() or 1))
+        cpu_cores = max(1, min(cpu_count, int(math.ceil(cpu_count * (cpu_limit_percent / 100.0)))))
+
+    if cpu_cores > 0 and (cpu_limit_percent < 100 or legacy_throttle):
         capped_concurrency = max(1, min(int(profile.concurrency), cpu_cores))
         overrides.setdefault("profile", {})["concurrency"] = capped_concurrency
         overrides.setdefault("profile", {})["cpu_cores"] = cpu_cores
         overrides.setdefault("adaptive_execution", {})["cpu_core_cap"] = cpu_cores
         overrides["adaptive_execution"]["max_heavy_processes"] = max(1, min(2, cpu_cores))
 
-    if 50 <= memory_alert_percent <= 98:
-        free_ratio_floor = max(0.01, min(0.5, 1.0 - (float(memory_alert_percent) / 100.0)))
+    adaptive = overrides.setdefault("adaptive_execution", {})
+    adaptive["resource_limits"] = {
+        "enabled": True,
+        "cpu_limit_percent": cpu_limit_percent,
+        "memory_limit_percent": memory_limit_percent,
+        "grace_samples": int(settings.get("grace_samples") or 3),
+        "cooldown_seconds": int(settings.get("cooldown_seconds") or 60),
+        "enforcement_mode": str(settings.get("enforcement_mode") or "graceful"),
+    }
+
+    if memory_limit_percent < 100:
+        free_ratio_floor = max(0.01, min(0.5, 1.0 - (float(memory_limit_percent) / 100.0)))
         adaptive = overrides.setdefault("adaptive_execution", {})
         adaptive["memory_pressure_high_ratio"] = free_ratio_floor
         adaptive["memory_pressure_critical_ratio"] = max(0.01, min(free_ratio_floor, free_ratio_floor * 0.65))
@@ -739,6 +772,11 @@ def _format_mapping_block(title: str, payload: dict[str, Any], *, skip_keys: set
 
 def _matching_task_results(snapshot: RunSnapshot, task_row: dict[str, Any]) -> list[dict[str, Any]]:
     task_key = str(task_row.get("key") or "").strip()
+    detail = task_row.get("detail", {})
+    if not isinstance(detail, dict):
+        detail = {}
+    task_instance_key = str(detail.get("instance_key") or "").strip()
+    task_inputs = [str(item).strip() for item in detail.get("task_inputs", []) if str(item).strip()]
     task_started = _parse_debug_datetime(task_row.get("started_at"))
     task_ended = _parse_debug_datetime(task_row.get("ended_at"))
     ranked: list[tuple[int, dict[str, Any]]] = []
@@ -747,7 +785,15 @@ def _matching_task_results(snapshot: RunSnapshot, task_row: dict[str, Any]) -> l
         task_type = str(result.get("task_type") or "").strip()
         if task_key and task_type == task_key:
             score += 12
-        command = str(result.get("command") or "")
+        result_instance_key = str(result.get("task_instance_key") or "").strip()
+        result_inputs = [str(item).strip() for item in result.get("task_inputs", []) if str(item).strip()]
+        if task_instance_key and result_instance_key == task_instance_key:
+            score += 90
+        if task_inputs and result_inputs and set(task_inputs).intersection(result_inputs):
+            score += 70
+        command = str(result.get("raw_command") or result.get("command") or "")
+        if task_inputs and any(item in command for item in task_inputs):
+            score += 35
         if task_key and task_key in command:
             score += 3
         started_at = _parse_debug_datetime(result.get("started_at"))
@@ -785,6 +831,12 @@ def _matching_tool_executions(
     detail = (task_row or {}).get("detail", {})
     if isinstance(detail, dict):
         task_capability = str(detail.get("capability") or "").strip()
+    task_instance_key = str(detail.get("instance_key") or "").strip() if isinstance(detail, dict) else ""
+    task_inputs = [
+        str(item).strip()
+        for item in (detail.get("task_inputs", []) if isinstance(detail, dict) else [])
+        if str(item).strip()
+    ]
     task_started = _parse_debug_datetime((task_row or {}).get("started_at"))
     task_ended = _parse_debug_datetime((task_row or {}).get("ended_at"))
     result_paths: set[str] = set()
@@ -796,10 +848,23 @@ def _matching_tool_executions(
         score = 0
         execution_id = str(execution.get("execution_id") or "").strip()
         execution_paths = _artifact_paths_from_tool_execution(execution)
+        execution_instance_key = str(execution.get("task_instance_key") or "").strip()
+        execution_inputs = [
+            str(item).strip()
+            for item in execution.get("task_inputs", [])
+            if str(item).strip()
+        ]
+        command_text = str(execution.get("raw_command") or execution.get("command") or "")
         if preferred_execution_id and execution_id == preferred_execution_id:
             score += 100
         if preferred_paths and execution_paths.intersection(preferred_paths):
             score += 80
+        if task_instance_key and execution_instance_key == task_instance_key:
+            score += 90
+        if task_inputs and execution_inputs and set(task_inputs).intersection(execution_inputs):
+            score += 70
+        if task_inputs and any(item in command_text for item in task_inputs):
+            score += 35
         if result_paths and execution_paths.intersection(result_paths):
             score += 40
         capability = str(execution.get("capability") or "").strip()
