@@ -154,6 +154,7 @@ class SQLMapAdapter:
         max_targets = int(risk_controls.get("max_sqlmap_targets", 6))
         existing_scanned = set(run_data.facts.get("sqlmap.scanned_urls", []))
         scanned_urls: list[str] = []
+        failed_urls: list[str] = []
         injectable_urls: list[str] = []
         low_score_skipped = 0
         limiter = getattr(context, "rate_limiter", None)
@@ -330,13 +331,26 @@ class SQLMapAdapter:
                     raw_command=" ".join(shlex.quote(str(item)) for item in command),
                 )
             )
-            scanned_urls.append(url)
+            if status == "completed":
+                scanned_urls.append(url)
+            else:
+                failed_urls.append(url)
 
         ended_at = now_utc()
         scanned_set = sorted(existing_scanned.union(scanned_urls))
+        attempted_urls = sorted(
+            {
+                str(item.get("url") or "").strip()
+                for item in pending_targets[:max_targets]
+                if str(item.get("url") or "").strip()
+            }
+        )
         result.facts.update(
             {
                 "sqlmap.available": True,
+                "sqlmap.attempted_urls": attempted_urls,
+                "sqlmap.completed_urls": scanned_set,
+                "sqlmap.failed_urls": sorted(set(failed_urls)),
                 "sqlmap.scanned_targets": len(scanned_urls),
                 "sqlmap.scanned_urls": scanned_set,
                 "sqlmap.injectable_count": len(injectable_urls),

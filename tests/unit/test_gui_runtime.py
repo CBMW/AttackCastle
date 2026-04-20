@@ -790,9 +790,6 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
         revisit_enabled=True,
         breadth_first=False,
         unauthenticated_only=True,
-        enable_tls_playbooks=True,
-        enable_service_playbooks=True,
-        injection_preset_path="/tmp/injection.txt",
         endpoint_wordlist_path="/tmp/endpoints.txt",
         parameter_wordlist_path="/tmp/params.txt",
         payload_wordlist_path="/tmp/payloads.txt",
@@ -808,13 +805,13 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
     assert overrides["active_validation"]["mode"] == "aggressive"
     assert overrides["active_validation"]["request_replay_enabled"] is False
     assert overrides["active_validation"]["per_target_budget"] == 11
-    assert overrides["active_validation"]["families"]["injection"]["preset_path"] == "/tmp/injection.txt"
     assert overrides["coverage_engine"]["mode"] == "aggressive"
     assert overrides["coverage_engine"]["target_duration_hours"] == 48
     assert overrides["coverage_engine"]["breadth_first"] is False
     assert overrides["coverage_engine"]["unauthenticated_only"] is True
-    assert overrides["coverage_engine"]["groups"]["tls"]["enabled"] is True
-    assert overrides["coverage_engine"]["groups"]["service"]["enabled"] is True
+    assert "groups" not in overrides["coverage_engine"]
+    assert "playbooks" not in overrides["coverage_engine"]
+    assert "families" not in overrides["coverage_engine"]
     assert overrides["adaptive_execution"]["enabled"] is False
     assert overrides["adaptive_execution"]["cpu_core_cap"] == 3
     assert overrides["profile"]["cpu_cores"] == 3

@@ -5,7 +5,7 @@ import re
 import socket
 from collections import Counter
 
-from attackcastle.adapters.base import build_tool_execution, current_worker_budget, ordered_parallel_map
+from attackcastle.adapters.base import build_tool_execution, cancellation_requested, current_worker_budget, ordered_parallel_map
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, ProofOutcome, ResponseDelta, RunData, ValidationResult, new_id, now_utc
 
@@ -607,6 +607,9 @@ class ServiceExposureAdapter:
 
         remaining_services = list(enumerate(candidate_services))
         while remaining_services:
+            if cancellation_requested(context):
+                result.warnings.append("service exposure checks cancelled by scheduler before all services were processed")
+                break
             worker_count = current_worker_budget(
                 context,
                 self.capability,

@@ -97,6 +97,7 @@ class NiktoAdapter:
         result = AdapterResult()
         nikto_path = shutil.which("nikto")
         scanned_urls: list[str] = []
+        failed_urls: list[str] = []
         total_issues = 0
 
         if not bool(context.config.get("nikto", {}).get("enabled", True)):
@@ -293,13 +294,20 @@ class NiktoAdapter:
                 result.observations.extend(partial.observations)
                 result.tool_executions.extend(partial.tool_executions)
                 result.warnings.extend(partial.warnings)
-                scanned_urls.append(str(item["url"]))
+                if any(getattr(execution, "status", "") == "completed" for execution in partial.tool_executions):
+                    scanned_urls.append(str(item["url"]))
+                else:
+                    failed_urls.append(str(item["url"]))
 
         ended_at = now_utc()
         scanned_set = sorted(existing_scanned.union(scanned_urls))
+        attempted_urls = sorted({str(item["url"]) for item in pending_targets})
         result.facts.update(
             {
                 "nikto.available": True,
+                "nikto.attempted_urls": attempted_urls,
+                "nikto.completed_urls": scanned_set,
+                "nikto.failed_urls": sorted(set(failed_urls)),
                 "nikto.scanned_targets": len(scanned_urls),
                 "nikto.scanned_urls": scanned_set,
                 "nikto.total_issues": total_issues,

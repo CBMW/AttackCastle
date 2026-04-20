@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -10,6 +11,11 @@ from threading import Thread
 from typing import Any, Callable, Iterable, Iterator, TypeVar
 
 from attackcastle.core.models import ToolExecution, new_id, now_utc
+
+try:
+    import psutil
+except ImportError:  # pragma: no cover - psutil is a declared runtime dependency.
+    psutil = None  # type: ignore[assignment]
 
 _T = TypeVar("_T")
 _R = TypeVar("_R")
@@ -106,6 +112,57 @@ def build_tool_execution(
     )
 
 
+def cancellation_requested(context) -> bool:  # noqa: ANN001
+    token = getattr(context, "cancellation_token", None)
+    if token is not None and getattr(token, "is_set", lambda: False)():
+        return True
+    deadline = getattr(context, "deadline_monotonic", None)
+    return deadline is not None and time.monotonic() >= float(deadline)
+
+
+def _process_tree(process: subprocess.Popen) -> list[object]:
+    if psutil is None:
+        return []
+    try:
+        parent = psutil.Process(process.pid)
+        return parent.children(recursive=True)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _terminate_process_tree(process: subprocess.Popen, *, kill: bool = False) -> None:
+    children = _process_tree(process)
+    for child in children:
+        try:
+            if kill:
+                child.kill()
+            else:
+                child.terminate()
+        except Exception:  # noqa: BLE001
+            continue
+    try:
+        if process.poll() is None:
+            if kill:
+                process.kill()
+            else:
+                process.terminate()
+    except Exception:  # noqa: BLE001
+        pass
+    if psutil is None or not children:
+        return
+    try:
+        _gone, alive = psutil.wait_procs(children, timeout=1)
+    except Exception:  # noqa: BLE001
+        return
+    if kill:
+        return
+    for child in alive:
+        try:
+            child.kill()
+        except Exception:  # noqa: BLE001
+            continue
+
+
 def stream_command(
     command: list[str],
     *,
@@ -134,6 +191,11 @@ def stream_command(
         transcript_handle = transcript_path.open("w", encoding="utf-8") if transcript_path is not None else None
         try:
             try:
+                popen_kwargs: dict[str, Any] = {}
+                if os.name == "nt":
+                    popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                else:
+                    popen_kwargs["start_new_session"] = True
                 process = subprocess.Popen(
                     command,
                     stdin=stdin,
@@ -142,6 +204,7 @@ def stream_command(
                     text=True,
                     bufsize=1,
                     env=env,
+                    **popen_kwargs,
                 )
             except Exception as exc:  # noqa: BLE001
                 error_message = str(exc)
@@ -201,12 +264,12 @@ def stream_command(
                         break
                     if cancellation_token is not None and getattr(cancellation_token, "is_set", lambda: False)():
                         cancelled = True
-                        error_message = "command cancelled by resource governor"
-                        process.terminate()
+                        error_message = "command cancelled by scheduler"
+                        _terminate_process_tree(process)
                         try:
                             process.wait(timeout=3)
                         except Exception:  # noqa: BLE001
-                            process.kill()
+                            _terminate_process_tree(process, kill=True)
                             try:
                                 process.wait(timeout=1)
                             except Exception:  # noqa: BLE001
@@ -219,7 +282,7 @@ def stream_command(
                     except subprocess.TimeoutExpired:
                         continue
             except subprocess.TimeoutExpired:
-                process.kill()
+                _terminate_process_tree(process, kill=True)
                 timed_out = True
                 error_message = f"command exceeded timeout of {timeout}s"
                 try:

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.base import build_tool_execution, cancellation_requested
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import (
     CoverageDecision,
@@ -418,6 +418,9 @@ class ActiveValidationAdapter:
         raw_artifact_paths: list[str] = []
 
         for replay_request in replay_requests:
+            if cancellation_requested(context):
+                result.warnings.append("active validation cancelled by scheduler before all replay requests were processed")
+                break
             if by_webapp_budget[replay_request.webapp_id] >= per_target_budget:
                 continue
             request_result_start = len(result.validation_results)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -98,13 +99,36 @@ EXTERNAL_DEPENDENCY_SPECS = (
     },
 )
 
+TOOL_VALIDATION_ARGS: dict[str, list[list[str]]] = {
+    "subfinder": [["-version"], ["--version"]],
+    "dig": [["-v"], ["-h"]],
+    "nmap": [["--version"]],
+    "httpx": [["-version"], ["--version"]],
+    "openssl": [["version"]],
+    "curl": [["--version"]],
+    "whatweb": [["--version"]],
+    "nikto": [["-Version"]],
+    "nuclei": [["--version"], ["-version"]],
+    "wpscan": [["--version"]],
+    "sqlmap": [["--version"]],
+    "ffuf": [["-V"], ["--version"]],
+    "katana": [["-version"], ["--version"]],
+    "feroxbuster": [["--version"], ["-V"]],
+}
+
+TOOL_EXPECTED_MARKERS: dict[str, tuple[str, ...]] = {
+    "httpx": ("projectdiscovery",),
+    "nuclei": ("projectdiscovery", "nuclei"),
+    "katana": ("projectdiscovery", "katana"),
+}
+
 CAPABILITY_TOOL_MAPPING: dict[str, tuple[str, str, str]] = {
     "subdomain_enumeration": ("subfinder", "subfinder", "Enumerating subdomains"),
     "network_port_scan": ("nmap", "nmap", "Running Nmap"),
     "dns_resolution": ("dig", "dig", "Resolving hosts"),
     "web_probe": ("httpx", "httpx", "Checking if assets are websites"),
-    "vhost_discovery": ("ffuf", "ffuf", "Discovering virtual hosts"),
-    "web_discovery": ("katana", "katana", "Discovering web endpoints"),
+    "vhost_discovery": ("internal", "python", "Discovering virtual hosts"),
+    "web_discovery": ("internal", "python", "Discovering web endpoints"),
     "request_capture": ("python_stdlib", "python", "Capturing replayable requests"),
     "surface_intelligence": ("internal", "python", "Correlating surface intelligence"),
     "tls_probe": ("openssl", "openssl", "Detecting TLS and certificates"),
@@ -174,17 +198,54 @@ def external_dependency_rows() -> list[dict[str, Any]]:
     for spec in EXTERNAL_DEPENDENCY_SPECS:
         command_name = str(spec["command"])
         resolved = shutil.which(command_name)
+        validation = validate_external_tool(command_name, resolved)
         rows.append(
             {
                 "check": str(spec["check"]),
                 "command": command_name,
                 "apt_package": str(spec["apt_package"]),
                 "suggestion": str(spec["suggestion"]),
-                "available": bool(resolved),
+                "available": bool(resolved) and validation["status"] != "invalid_flavour",
                 "resolved_path": resolved,
+                "version": validation.get("version"),
+                "validation_status": validation["status"],
+                "validation_error": validation.get("error"),
             }
         )
     return rows
+
+
+def validate_external_tool(command_name: str, resolved_path: str | None) -> dict[str, Any]:
+    if not resolved_path:
+        return {"status": "missing", "version": None, "error": None}
+    candidates = TOOL_VALIDATION_ARGS.get(command_name, [["--version"]])
+    last_error = ""
+    for args in candidates:
+        try:
+            completed = subprocess.run(
+                [resolved_path, *args],
+                capture_output=True,
+                text=True,
+                timeout=4,
+                check=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc)
+            continue
+        output = "\n".join(part for part in [completed.stdout, completed.stderr] if part).strip()
+        if completed.returncode not in {0, 1} and not output:
+            last_error = f"version probe exited with code {completed.returncode}"
+            continue
+        lowered = output.lower()
+        markers = TOOL_EXPECTED_MARKERS.get(command_name, ())
+        if markers and not any(marker in lowered for marker in markers):
+            return {
+                "status": "invalid_flavour",
+                "version": output.splitlines()[0][:200] if output else None,
+                "error": f"{command_name} exists but did not match expected tool flavour",
+            }
+        return {"status": "ok", "version": output.splitlines()[0][:200] if output else None, "error": None}
+    return {"status": "probe_failed", "version": None, "error": last_error or "version probe failed"}
 
 
 def missing_dependency_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

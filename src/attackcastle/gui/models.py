@@ -59,12 +59,16 @@ class GuiProfile:
     masscan_rate: int = 2000
     risk_mode: str = "safe-active"
     enable_masscan: bool = True
+    enable_subfinder: bool = True
+    enable_dnsx: bool = True
+    enable_dig_host: bool = True
     enable_nmap: bool = True
     enable_web_probe: bool = True
+    enable_openssl_tls: bool = True
     enable_whatweb: bool = True
     enable_nikto: bool = True
     enable_nuclei: bool = True
-    enable_wpscan: bool = True
+    enable_wpscan: bool = False
     enable_sqlmap: bool = False
     proxy_enabled: bool = False
     proxy_url: str = ""
@@ -75,27 +79,6 @@ class GuiProfile:
     revisit_enabled: bool = True
     breadth_first: bool = True
     unauthenticated_only: bool = True
-    enable_web_playbooks: bool = True
-    enable_tls_playbooks: bool = True
-    enable_service_playbooks: bool = True
-    enable_object_access_playbook: bool = True
-    enable_input_reflection_playbook: bool = True
-    enable_api_expansion_playbook: bool = True
-    enable_admin_debug_playbook: bool = True
-    enable_client_artifact_playbook: bool = True
-    enable_framework_component_playbook: bool = True
-    enable_web_misconfiguration_playbook: bool = True
-    use_default_validation_presets: bool = True
-    injection_preset_path: str = ""
-    xss_preset_path: str = ""
-    sqli_preset_path: str = ""
-    auth_rate_limit_preset_path: str = ""
-    misconfig_preset_path: str = ""
-    data_exposure_preset_path: str = ""
-    api_idor_preset_path: str = ""
-    upload_preset_path: str = ""
-    component_preset_path: str = ""
-    infra_preset_path: str = ""
     endpoint_wordlist_path: str = ""
     parameter_wordlist_path: str = ""
     payload_wordlist_path: str = ""
@@ -121,12 +104,16 @@ class GuiProfile:
             masscan_rate=_coerce_int(payload.get("masscan_rate", 2000), 2000, 1),
             risk_mode=_coerce_choice(payload.get("risk_mode"), "safe-active", RISK_MODES),
             enable_masscan=_coerce_bool(payload.get("enable_masscan", True), True),
+            enable_subfinder=_coerce_bool(payload.get("enable_subfinder", True), True),
+            enable_dnsx=_coerce_bool(payload.get("enable_dnsx", True), True),
+            enable_dig_host=_coerce_bool(payload.get("enable_dig_host", True), True),
             enable_nmap=_coerce_bool(payload.get("enable_nmap", True), True),
             enable_web_probe=_coerce_bool(payload.get("enable_web_probe", True), True),
+            enable_openssl_tls=_coerce_bool(payload.get("enable_openssl_tls", True), True),
             enable_whatweb=_coerce_bool(payload.get("enable_whatweb", True), True),
             enable_nikto=_coerce_bool(payload.get("enable_nikto", True), True),
             enable_nuclei=_coerce_bool(payload.get("enable_nuclei", True), True),
-            enable_wpscan=_coerce_bool(payload.get("enable_wpscan", True), True),
+            enable_wpscan=_coerce_bool(payload.get("enable_wpscan", False), False),
             enable_sqlmap=_coerce_bool(payload.get("enable_sqlmap", False), False),
             proxy_enabled=_coerce_bool(payload.get("proxy_enabled", False), False),
             proxy_url=str(payload.get("proxy_url", "")),
@@ -145,42 +132,6 @@ class GuiProfile:
             revisit_enabled=_coerce_bool(payload.get("revisit_enabled", True), True),
             breadth_first=_coerce_bool(payload.get("breadth_first", True), True),
             unauthenticated_only=_coerce_bool(payload.get("unauthenticated_only", True), True),
-            enable_web_playbooks=_coerce_bool(payload.get("enable_web_playbooks", True), True),
-            enable_tls_playbooks=_coerce_bool(payload.get("enable_tls_playbooks", True), True),
-            enable_service_playbooks=_coerce_bool(payload.get("enable_service_playbooks", True), True),
-            enable_object_access_playbook=_coerce_bool(payload.get("enable_object_access_playbook", True), True),
-            enable_input_reflection_playbook=_coerce_bool(
-                payload.get("enable_input_reflection_playbook", True),
-                True,
-            ),
-            enable_api_expansion_playbook=_coerce_bool(payload.get("enable_api_expansion_playbook", True), True),
-            enable_admin_debug_playbook=_coerce_bool(payload.get("enable_admin_debug_playbook", True), True),
-            enable_client_artifact_playbook=_coerce_bool(
-                payload.get("enable_client_artifact_playbook", True),
-                True,
-            ),
-            enable_framework_component_playbook=_coerce_bool(
-                payload.get("enable_framework_component_playbook", True),
-                True,
-            ),
-            enable_web_misconfiguration_playbook=_coerce_bool(
-                payload.get("enable_web_misconfiguration_playbook", True),
-                True,
-            ),
-            use_default_validation_presets=_coerce_bool(
-                payload.get("use_default_validation_presets", True),
-                True,
-            ),
-            injection_preset_path=str(payload.get("injection_preset_path", "")),
-            xss_preset_path=str(payload.get("xss_preset_path", "")),
-            sqli_preset_path=str(payload.get("sqli_preset_path", "")),
-            auth_rate_limit_preset_path=str(payload.get("auth_rate_limit_preset_path", "")),
-            misconfig_preset_path=str(payload.get("misconfig_preset_path", "")),
-            data_exposure_preset_path=str(payload.get("data_exposure_preset_path", "")),
-            api_idor_preset_path=str(payload.get("api_idor_preset_path", "")),
-            upload_preset_path=str(payload.get("upload_preset_path", "")),
-            component_preset_path=str(payload.get("component_preset_path", "")),
-            infra_preset_path=str(payload.get("infra_preset_path", "")),
             endpoint_wordlist_path=str(payload.get("endpoint_wordlist_path", "")),
             parameter_wordlist_path=str(payload.get("parameter_wordlist_path", "")),
             payload_wordlist_path=str(payload.get("payload_wordlist_path", "")),
@@ -284,7 +235,7 @@ class Workspace:
         workspace_id = str(payload.get("workspace_id") or payload.get("engagement_id") or "").strip()
         return cls(
             workspace_id=workspace_id,
-            name=str(payload.get("name", "Untitled Workspace")).strip() or "Untitled Workspace",
+            name=str(payload.get("name", "Untitled Project")).strip() or "Untitled Project",
             home_dir=str(payload.get("home_dir") or payload.get("output_directory") or "./output") or "./output",
             client_name=str(payload.get("client_name", "")),
             scope_summary=str(payload.get("scope_summary", "")),

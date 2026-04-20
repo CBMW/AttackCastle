@@ -91,6 +91,10 @@ class TLSAdapter:
 
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         result = AdapterResult()
+        config = context.config.get("tls", {})
+        if isinstance(config, dict) and not bool(config.get("enabled", True)):
+            result.facts["tls.available"] = False
+            return result
         targets = collect_tls_targets(run_data)
         if not targets:
             return result

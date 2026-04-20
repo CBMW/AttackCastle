@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
 
 from attackcastle.gui.common import (
     apply_form_layout_defaults,
+    build_flat_container,
+    configure_tab_widget,
     configure_scroll_surface,
     refresh_widget_style,
     set_tooltip,
@@ -49,7 +51,7 @@ from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceSto
 class WorkspaceDialog(QDialog):
     def __init__(self, workspace: Workspace | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Workspace")
+        self.setWindowTitle("Project")
         self.setModal(True)
         self.setMinimumSize(560, 520)
         size_dialog_to_screen(self, default_width=760, default_height=720, min_width=560, min_height=520)
@@ -68,12 +70,12 @@ class WorkspaceDialog(QDialog):
         content_layout.setSpacing(14)
         content_scroll.setWidget(content)
 
-        helper = QLabel("Create a project workspace with a name, path, client, and scope.")
+        helper = QLabel("Create a project with a name, path, client, and scope.")
         helper.setObjectName("helperText")
         helper.setWordWrap(True)
         content_layout.addWidget(helper)
 
-        self.validation_label = QLabel("Enter a workspace name before saving.")
+        self.validation_label = QLabel("Enter a project name before saving.")
         self.validation_label.setObjectName("attentionBanner")
         self.validation_label.setProperty("tone", "neutral")
         self.validation_label.setWordWrap(True)
@@ -88,14 +90,14 @@ class WorkspaceDialog(QDialog):
         self.scope_edit.setMinimumHeight(78)
         set_tooltips(
             (
-                (self.name_edit, "Name the workspace as you want it to appear throughout the GUI."),
-                (self.home_dir_edit, "Choose the home directory where workspace-scoped data should live."),
-                (self.client_edit, "Record the client or engagement owner for this workspace."),
-                (self.scope_edit, "Paste a short scope summary or engagement notes for this workspace."),
+                (self.name_edit, "Name the project as you want it to appear throughout the GUI."),
+                (self.home_dir_edit, "Choose the home directory where project-scoped data should live."),
+                (self.client_edit, "Record the client or engagement owner for this project."),
+                (self.scope_edit, "Paste a short scope summary or engagement notes for this project."),
             )
         )
-        form.addRow("Workspace Name", self.name_edit)
-        form.addRow("Workspace Path", self.home_dir_edit)
+        form.addRow("Project Name", self.name_edit)
+        form.addRow("Project Path", self.home_dir_edit)
         form.addRow("Client Name", self.client_edit)
         form.addRow("Scope", self.scope_edit)
         content_layout.addLayout(form)
@@ -123,13 +125,13 @@ class WorkspaceDialog(QDialog):
         missing_name = not self.name_edit.text().strip()
         missing_scope = not self.scope_edit.toPlainText().strip()
         if missing_name:
-            self.validation_label.setText("Add a workspace name before saving.")
+            self.validation_label.setText("Add a project name before saving.")
             self.validation_label.setProperty("tone", "warning")
         elif missing_scope:
-            self.validation_label.setText("Scope is empty. You can save now, but the workspace brief will stay incomplete.")
+            self.validation_label.setText("Scope is empty. You can save now, but the project brief will stay incomplete.")
             self.validation_label.setProperty("tone", "neutral")
         else:
-            self.validation_label.setText("Ready to save. The workspace will be available from startup selection and the workspace editor.")
+            self.validation_label.setText("Ready to save. The project will be available from startup selection and the project editor.")
             self.validation_label.setProperty("tone", "ok")
         refresh_widget_style(self.validation_label)
 
@@ -138,7 +140,7 @@ class WorkspaceDialog(QDialog):
         workspace_id = existing.workspace_id if existing is not None else f"ws_{now_iso().replace(':', '').replace('-', '')[-12:]}"
         return Workspace(
             workspace_id=workspace_id,
-            name=self.name_edit.text().strip() or "Untitled Workspace",
+            name=self.name_edit.text().strip() or "Untitled Project",
             home_dir=self.home_dir_edit.text().strip() or f"./output/{workspace_id}",
             client_name=self.client_edit.text().strip(),
             scope_summary=self.scope_edit.toPlainText().strip(),
@@ -149,7 +151,7 @@ class WorkspaceDialog(QDialog):
 
     def accept(self) -> None:
         if not self.name_edit.text().strip():
-            self.validation_label.setText("Add a workspace name before saving.")
+            self.validation_label.setText("Add a project name before saving.")
             self.validation_label.setProperty("tone", "warning")
             refresh_widget_style(self.validation_label)
             self.name_edit.setFocus()
@@ -185,8 +187,7 @@ class DebugLogDialog(QDialog):
         layout.addWidget(helper)
 
         self.tabs = QTabWidget()
-        self.tabs.setObjectName("subTabs")
-        self.tabs.setDocumentMode(True)
+        configure_tab_widget(self.tabs, role="group")
         layout.addWidget(self.tabs, 1)
 
         self.overview_text = self._build_text_tab(overview_text)
@@ -206,7 +207,7 @@ class DebugLogDialog(QDialog):
         layout.addWidget(buttons)
 
     def _build_text_tab(self, text: str) -> QWidget:
-        container = QWidget()
+        container = build_flat_container()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         editor = configure_scroll_surface(QPlainTextEdit())
@@ -297,7 +298,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
                 (self.scan_name_edit, "Give this run a clear name so it is easy to find later."),
                 (self.profile_picker, "Choose a saved GUI profile to prefill scan defaults."),
                 (self.target_input_edit, "Enter one target per line, such as domains, URLs, IPs, or CIDRs."),
-                (self.use_scope_checkbox, "Append the current workspace scope text into Target Input one time for this launch."),
+                (self.use_scope_checkbox, "Append the current project scope text into Target Input one time for this launch."),
             )
         )
         target_input_panel = QWidget()
@@ -415,7 +416,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             self.profile_name_edit.setText("Custom Profile")
         self.output_dir_edit.setText(self._session_home_dir())
         self.output_dir_edit.setReadOnly(True)
-        set_tooltip(self.output_dir_edit, "This run writes into the active workspace home directory or the ad-hoc session directory.")
+        set_tooltip(self.output_dir_edit, "This run writes into the active project home directory or the ad-hoc session directory.")
         for button in self.findChildren(QPushButton):
             if button.text() == "Browse":
                 button.hide()
@@ -453,7 +454,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
     def _profile_changed(self, index: int) -> None:
         if 0 <= index < len(self._profiles):
             profile = self._profiles[index]
-            self._apply_profile_to_form(profile)
+            self._apply_profile_to_form(profile, preserve_manual_overrides=True)
             self.profile_name_edit.setText(profile.name)
             self.description_edit.setText(profile.description)
             if not self.scan_name_edit.text().strip():
@@ -471,22 +472,22 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self.use_scope_checkbox.setEnabled(has_scope)
         self.use_scope_checkbox.blockSignals(False)
         if has_scope:
-            summary = self._workspace.name if self._workspace is not None else "workspace"
+            summary = self._workspace.name if self._workspace is not None else "project"
             self.scope_status_label.setText(f"Append the saved scope from {summary} into Target Input.")
         else:
-            self.scope_status_label.setText("No saved workspace scope is available for this launch.")
+            self.scope_status_label.setText("No saved project scope is available for this launch.")
 
     def _use_scope_toggled(self, checked: bool) -> None:
         if not checked or not self._scope_text:
             return
         if self._scope_appended:
-            self.scope_status_label.setText("Workspace scope was already appended to Target Input for this launch.")
+            self.scope_status_label.setText("Project scope was already appended to Target Input for this launch.")
             return
         existing = self.target_input_edit.toPlainText().strip()
         pieces = [piece for piece in (existing, self._scope_text) if piece]
         self.target_input_edit.setPlainText("\n\n".join(pieces))
         self._scope_appended = True
-        self.scope_status_label.setText("Workspace scope appended to Target Input.")
+        self.scope_status_label.setText("Project scope appended to Target Input.")
         self._refresh_launch_summary()
 
     def _refresh_profile_description(self) -> None:
@@ -522,8 +523,12 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         return [
             name
             for name, checkbox in (
+                ("subfinder", self.enable_subfinder),
+                ("dnsx", self.enable_dnsx),
+                ("dig / host", self.enable_dig_host),
                 ("nmap", self.enable_nmap),
-                ("web probe", self.enable_web_probe),
+                ("httpx", self.enable_web_probe),
+                ("openssl", self.enable_openssl_tls),
                 ("whatweb", self.enable_whatweb),
                 ("nikto", self.enable_nikto),
                 ("nuclei", self.enable_nuclei),
@@ -602,22 +607,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             )
             if value
         ]
-        preset_overrides = [
-            label
-            for label, value in (
-                ("injection", self.injection_preset_edit.text().strip()),
-                ("xss", self.xss_preset_edit.text().strip()),
-                ("sqli", self.sqli_preset_edit.text().strip()),
-                ("auth", self.auth_rate_limit_preset_edit.text().strip()),
-                ("misconfig", self.misconfig_preset_edit.text().strip()),
-                ("data-exposure", self.data_exposure_preset_edit.text().strip()),
-                ("api-idor", self.api_idor_preset_edit.text().strip()),
-                ("upload", self.upload_preset_edit.text().strip()),
-                ("component", self.component_preset_edit.text().strip()),
-                ("infra", self.infra_preset_edit.text().strip()),
-            )
-            if value
-        ]
         proxy_text = self.proxy_url_edit.text().strip() if self.proxy_enabled_checkbox.isChecked() else "disabled"
         issues = self._validation_issues()
         tools_text = ", ".join(self._enabled_tools()[:6]) + (" ..." if len(self._enabled_tools()) > 6 else "")
@@ -639,9 +628,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             f"Proxy: {proxy_text or 'disabled'}<br>"
             f"Coverage: {tools_text or 'none enabled'}<br>"
             f"Extensions: {', '.join(selected_extensions) if selected_extensions else 'none selected'}<br>"
-            f"Wordlists: {', '.join(wordlists) if wordlists else 'none selected'}<br>"
-            f"Validation Presets: {'bundled defaults' if self.use_default_validation_presets_checkbox.isChecked() else 'manual only'}"
-            + (f" | Overrides: {', '.join(preset_overrides)}" if preset_overrides else "")
+            f"Wordlists: {', '.join(wordlists) if wordlists else 'none selected'}"
         )
         tone = "alert" if warnings else "neutral"
         if self._readiness_report is not None:
@@ -745,7 +732,7 @@ class WorkspaceChooserDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Open Workspace")
+        self.setWindowTitle("Open Project")
         self.setModal(True)
         self.setMinimumSize(560, 420)
         size_dialog_to_screen(self, default_width=760, default_height=640, min_width=560, min_height=420)
@@ -762,7 +749,7 @@ class WorkspaceChooserDialog(QDialog):
         layout.addWidget(self.helper_label)
 
         self.workspace_list = configure_scroll_surface(QListWidget())
-        set_tooltip(self.workspace_list, "Choose which saved workspace should become the active context for this GUI session.")
+        set_tooltip(self.workspace_list, "Choose which saved project should become the active context for this GUI session.")
         layout.addWidget(self.workspace_list, 1)
 
         self.empty_state_label = QLabel("")
@@ -777,9 +764,9 @@ class WorkspaceChooserDialog(QDialog):
 
         self.workspace_list.currentRowChanged.connect(self._selection_changed)
         action_row = QHBoxLayout()
-        self.open_button = QPushButton("Open Workspace")
-        self.create_button = QPushButton("Create Workspace")
-        self.no_workspace_button = QPushButton("Launch Without a Workspace")
+        self.open_button = QPushButton("Open Project")
+        self.create_button = QPushButton("Create Project")
+        self.no_workspace_button = QPushButton("Launch Without a Project")
         cancel_button = QPushButton("Cancel")
         self.open_button.clicked.connect(self._open_selected_workspace)
         self.create_button.clicked.connect(self._create_workspace)
@@ -791,9 +778,9 @@ class WorkspaceChooserDialog(QDialog):
         style_button(cancel_button, role="secondary")
         set_tooltips(
             (
-                (self.open_button, "Open the selected workspace and make it the active session context."),
-                (self.create_button, "Create a new workspace before entering the main GUI."),
-                (self.no_workspace_button, "Start the GUI in ad-hoc mode without binding the session to a workspace."),
+                (self.open_button, "Open the selected project and make it the active session context."),
+                (self.create_button, "Create a new project before entering the main GUI."),
+                (self.no_workspace_button, "Start the GUI in ad-hoc mode without binding the session to a project."),
                 (cancel_button, "Close the chooser without opening the main GUI."),
             )
         )
@@ -833,22 +820,22 @@ class WorkspaceChooserDialog(QDialog):
     def _refresh_state(self, row: int | None = None) -> None:
         has_workspaces = bool(self._workspaces)
         self.helper_label.setText(
-            "Choose a project workspace for this GUI session, create a new one, or launch the app without a workspace."
+            "Choose a project for this GUI session, create a new one, or launch the app without a project."
         )
         self.workspace_list.setVisible(has_workspaces)
         self.empty_state_label.setVisible(not has_workspaces)
         if not has_workspaces:
             self.empty_state_label.setText(
-                "Workspaces are saved projects. Create one for an engagement, or launch without a workspace for ad-hoc work."
+                "Projects are saved contexts. Create one for an engagement, or launch without a project for ad-hoc work."
             )
-            self.detail_label.setText("No saved workspaces yet.")
+            self.detail_label.setText("No saved projects yet.")
             self.open_button.setEnabled(False)
             return
         current_row = self.workspace_list.currentRow() if row is None else row
         self.empty_state_label.clear()
         self.open_button.setEnabled(0 <= current_row < len(self._workspaces))
         if not (0 <= current_row < len(self._workspaces)):
-            self.detail_label.setText("Select a workspace to continue.")
+            self.detail_label.setText("Select a project to continue.")
             return
         workspace = self._workspaces[current_row]
         self.detail_label.setText(
@@ -864,7 +851,7 @@ class WorkspaceChooserDialog(QDialog):
 
     def _open_selected_workspace(self) -> None:
         if not self.selected_workspace_id():
-            self.detail_label.setText("Select a workspace to continue.")
+            self.detail_label.setText("Select a project to continue.")
             return
         self._launch_action = "open_workspace"
         super().accept()
@@ -880,7 +867,7 @@ class WorkspaceChooserDialog(QDialog):
             self._workspaces = [item for item in self._workspaces if item.workspace_id != workspace.workspace_id] + [workspace]
             self._workspaces.sort(key=lambda item: item.name.lower())
         self._reload_workspaces(workspace.workspace_id)
-        self.detail_label.setText(f"Created workspace {workspace.name}. Select Open Workspace to continue, or launch without a workspace.")
+        self.detail_label.setText(f"Created project {workspace.name}. Select Open Project to continue, or launch without a project.")
 
     def _launch_without_workspace(self) -> None:
         self._launch_action = "launch_without_workspace"
@@ -896,7 +883,7 @@ class WorkspaceMigrationDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Migrate Legacy Workspaces")
+        self.setWindowTitle("Migrate Legacy Projects")
         self.setModal(True)
         self.setMinimumSize(720, 520)
         size_dialog_to_screen(self, default_width=920, default_height=760, min_width=720, min_height=520)
@@ -908,14 +895,14 @@ class WorkspaceMigrationDialog(QDialog):
         layout.setSpacing(12)
 
         helper = QLabel(
-            "AttackCastle found legacy engagement-based GUI data. Assign every discovered legacy run to a workspace before continuing."
+            "AttackCastle found legacy engagement-based GUI data. Assign every discovered legacy run to a project before continuing."
         )
         helper.setObjectName("helperText")
         helper.setWordWrap(True)
         layout.addWidget(helper)
 
         summary = QLabel(
-            f"Workspaces prepared: {len(workspaces)} | Legacy runs requiring review: {len(pending_runs)}"
+            f"Projects prepared: {len(workspaces)} | Legacy runs requiring review: {len(pending_runs)}"
         )
         summary.setObjectName("infoBanner")
         summary.setWordWrap(True)
@@ -952,11 +939,11 @@ class WorkspaceMigrationDialog(QDialog):
             combo = QComboBox()
             for workspace in workspaces:
                 combo.addItem(workspace.name, workspace.workspace_id)
-            combo.addItem("No Workspace (Ad-Hoc Session)", NO_WORKSPACE_SCOPE_ID)
+            combo.addItem("No Project (Ad-Hoc Session)", NO_WORKSPACE_SCOPE_ID)
             combo_index = combo.findData(guessed)
             fallback_index = combo.findData(NO_WORKSPACE_SCOPE_ID) if not workspaces else 0
             combo.setCurrentIndex(combo_index if combo_index >= 0 else fallback_index)
-            set_tooltip(combo, "Assign this legacy run to the workspace that should own its findings, audit, and run history.")
+            set_tooltip(combo, "Assign this legacy run to the project that should own its findings, audit, and run history.")
             panel_layout.addWidget(title)
             panel_layout.addWidget(detail)
             panel_layout.addWidget(combo)
@@ -978,7 +965,7 @@ class WorkspaceMigrationDialog(QDialog):
     def _refresh_validation(self) -> None:
         unresolved = [path for path, combo in self._pending_combos.items() if not str(combo.currentData() or "")]
         if unresolved:
-            self.validation_label.setText("Assign every legacy run to a workspace before continuing.")
+            self.validation_label.setText("Assign every legacy run to a project before continuing.")
             self.validation_label.setProperty("tone", "warning")
         else:
             self.validation_label.setText("Migration assignments are complete.")

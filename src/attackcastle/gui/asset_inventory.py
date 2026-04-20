@@ -725,7 +725,7 @@ def build_workspace_inventory_snapshot(
 
     return RunSnapshot(
         run_id=f"workspace-assets::{canonical_workspace_id or 'ad-hoc'}",
-        scan_name="Workspace Asset Inventory",
+        scan_name="Project Asset Inventory",
         run_dir="",
         state="completed",
         elapsed_seconds=0.0,

@@ -28,6 +28,7 @@ from attackcastle.gui.common import (
     set_tooltip,
     style_button,
 )
+from attackcastle.gui.extensions import build_asset_graph_stylesheet
 from attackcastle.gui.models import RunSnapshot
 
 try:
@@ -51,6 +52,7 @@ class AssetGraphView(QWidget):
         self._lineage_mode = "off"
         self._page_ready = False
         self._pending_payload: dict[str, Any] | None = None
+        self._theme_tokens: dict[str, Any] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -86,7 +88,7 @@ class AssetGraphView(QWidget):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Find an asset, host, service, web app, finding, or tool")
         self.search_edit.returnPressed.connect(self.search_graph)
-        set_tooltip(self.search_edit, "Search the workspace graph and focus the first matching node.")
+        set_tooltip(self.search_edit, "Search the project graph and focus the first matching node.")
         row.addWidget(self.search_edit, 1)
 
         self.search_button = QPushButton("Search")
@@ -189,8 +191,7 @@ class AssetGraphView(QWidget):
         channel = QWebChannel(self.web_view.page())
         channel.registerObject("attackcastleBridge", self.bridge)
         self.web_view.page().setWebChannel(channel)
-        html_path = Path(__file__).resolve().parent / "web" / "asset_graph.html"
-        self.web_view.setUrl(QUrl.fromLocalFile(str(html_path)))
+        self._load_graph_html()
         return self.web_view
 
     def _web_engine_supported(self) -> bool:
@@ -210,6 +211,12 @@ class AssetGraphView(QWidget):
             self._focus_node_id = ""
             self._selected_node = {}
         self._refresh_graph()
+
+    def apply_theme(self, tokens: dict[str, Any] | None = None) -> None:
+        self._theme_tokens = dict(tokens) if isinstance(tokens, dict) else None
+        if hasattr(self, "web_view"):
+            self._page_ready = False
+            self._load_graph_html()
 
     def focus_entity(self, entity_kind: str, row: dict[str, Any]) -> bool:
         node_id = self._builder.focus_node_for_row(entity_kind, row)
@@ -315,13 +322,13 @@ class AssetGraphView(QWidget):
         snapshot = self._snapshot
         if snapshot is None:
             self._push_graph(GraphSnapshot(summary={"node_count": 0, "edge_count": 0}))
-            self._set_status("Select a workspace run to populate the asset graph.")
+            self._set_status("Select a project run to populate the asset graph.")
             return
         graph_snapshot = self._builder.build(snapshot, self._current_options())
         self._push_graph(graph_snapshot)
         focus_text = f" Focused on {graph_snapshot.focus_node_id}." if graph_snapshot.focus_node_id else ""
         self._set_status(
-            f"Showing {len(graph_snapshot.nodes)} node(s) and {len(graph_snapshot.edges)} edge(s) for {snapshot.workspace_name or 'the workspace'}."
+            f"Showing {len(graph_snapshot.nodes)} node(s) and {len(graph_snapshot.edges)} edge(s) for {snapshot.workspace_name or 'the project'}."
             f"{focus_text}"
         )
 
@@ -343,6 +350,33 @@ class AssetGraphView(QWidget):
             return
         payload = json.dumps(self._pending_payload, sort_keys=True)
         self.web_view.page().runJavaScript(f"window.assetGraph && window.assetGraph.setGraph({payload});")
+
+    def _load_graph_html(self) -> None:
+        if not hasattr(self, "web_view"):
+            return
+        web_dir = Path(__file__).resolve().parent / "web"
+        stylesheet = build_asset_graph_stylesheet(self._theme_tokens)
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AttackCastle Asset Graph</title>
+    <style>
+{stylesheet}
+    </style>
+  </head>
+  <body>
+    <div id="graph"></div>
+    <script src="cytoscape.min.js"></script>
+    <script src="dagre.min.js"></script>
+    <script src="cytoscape-dagre.js"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script src="asset_graph.js"></script>
+  </body>
+</html>
+"""
+        self.web_view.setHtml(html, QUrl.fromLocalFile(str(web_dir) + "/"))
 
     def _handle_load_finished(self, success: bool) -> None:
         self._page_ready = bool(success)

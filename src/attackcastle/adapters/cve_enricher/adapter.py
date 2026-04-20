@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.base import build_tool_execution, cancellation_requested
 from attackcastle.adapters.cve_enricher.knowledge import (
     enrich_service_signature,
     enrich_technology_signature,
@@ -38,7 +38,8 @@ class CVEEnricherAdapter:
         kev_timeout = int(context.config.get("cve_enricher", {}).get("kev_timeout_seconds", 8))
         kev_feed_url = str(context.config.get("cve_enricher", {}).get("kev_feed_url", "")).strip()
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
-        if kev_feed_url:
+        kev_enabled = bool(context.config.get("cve_enricher", {}).get("kev_enabled", remote_enabled))
+        if kev_feed_url and kev_enabled:
             if proxy_url:
                 kev_set = fetch_kev_set(kev_feed_url, timeout_seconds=kev_timeout, proxy_url=proxy_url)
             else:
@@ -49,6 +50,9 @@ class CVEEnricherAdapter:
 
         candidates: list[dict[str, object]] = []
         for service in run_data.services:
+            if cancellation_requested(context):
+                result.warnings.append("CVE enrichment cancelled by scheduler before all services were processed")
+                break
             enriched = enrich_service_signature(service.name or "", service.banner)
             cves: list[str] = list(enriched.get("cves", [])) if enriched else []
             cpe = enriched.get("cpe") if enriched else None
@@ -97,6 +101,9 @@ class CVEEnricherAdapter:
             )
 
         for technology in run_data.technologies:
+            if cancellation_requested(context):
+                result.warnings.append("CVE enrichment cancelled by scheduler before all technologies were processed")
+                break
             enriched = enrich_technology_signature(technology.name, technology.version)
             cves: list[str] = list(enriched.get("cves", [])) if enriched else []
             cpe = enriched.get("cpe") if enriched else None

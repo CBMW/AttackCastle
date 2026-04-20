@@ -39,8 +39,10 @@ from attackcastle.gui.common import (
     SURFACE_FLAT,
     SURFACE_PRIMARY,
     apply_responsive_splitter,
+    build_flat_container,
     build_inspector_panel,
     build_surface_frame,
+    configure_tab_widget,
     configure_scroll_surface,
     ensure_table_defaults,
     set_tooltip,
@@ -224,17 +226,15 @@ class AssetsTab(QWidget):
         self.technologies_view = self._make_table(self.technologies_model, "technology")
 
         self.inventory_tabs = QTabWidget()
-        self.inventory_tabs.setObjectName("subTabs")
-        self.inventory_tabs.setDocumentMode(True)
+        configure_tab_widget(self.inventory_tabs, role="group")
         self.inventory_tabs.addTab(self._table_surface("Discovered Assets", self.assets_view), "Assets")
         self.inventory_tabs.addTab(self._table_surface("Discovered Services", self.services_view), "Services")
 
-        web_page = QWidget()
+        web_page = build_flat_container()
         web_layout = QVBoxLayout(web_page)
         web_layout.setContentsMargins(0, 0, 0, 0)
         self.web_tabs = QTabWidget()
-        self.web_tabs.setObjectName("subTabs")
-        self.web_tabs.setDocumentMode(True)
+        configure_tab_widget(self.web_tabs, role="group")
         self.web_tabs.addTab(self._table_surface("Web Applications", self.web_apps_view), "Web Apps")
         self.web_tabs.addTab(self._table_surface("Endpoints", self.endpoints_view), "Endpoints")
         self.web_tabs.addTab(self._table_surface("Parameters", self.parameters_view), "Parameters")
@@ -245,7 +245,7 @@ class AssetsTab(QWidget):
         self.inventory_tabs.addTab(web_page, "Web")
 
         self.inventory_tabs.addTab(self._table_surface("Technology Inventory", self.technologies_view), "Technology")
-        inventory_page = QWidget()
+        inventory_page = build_flat_container()
         inventory_layout = QVBoxLayout(inventory_page)
         inventory_layout.setContentsMargins(0, 0, 0, 0)
         inventory_layout.setSpacing(PAGE_SECTION_SPACING)
@@ -256,13 +256,12 @@ class AssetsTab(QWidget):
         self.graph_view.nodeSelected.connect(self._handle_graph_node_selected)
 
         self.asset_views = QTabWidget()
-        self.asset_views.setObjectName("subTabs")
-        self.asset_views.setDocumentMode(True)
+        configure_tab_widget(self.asset_views, role="group")
         self.asset_views.addTab(inventory_page, "Inventory")
         self.asset_views.addTab(self.graph_view, "Graph View")
         content_layout.addWidget(self.asset_views, 1)
 
-        detail_body = QWidget()
+        detail_body = build_flat_container()
         detail_body_layout = QVBoxLayout(detail_body)
         detail_body_layout.setContentsMargins(0, 0, 0, 0)
         detail_body_layout.setSpacing(PAGE_SECTION_SPACING)
@@ -331,7 +330,7 @@ class AssetsTab(QWidget):
         self.sync_responsive_mode(self.width())
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
-        section = QWidget()
+        section = build_flat_container()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         label = QLabel(title)
@@ -344,6 +343,9 @@ class AssetsTab(QWidget):
         section, layout = build_surface_frame(surface=SURFACE_FLAT, padding=0, spacing=0)
         layout.addWidget(table, 1)
         return section
+
+    def apply_theme(self, tokens: dict[str, Any] | None = None) -> None:
+        self.graph_view.apply_theme(tokens)
 
     def _make_table(self, model: MappingTableModel, entity_kind: str) -> QTableView:
         table = configure_scroll_surface(QTableView())
@@ -804,7 +806,7 @@ class AssetsTab(QWidget):
         self.detail_title.setText(str(row.get("__label") or row_label(entity_kind, row, snapshot)))
         summary_parts = [title_case_label(entity_kind), str(row.get("__target") or "")]
         if note is not None and note.note.strip():
-            summary_parts.append("Has workspace notes")
+            summary_parts.append("Has project notes")
         self.detail_summary.setText(" | ".join(part for part in summary_parts if part))
         self.detail_text.setPlainText(self._build_detail_text(payload))
         self._active_graph_selection = {}

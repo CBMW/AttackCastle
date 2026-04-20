@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QMessageBox
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QToolButton
 
 from attackcastle.gui.dialogs import StartScanDialog, WorkspaceChooserDialog, WorkspaceDialog
 from attackcastle.gui.extensions import ExtensionManifest, CommandHookExtensionConfig
@@ -85,6 +85,64 @@ def test_launch_dialog_preset_updates_tools_and_risk_summary() -> None:
         assert dialog.enable_sqlmap.isChecked() is False
         assert dialog.risk_mode_combo.currentText() == "safe-active"
         assert "Coverage:" in dialog.launch_summary.text()
+        assert "Validation Presets:" not in dialog.launch_summary.text()
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_tool_coverage_preserves_manual_overrides_across_profile_changes() -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profiles = [
+        GuiProfile(name="Cautious", base_profile="cautious", enable_nuclei=False, enable_sqlmap=False),
+        GuiProfile(name="Aggressive", base_profile="aggressive", enable_nuclei=True, enable_sqlmap=False),
+    ]
+    dialog = StartScanDialog(profiles, None)
+
+    try:
+        assert dialog._profile_tool_defaults["enable_nuclei"] is False
+
+        dialog.enable_sqlmap.setChecked(True)
+        dialog.profile_picker.setCurrentIndex(1)
+
+        assert dialog._profile_tool_defaults["enable_nuclei"] is True
+        assert dialog.enable_sqlmap.isChecked() is True
+        assert dialog._manual_tool_overrides["enable_sqlmap"] is True
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_tool_coverage_marks_unwired_tools_unavailable() -> None:
+    dialog = _make_dialog()
+
+    try:
+        disabled_rows = [
+            checkbox
+            for checkbox in dialog.findChildren(QCheckBox)
+            if checkbox.objectName() == "toolCoverageCheckbox" and not checkbox.isEnabled()
+        ]
+        unavailable_names = {
+            label.text()
+            for label in dialog.findChildren(QLabel)
+            if label.objectName() == "toolCoverageName" and label.property("available") is False
+        }
+
+        assert disabled_rows
+        assert {"amass", "rustscan", "testssl.sh"} <= unavailable_names
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_removes_playbook_and_preset_library_overrides() -> None:
+    dialog = _make_dialog()
+
+    try:
+        section_titles = {button.text() for button in dialog.findChildren(QToolButton)}
+
+        assert "Playbooks / Preset Libraries" not in section_titles
+        assert not hasattr(dialog, "use_default_validation_presets_checkbox")
+        assert not hasattr(dialog, "injection_preset_edit")
+        assert not hasattr(dialog, "web_playbooks_checkbox")
     finally:
         dialog.close()
 
@@ -107,7 +165,7 @@ def test_launch_dialog_exposes_tooltips_for_primary_fields() -> None:
         assert "clear name" in dialog.scan_name_edit.toolTip().lower()
         assert "saved gui profile" in dialog.profile_picker.toolTip().lower()
         assert "one target per line" in dialog.target_input_edit.toolTip().lower()
-        assert "append the current workspace scope text" in dialog.use_scope_checkbox.toolTip().lower()
+        assert "append the current project scope text" in dialog.use_scope_checkbox.toolTip().lower()
         assert "advanced profile override" in dialog.advanced_toggle.toolTip().lower()
     finally:
         dialog.close()
@@ -198,7 +256,7 @@ def test_launch_dialog_use_scope_is_disabled_without_workspace_scope() -> None:
 
     try:
         assert dialog.use_scope_checkbox.isEnabled() is False
-        assert "no saved workspace scope" in dialog.scope_status_label.text().lower()
+        assert "no saved project scope" in dialog.scope_status_label.text().lower()
     finally:
         dialog.close()
 
@@ -299,7 +357,7 @@ def test_workspace_chooser_exposes_empty_state_and_launch_without_workspace(tmp_
     try:
         assert chooser.workspace_list.isHidden()
         assert chooser.open_button.isEnabled() is False
-        assert "Workspaces are saved projects" in chooser.empty_state_label.text()
+        assert "Projects are saved contexts" in chooser.empty_state_label.text()
 
         chooser.no_workspace_button.click()
 

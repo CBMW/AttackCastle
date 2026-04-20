@@ -89,6 +89,9 @@ class DNSAdapter:
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         result = AdapterResult()
         config = context.config.get("dns", {})
+        if isinstance(config, dict) and not bool(config.get("enabled", True)):
+            result.facts["dns.available"] = False
+            return result
         timeout_seconds = int(context.config.get("scan", {}).get("dns_timeout_seconds", 8))
         common_selectors = _common_dkim_selectors(config if isinstance(config, dict) else {})
         max_domains = int((config or {}).get("max_domains", 400)) if isinstance(config, dict) else 400

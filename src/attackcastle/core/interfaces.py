@@ -86,6 +86,7 @@ class AdapterContext:
     task_instance_key: str | None = None
     task_inputs: list[str] = field(default_factory=list)
     cancellation_token: Any = None
+    deadline_monotonic: float | None = None
 
 
 class ToolAdapter(Protocol):

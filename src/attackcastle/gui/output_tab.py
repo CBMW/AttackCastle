@@ -38,8 +38,10 @@ from attackcastle.gui.common import (
     SURFACE_FLAT,
     apply_responsive_splitter,
     apply_form_layout_defaults,
+    build_flat_container,
     build_inspector_panel,
     build_table_section,
+    configure_tab_widget,
     configure_scroll_surface,
     ensure_table_defaults,
     format_progress,
@@ -80,7 +82,7 @@ class OutputTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        top_panel = QWidget()
+        top_panel = build_flat_container()
         top_layout = QVBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(PAGE_SECTION_SPACING)
@@ -274,29 +276,26 @@ class OutputTab(QWidget):
         main_split.setObjectName("outputSplit")
         self.main_split = main_split
         self.primary_tabs = QTabWidget()
-        self.primary_tabs.setObjectName("subTabs")
-        self.primary_tabs.setDocumentMode(True)
+        configure_tab_widget(self.primary_tabs, role="group")
         self.primary_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        findings_page = QWidget()
+        findings_page = build_flat_container()
         findings_layout = QVBoxLayout(findings_page)
         findings_layout.setContentsMargins(0, 0, 0, 0)
         findings_layout.setSpacing(PAGE_SECTION_SPACING)
         self.findings_tabs = QTabWidget()
-        self.findings_tabs.setObjectName("subTabs")
-        self.findings_tabs.setDocumentMode(True)
+        configure_tab_widget(self.findings_tabs, role="group")
         self.findings_tabs.addTab(self._table_surface("Findings Queue", self.findings_view), "Findings")
         self.findings_tabs.addTab(self._table_surface("Report Staging", self.report_view), "Report")
         self.findings_tabs.addTab(self._section("Overview", self.overview_text), "Overview")
         findings_layout.addWidget(self.findings_tabs)
         self.primary_tabs.addTab(findings_page, "Findings")
 
-        validation_page = QWidget()
+        validation_page = build_flat_container()
         validation_layout = QVBoxLayout(validation_page)
         validation_layout.setContentsMargins(0, 0, 0, 0)
         self.validation_tabs = QTabWidget()
-        self.validation_tabs.setObjectName("subTabs")
-        self.validation_tabs.setDocumentMode(True)
+        configure_tab_widget(self.validation_tabs, role="group")
         self.validation_tabs.addTab(self._table_surface("Coverage Lanes", self.attack_paths_view), "Coverage Lanes")
         self.validation_tabs.addTab(self._table_surface("Next Best Actions", self.investigation_steps_view), "Actions")
         self.validation_tabs.addTab(self._table_surface("Validation Queue", self.validation_tasks_view), "Queue")
@@ -308,12 +307,11 @@ class OutputTab(QWidget):
         validation_layout.addWidget(self.validation_tabs)
         self.primary_tabs.addTab(validation_page, "Validation")
 
-        evidence_page = QWidget()
+        evidence_page = build_flat_container()
         evidence_layout = QVBoxLayout(evidence_page)
         evidence_layout.setContentsMargins(0, 0, 0, 0)
         self.evidence_tabs = QTabWidget()
-        self.evidence_tabs.setObjectName("subTabs")
-        self.evidence_tabs.setDocumentMode(True)
+        configure_tab_widget(self.evidence_tabs, role="group")
         self.evidence_tabs.addTab(self._table_surface("Evidence", self.evidence_view), "Evidence")
         self.evidence_tabs.addTab(self._table_surface("Artifacts", self.artifacts_view), "Artifacts")
         self.evidence_tabs.addTab(self._table_surface("Screenshots", self.screenshots_view), "Screenshots")
@@ -325,13 +323,12 @@ class OutputTab(QWidget):
         main_split.addWidget(self.primary_tabs)
 
         self.inspector_tabs = QTabWidget()
-        self.inspector_tabs.setObjectName("subTabs")
-        self.inspector_tabs.setDocumentMode(True)
+        configure_tab_widget(self.inspector_tabs, role="inspector")
         self.inspector_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.inspector_tabs.setCornerWidget(self.inspector_summary, Qt.TopRightCorner)
         self.inspector_tabs.addTab(self._section("Details", self.detail_text), "Details")
         self.inspector_tabs.addTab(self._section("Raw", self.raw_text), "Raw")
-        workflow_widget = QWidget()
+        workflow_widget = build_flat_container()
         workflow_layout = QFormLayout(workflow_widget)
         apply_form_layout_defaults(workflow_layout)
         workflow_layout.addRow("Status", self.finding_status_combo)
@@ -341,7 +338,7 @@ class OutputTab(QWidget):
         workflow_layout.addRow("Reproduction Steps", self.finding_repro_edit)
         workflow_layout.addRow("", self.finding_save_button)
         self.inspector_tabs.addTab(self._section("Workflow", workflow_widget), "Workflow")
-        preview_widget = QWidget()
+        preview_widget = build_flat_container()
         preview_layout = QVBoxLayout(preview_widget)
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.addWidget(self.screenshot_preview)
@@ -368,7 +365,7 @@ class OutputTab(QWidget):
         self.sync_responsive_mode(self.width())
 
     def _section(self, title: str, widget: QWidget) -> QWidget:
-        section = QWidget()
+        section = build_flat_container()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
@@ -379,7 +376,7 @@ class OutputTab(QWidget):
         return section
 
     def _table_surface(self, title: str, table: QTableView) -> QWidget:
-        surface = QWidget()
+        surface = build_flat_container()
         layout = QVBoxLayout(surface)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -589,7 +586,7 @@ class OutputTab(QWidget):
         self.report_model.set_rows(report_rows)
         self.overview_text.setHtml(
             f"<h3>Operator Overview</h3>"
-            f"<p><b>Workspace:</b> {snapshot.workspace_name or 'Unassigned'}<br>"
+            f"<p><b>Project:</b> {snapshot.workspace_name or 'Unassigned'}<br>"
             f"<b>Target Summary:</b> {summarize_target_input(snapshot.target_input)}<br>"
             f"<b>Profile:</b> {snapshot.profile_name or 'Unknown'}<br>"
             f"<b>Current Task:</b> {snapshot.current_task}<br>"

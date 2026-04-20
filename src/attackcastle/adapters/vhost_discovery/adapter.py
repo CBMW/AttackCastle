@@ -7,7 +7,7 @@ from hashlib import sha1
 from typing import Any
 from urllib.parse import urlparse
 
-from attackcastle.adapters.base import build_tool_execution, current_worker_budget, ordered_parallel_map
+from attackcastle.adapters.base import build_tool_execution, cancellation_requested, current_worker_budget, ordered_parallel_map
 from attackcastle.adapters.web_probe.parser import extract_title
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -238,6 +238,13 @@ class VHostDiscoveryAdapter:
             ip_address = str(service_row["host_ip"])
             scheme = str(service_row["scheme"])
             port = int(service_row["port"])
+            if cancellation_requested(context):
+                return {
+                    "partial": partial,
+                    "candidates": local_candidates,
+                    "discovered": local_discovered,
+                    "generated": local_generated,
+                }
             if limiter is not None:
                 limiter.throttle(target_key=f"{ip_address}:{port}", service_key=f"service:{service_id}")
             baseline = _raw_request(
@@ -257,6 +264,8 @@ class VHostDiscoveryAdapter:
             for candidate_host in _candidate_hosts_for_asset(run_data, asset_id=asset_id, service_id=service_id)[
                 :max_candidates_per_service
             ]:
+                if cancellation_requested(context):
+                    break
                 try:
                     response = _raw_request(
                         ip_address=ip_address,
@@ -377,6 +386,9 @@ class VHostDiscoveryAdapter:
 
         remaining_services = list(_service_base_urls(run_data))
         while remaining_services:
+            if cancellation_requested(context):
+                result.warnings.append("vhost discovery cancelled by scheduler before all services were processed")
+                break
             worker_count = current_worker_budget(
                 context,
                 self.capability,

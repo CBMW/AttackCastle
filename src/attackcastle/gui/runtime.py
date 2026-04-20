@@ -88,52 +88,6 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
         "revisit_enabled": profile.revisit_enabled,
         "breadth_first": profile.breadth_first,
         "unauthenticated_only": profile.unauthenticated_only,
-        "use_default_presets": profile.use_default_validation_presets,
-        "groups": {
-            "web": {"enabled": profile.enable_web_playbooks},
-            "tls": {"enabled": profile.enable_tls_playbooks},
-            "service": {"enabled": profile.enable_service_playbooks},
-        },
-        "playbooks": {
-            "object_access": {"enabled": profile.enable_object_access_playbook},
-            "input_reflection_injection": {"enabled": profile.enable_input_reflection_playbook},
-            "api_expansion": {"enabled": profile.enable_api_expansion_playbook},
-            "admin_debug_exposure": {"enabled": profile.enable_admin_debug_playbook},
-            "client_artifact_exposure": {"enabled": profile.enable_client_artifact_playbook},
-            "framework_component_exposure": {"enabled": profile.enable_framework_component_playbook},
-            "web_misconfiguration_breadth": {"enabled": profile.enable_web_misconfiguration_playbook},
-            "tls_hardening": {"enabled": profile.enable_tls_playbooks},
-            "certificate_san_identity": {"enabled": profile.enable_tls_playbooks},
-            "edge_header_hardening": {"enabled": profile.enable_tls_playbooks},
-            "management_plane_exposure": {"enabled": profile.enable_tls_playbooks or profile.enable_service_playbooks},
-            "ssh_exposure": {"enabled": profile.enable_service_playbooks},
-            "ftp_exposure": {"enabled": profile.enable_service_playbooks},
-            "smtp_exposure": {"enabled": profile.enable_service_playbooks},
-            "dns_exposure": {"enabled": profile.enable_service_playbooks},
-            "rdp_exposure": {"enabled": profile.enable_service_playbooks},
-            "smb_exposure": {"enabled": profile.enable_service_playbooks},
-            "vpn_remote_access_exposure": {"enabled": profile.enable_service_playbooks},
-            "generic_remote_admin_exposure": {"enabled": profile.enable_service_playbooks},
-            "service_version_and_cve_enrichment": {"enabled": profile.enable_service_playbooks},
-        },
-        "families": {
-            "injection": {"enabled": True, "preset_path": profile.injection_preset_path},
-            "xss": {"enabled": True, "preset_path": profile.xss_preset_path},
-            "sqli": {"enabled": True, "preset_path": profile.sqli_preset_path},
-            "auth_rate_limit": {
-                "enabled": True,
-                "preset_path": profile.auth_rate_limit_preset_path,
-            },
-            "misconfig": {"enabled": True, "preset_path": profile.misconfig_preset_path},
-            "data_exposure": {
-                "enabled": True,
-                "preset_path": profile.data_exposure_preset_path,
-            },
-            "api_idor": {"enabled": True, "preset_path": profile.api_idor_preset_path},
-            "upload": {"enabled": True, "preset_path": profile.upload_preset_path},
-            "component": {"enabled": True, "preset_path": profile.component_preset_path},
-            "infra": {"enabled": True, "preset_path": profile.infra_preset_path},
-        },
     }
     overrides: dict[str, Any] = {
         "profile": {
@@ -160,6 +114,9 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
         "rate_limit": {
             "execution_mode": profile.rate_limit_mode,
         },
+        "subdomain_enum": {"enabled": profile.enable_subfinder},
+        "dns": {"enabled": profile.enable_dnsx},
+        "resolve_hosts": {"enabled": profile.enable_dig_host},
         "nmap": {"enabled": profile.enable_nmap},
         "whatweb": {"enabled": profile.enable_whatweb},
         "nikto": {"enabled": profile.enable_nikto},
@@ -167,6 +124,7 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
             "enabled": profile.enable_nuclei,
             "payload_wordlist_path": profile.payload_wordlist_path,
         },
+        "tls": {"enabled": profile.enable_openssl_tls},
         "wpscan": {"enabled": profile.enable_wpscan},
         "sqlmap": {
             "enabled": profile.enable_sqlmap,
@@ -178,7 +136,7 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
             "parameter_wordlist_path": profile.parameter_wordlist_path,
             "payload_wordlist_path": profile.payload_wordlist_path,
         },
-        "web_probe": {"capture_screenshots": True},
+        "web_probe": {"enabled": profile.enable_web_probe, "capture_screenshots": True},
     }
     performance_overrides = _performance_guard_overrides(profile, performance_guard)
     for section, values in performance_overrides.items():
@@ -1080,7 +1038,7 @@ def build_run_debug_bundle(
         f"Run ID: {snapshot.run_id}",
         f"Scan Name: {snapshot.scan_name}",
         f"State: {snapshot.state}",
-        f"Workspace: {snapshot.workspace_name or 'Ad-Hoc Session'}",
+        f"Project: {snapshot.workspace_name or 'Ad-Hoc Session'}",
         f"Target Input: {snapshot.target_input or '[none]'}",
         f"Run Directory: {snapshot.run_dir or '[none]'}",
         f"Current Task: {snapshot.current_task or 'Idle'}",

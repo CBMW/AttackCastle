@@ -272,6 +272,7 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
             url = str(candidate.get("url", "")).strip()
             if not url:
                 continue
+            previous_count = len(targets)
             _add_target(
                 targets,
                 seen,
@@ -280,6 +281,8 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
                 service_id=str(candidate.get("service_id") or ""),
                 candidate_source="vhost_discovery",
             )
+            if len(targets) > previous_count:
+                targets[-1]["url"] = url
     return targets
 
 

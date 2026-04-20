@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QTabWidget
 
 from attackcastle.gui.models import RunSnapshot
 from attackcastle.gui.scanner_panel import ScannerPanel
@@ -164,5 +164,27 @@ def test_scanner_panel_stacks_inspector_until_workspace_is_wide() -> None:
         assert panel.main_split.orientation() == Qt.Horizontal
         sizes = panel.main_split.sizes()
         assert sizes[0] > sizes[1]
+    finally:
+        panel.close()
+
+
+def test_scanner_panel_uses_group_and_inspector_tab_roles() -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = ScannerPanel()
+
+    try:
+        tab_widgets = {tabs.objectName(): tabs for tabs in panel.findChildren(QTabWidget)}
+
+        assert panel.tabs.objectName() == "groupTabs"
+        assert panel.tabs.property("tabRole") == "group"
+        assert panel.tabs.tabBar().objectName() == "groupTabBar"
+        assert panel.inspector_tabs.objectName() == "inspectorTabs"
+        assert panel.inspector_tabs.property("tabRole") == "inspector"
+        assert panel.inspector_tabs.tabBar().objectName() == "inspectorTabBar"
+        assert "subTabs" not in tab_widgets
+        assert panel.tabs.widget(panel.tasks_tab_index).property("surface") == "flat"
+        assert panel.inspector_tabs.widget(0).property("surface") == "flat"
+        assert panel.inspector_tabs.widget(1).property("surface") == "flat"
     finally:
         panel.close()

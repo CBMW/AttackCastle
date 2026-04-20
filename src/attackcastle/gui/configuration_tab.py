@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -72,14 +73,10 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         rail_layout.setSpacing(PAGE_SECTION_SPACING)
         rail_title = QLabel("Profile Library")
         rail_title.setObjectName("sectionTitle")
-        rail_helper = QLabel("Save operator presets, duplicate them for new engagements, and keep launch defaults tidy.")
-        rail_helper.setObjectName("helperText")
-        rail_helper.setWordWrap(True)
         self.profile_list = QListWidget()
         self.profile_list.setObjectName("sidebarList")
         self.profile_list.currentRowChanged.connect(self._load_selected_profile)
         rail_layout.addWidget(rail_title)
-        rail_layout.addWidget(rail_helper)
         rail_layout.addWidget(self.profile_list, 1)
         library_actions = QFrame()
         library_actions.setObjectName("profileLibraryActions")
@@ -106,6 +103,8 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
             "Delete",
             role="danger",
         )
+        self.delete_button.setIcon(QIcon())
+        self.delete_button.setText("X")
         self.save_button.setObjectName("profilePrimaryAction")
         self.delete_button.setObjectName("profileDangerAction")
         self.new_button.clicked.connect(self._new_profile)
@@ -256,8 +255,12 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
             enabled_tools = sum(
                 int(flag)
                 for flag in (
+                    profile.enable_subfinder,
+                    profile.enable_dnsx,
+                    profile.enable_dig_host,
                     profile.enable_nmap,
                     profile.enable_web_probe,
+                    profile.enable_openssl_tls,
                     profile.enable_whatweb,
                     profile.enable_nikto,
                     profile.enable_nuclei,

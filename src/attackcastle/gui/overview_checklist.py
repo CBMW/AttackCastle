@@ -154,6 +154,7 @@ class OverviewChecklistEmptyState(QFrame):
         super().__init__(parent)
         self.setObjectName("overviewChecklistEmptyState")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMinimumHeight(128)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
@@ -172,6 +173,8 @@ class OverviewChecklistEmptyState(QFrame):
         summary.setObjectName("overviewChecklistEmptySummary")
         summary.setAlignment(Qt.AlignCenter)
         summary.setWordWrap(True)
+        summary.setMinimumHeight(summary.fontMetrics().lineSpacing() * 2 + 4)
+        summary.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         layout.addWidget(icon, 0, Qt.AlignHCenter)
         layout.addWidget(title)

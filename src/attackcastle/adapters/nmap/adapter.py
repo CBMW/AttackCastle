@@ -208,6 +208,7 @@ class NmapAdapter:
         discovered_hosts_total = 0
         parsed_any = False
         completed_jobs = 0
+        completed_targets: set[str] = set()
         provider_edges: dict[str, str] = {}
 
         for job in jobs:
@@ -337,6 +338,8 @@ class NmapAdapter:
                 )
             )
             completed_jobs += 1
+            if status == "completed":
+                completed_targets.update(self._normalize_target(item) for item in job["targets"])
 
         ended_at = now_utc()
         result.facts["nmap.available"] = True
@@ -345,9 +348,12 @@ class NmapAdapter:
         result.facts["nmap.service_detection_runs"] = completed_jobs
         result.facts["nmap.udp_top_ports"] = udp_top_ports
         result.facts["nmap.provider_edges"] = provider_edges
-        result.facts["nmap.scanned_targets"] = sorted(
-            existing_scanned.union(self._normalize_target(item) for item in targets)
-        )
+        attempted_targets = {self._normalize_target(item) for item in targets}
+        completed_set = existing_scanned.union(item for item in completed_targets if item)
+        result.facts["nmap.attempted_targets"] = sorted(attempted_targets)
+        result.facts["nmap.completed_targets"] = sorted(completed_set)
+        result.facts["nmap.failed_targets"] = sorted(attempted_targets.difference(completed_targets))
+        result.facts["nmap.scanned_targets"] = sorted(completed_set)
 
         context.audit.write(
             "adapter.completed",

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
-from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.base import build_tool_execution, cancellation_requested
 from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs
 from attackcastle.adapters.web_discovery.parser import (
     detect_frontend_libraries,
@@ -240,15 +240,21 @@ class WebDiscoveryAdapter:
         discovered_url_targets: list[dict[str, str]] = []
         discovered_urls: list[str] = []
         scanned_urls: list[str] = []
+        attempted_urls: list[str] = []
         total_js_endpoints = 0
         total_source_maps = 0
         total_libraries = 0
         coverage_gaps: list[dict[str, Any]] = []
 
-        for target in filter_url_targets_for_task_inputs(context, collect_confirmed_web_targets(run_data)):
+        pending_targets = filter_url_targets_for_task_inputs(context, collect_confirmed_web_targets(run_data))
+        for target in pending_targets:
+            if cancellation_requested(context):
+                result.warnings.append("web discovery cancelled by scheduler before all targets were processed")
+                break
             base_url = str(target["url"])
             if base_url in existing_scanned:
                 continue
+            attempted_urls.append(base_url)
             emit_runtime_event(
                 context,
                 "task.progress",
@@ -277,6 +283,8 @@ class WebDiscoveryAdapter:
                 *[urljoin(base_url, path) for path in [*SEED_DISCOVERY_PATHS, *endpoint_wordlist]],
             ]
             for seed_url in seed_urls:
+                if cancellation_requested(context):
+                    break
                 if len(fetched_documents) >= effective_crawl_limit:
                     break
                 if limiter is not None:
@@ -328,6 +336,8 @@ class WebDiscoveryAdapter:
             queue = [base_url]
             visited = set(queue)
             while queue and len(fetched_documents) < effective_crawl_limit:
+                if cancellation_requested(context):
+                    break
                 current = queue.pop(0)
                 document = fetched_documents.get(current)
                 if document is None:
@@ -805,7 +815,11 @@ class WebDiscoveryAdapter:
             emit_entity_event(context, "web_app", result.web_apps[-1], source=self.name)
 
         ended_at = now_utc()
-        result.facts["web_discovery.scanned_urls"] = sorted(existing_scanned.union(scanned_urls))
+        completed_set = sorted(existing_scanned.union(scanned_urls))
+        result.facts["web_discovery.attempted_urls"] = sorted(set(attempted_urls))
+        result.facts["web_discovery.completed_urls"] = completed_set
+        result.facts["web_discovery.failed_urls"] = sorted(set(attempted_urls).difference(scanned_urls))
+        result.facts["web_discovery.scanned_urls"] = completed_set
         result.facts["web_discovery.discovered_urls"] = discovered_urls[:3000]
         result.facts["web_discovery.url_candidates"] = discovered_url_targets[:4000]
         result.facts["web_discovery.total_js_endpoints"] = total_js_endpoints

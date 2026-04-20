@@ -101,6 +101,7 @@ class WhatWebAdapter:
         whatweb_path = shutil.which("whatweb")
         execution_ids: list[str] = []
         scanned_urls: list[str] = []
+        failed_urls: list[str] = []
         discovered_wordpress = 0
         discovered_framework_signals = 0
 
@@ -368,13 +369,20 @@ class WhatWebAdapter:
                 result.warnings.extend(partial.warnings)
                 for evidence in partial.evidence:
                     emit_entity_event(context, "evidence", evidence, source=self.name)
-                scanned_urls.append(str(item["url"]))
+                if any(getattr(execution, "status", "") == "completed" for execution in partial.tool_executions):
+                    scanned_urls.append(str(item["url"]))
+                else:
+                    failed_urls.append(str(item["url"]))
 
         ended_at = now_utc()
         scanned_set = sorted(existing_scanned.union(scanned_urls))
+        attempted_urls = sorted({str(item["url"]) for item in pending_targets})
         result.facts.update(
             {
                 "whatweb.available": True,
+                "whatweb.attempted_urls": attempted_urls,
+                "whatweb.completed_urls": scanned_set,
+                "whatweb.failed_urls": sorted(set(failed_urls)),
                 "whatweb.scanned_targets": len(scanned_urls),
                 "whatweb.scanned_urls": scanned_set,
                 "whatweb.wordpress_hits": discovered_wordpress,

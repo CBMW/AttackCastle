@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStyle,
     QStyleOption,
+    QTabWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -63,6 +64,9 @@ TABLE_ROW_HEIGHT = 26
 SURFACE_PRIMARY = "primary"
 SURFACE_SECONDARY = "secondary"
 SURFACE_FLAT = "flat"
+TAB_ROLE_GROUP = "group"
+TAB_ROLE_INSPECTOR = "inspector"
+TAB_ROLE_MASTER = "master"
 
 
 def page_vbox(parent: QWidget | None = None) -> QVBoxLayout:
@@ -149,6 +153,35 @@ def build_surface_frame(
     return frame, layout
 
 
+def mark_flat_surface(widget: QWidget) -> QWidget:
+    widget.setProperty("surface", SURFACE_FLAT)
+    return widget
+
+
+def build_flat_container(parent: QWidget | None = None) -> QWidget:
+    return mark_flat_surface(QWidget(parent))
+
+
+def configure_tab_widget(tabs: QTabWidget, *, role: str = TAB_ROLE_GROUP) -> QTabWidget:
+    normalized = role if role in {TAB_ROLE_GROUP, TAB_ROLE_INSPECTOR, TAB_ROLE_MASTER} else TAB_ROLE_GROUP
+    object_names = {
+        TAB_ROLE_GROUP: "groupTabs",
+        TAB_ROLE_INSPECTOR: "inspectorTabs",
+        TAB_ROLE_MASTER: "masterTabs",
+    }
+    bar_names = {
+        TAB_ROLE_GROUP: "groupTabBar",
+        TAB_ROLE_INSPECTOR: "inspectorTabBar",
+        TAB_ROLE_MASTER: "masterTabBar",
+    }
+    tabs.setObjectName(object_names[normalized])
+    tabs.setProperty("tabRole", normalized)
+    tabs.setDocumentMode(True)
+    tabs.tabBar().setObjectName(bar_names[normalized])
+    tabs.tabBar().setProperty("tabRole", normalized)
+    return tabs
+
+
 def build_section_header(
     title: str,
     *,
@@ -161,10 +194,10 @@ def build_section_header(
     layout.setSpacing(4)
     title_label = QLabel(title)
     title_label.setObjectName("sectionTitle")
-    summary_label = QLabel(summary)
+    summary_label = QLabel("")
     summary_label.setObjectName("helperText")
     summary_label.setWordWrap(True)
-    summary_label.setVisible(bool(summary))
+    summary_label.setVisible(False)
     layout.addWidget(title_label)
     layout.addWidget(summary_label)
     return header, title_label, summary_label
@@ -238,10 +271,10 @@ def build_inspector_panel(
     header_row.setSpacing(10)
     title_label = QLabel(title)
     title_label.setObjectName("sectionTitle")
-    summary_label = QLabel(summary_text)
+    summary_label = QLabel("")
     summary_label.setObjectName("helperText")
     summary_label.setWordWrap(True)
-    summary_label.setVisible(bool(summary_text))
+    summary_label.setVisible(False)
     header_row.addWidget(title_label)
     header_row.addStretch(1)
     layout.addLayout(header_row)

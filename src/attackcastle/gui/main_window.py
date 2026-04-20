@@ -53,11 +53,13 @@ from attackcastle.gui.common import (
     SURFACE_PRIMARY,
     SURFACE_SECONDARY,
     apply_responsive_splitter,
+    build_flat_container,
     build_inspector_panel,
     build_section_header,
     build_surface_frame,
     build_table_section,
     build_workstation_stylesheet,
+    configure_tab_widget,
     configure_scroll_surface,
     ensure_table_defaults,
     format_duration,
@@ -148,7 +150,7 @@ class MainWindow(QMainWindow):
         self._overview_state = WorkspaceOverviewState()
         self._applying_overview_state = False
         self._geometry_synced_to_screen = False
-        self._nav_order = ["workspaces", "runs", "assets", "findings", "profiles", "extensions", "settings"]
+        self._nav_order = ["workspaces", "runs", "assets", "attacker", "findings", "profiles", "extensions", "settings"]
         self._page_indices: dict[str, int] = {}
         self._splitter_controllers: dict[str, PersistentSplitterController] = {}
         self._switch_in_progress = False
@@ -257,10 +259,15 @@ class MainWindow(QMainWindow):
                 self.run_filter_grid.addWidget(label, 0, column)
                 self.run_filter_grid.addWidget(widget, 0, column + 1)
                 column += 2
+            self.run_filter_grid.addWidget(self.run_results_label, 1, 0, 1, max(column - 1, 1))
+            self.run_filter_grid.addWidget(self.start_scan_button, 1, max(column - 1, 1), Qt.AlignRight)
         else:
             for row, (label, widget) in enumerate(self.run_filter_controls):
                 self.run_filter_grid.addWidget(label, row, 0)
                 self.run_filter_grid.addWidget(widget, row, 1)
+            row = len(self.run_filter_controls)
+            self.run_filter_grid.addWidget(self.run_results_label, row, 0)
+            self.run_filter_grid.addWidget(self.start_scan_button, row, 1, Qt.AlignRight)
 
     def _load_ui_layout(self, layout_key: str, orientation: str) -> list[int] | None:
         sizes = self.workspace_store.load_ui_layout(layout_key, orientation)
@@ -294,15 +301,13 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         self.general_status = QLabel("Ready")
-        self.general_status_detail = QLabel("Workspace, run actions, and findings stay in sync across every section.")
+        self.general_status_detail = QLabel("Project, run actions, and findings stay in sync across every section.")
 
         self.workflow_tabs = QTabWidget()
-        self.workflow_tabs.setObjectName("workflowTabs")
-        self.workflow_tabs.setDocumentMode(True)
+        configure_tab_widget(self.workflow_tabs, role="master")
         self.workflow_tabs.setUsesScrollButtons(True)
         self.workflow_tabs.setElideMode(Qt.ElideRight)
         self.workflow_tabs.currentChanged.connect(self._workflow_tab_changed)
-        self.workflow_tabs.tabBar().setObjectName("workflowTabBar")
         self.workflow_tabs.tabBar().setExpanding(True)
         self.workflow_tabs.tabBar().setUsesScrollButtons(True)
         self.workflow_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
@@ -319,6 +324,8 @@ class MainWindow(QMainWindow):
             layout_saver=self._save_ui_layout,
         )
         self.assets_tab.setMinimumHeight(0)
+        self.attacker_page = self._build_attacker_page()
+        self.attacker_page.setMinimumHeight(0)
         self.output_tab = OutputTab(
             self._resolve_snapshot,
             self._save_finding_state,
@@ -347,6 +354,7 @@ class MainWindow(QMainWindow):
             ("workspaces", self.workspace_page),
             ("runs", self.runs_page),
             ("assets", self.assets_tab),
+            ("attacker", self.attacker_page),
             ("findings", self.output_tab),
             ("profiles", self.configuration_tab),
             ("extensions", self.extensions_tab),
@@ -374,20 +382,15 @@ class MainWindow(QMainWindow):
         left_top_layout = QVBoxLayout(left_top_panel)
         left_top_layout.setContentsMargins(0, 0, 0, 0)
         left_top_layout.setSpacing(PAGE_SECTION_SPACING)
-        self.workspace_tab_context_label = QLabel("Active session workspace")
-        self.workspace_tab_context_label.setObjectName("infoBanner")
-        self.workspace_tab_context_label.setWordWrap(True)
-        set_tooltip(self.workspace_tab_context_label, "Shows which workspace is currently active for this GUI session.")
-        left_top_layout.addWidget(self.workspace_tab_context_label)
         self.workspace_list = configure_scroll_surface(QListWidget(left_panel))
         self.workspace_list.setObjectName("sidebarList")
         self.workspace_list.currentRowChanged.connect(self._workspace_selected)
         self.engagement_list = self.workspace_list
         self.workspace_list.setEnabled(False)
         self.workspace_list.hide()
-        set_tooltip(self.workspace_list, "Shows the active workspace for this session. Switch active workspace from Settings.")
+        set_tooltip(self.workspace_list, "Shows the active project for this session. Switch active project from Settings.")
         engagement_buttons = FlowButtonRow()
-        self.new_workspace_button = QPushButton("New Workspace")
+        self.new_workspace_button = QPushButton("New Project")
         self.new_workspace_button.clicked.connect(self._new_workspace)
         self.edit_workspace_button = QPushButton("Edit")
         self.edit_workspace_button.clicked.connect(self._edit_selected_workspace)
@@ -425,9 +428,9 @@ class MainWindow(QMainWindow):
         self.workspace_summary.setReadOnly(True)
         self.workspace_summary.setMinimumHeight(280)
         self.engagement_summary = self.workspace_summary
-        set_tooltip(self.workspace_summary, "Read-only workspace details for the selected saved project.")
+        set_tooltip(self.workspace_summary, "Read-only project details for the selected saved project.")
         workspace_summary_panel, _workspace_summary_title, _workspace_summary_summary = build_inspector_panel(
-            "Workspace Details",
+            "Project Details",
             self.workspace_summary,
         )
         left_layout.addWidget(left_top_panel)
@@ -520,14 +523,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PAGE_SECTION_SPACING)
 
-        launch_strip, launch_strip_layout = build_surface_frame(
-            object_name="scannerLaunchStrip",
-            surface=SURFACE_PRIMARY,
-            spacing=PAGE_CARD_SPACING,
-        )
-        launch_strip_layout.addWidget(self._build_scanner_launch_card())
-        layout.addWidget(launch_strip, 0)
-
         self.run_filter_grid = QGridLayout()
         self.run_filter_grid.setHorizontalSpacing(PAGE_SECTION_SPACING)
         self.run_filter_grid.setVerticalSpacing(PAGE_SECTION_SPACING)
@@ -537,6 +532,14 @@ class MainWindow(QMainWindow):
         self.run_state_filter = QComboBox()
         self.run_state_filter.addItems(["All States", "running", "failed", "blocked", "paused", "completed", "cancelled"])
         self.run_state_filter.currentTextChanged.connect(self._sync_run_table)
+        self.start_scan_button = QPushButton("+")
+        self.start_scan_button.setObjectName("scannerStartButton")
+        self.start_scan_button.clicked.connect(self._start_scan)
+        self.start_scan_button.setToolTip("Start a new scan in the active project or ad-hoc session. Shortcut: Ctrl+N.")
+        self.start_scan_button.setAccessibleName("Launch New Scan")
+        self.start_scan_button.setMinimumSize(24, 24)
+        self.start_scan_button.setMaximumSize(28, 28)
+        self.start_scan_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         set_tooltips(
             (
                 (self.run_search_edit, "Filter the scan queue by scan name, targets, or current task."),
@@ -558,6 +561,7 @@ class MainWindow(QMainWindow):
         self.run_results_label = QLabel("Showing 0/0 runs")
         self.run_results_label.setObjectName("helperText")
         self.run_results_label.setWordWrap(True)
+        self._arrange_run_filters(self.width())
         self.run_model = MappingTableModel(
             [
                 ("Scan Name", "scan_name"),
@@ -602,7 +606,6 @@ class MainWindow(QMainWindow):
             summary_text="",
             surface=SURFACE_PRIMARY,
             toolbar=run_toolbar,
-            status_label=self.run_results_label,
         )
         scanner_detail_panel, _scanner_title, _scanner_summary = build_inspector_panel(
             "Scanner Detail",
@@ -615,24 +618,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.runs_body_split, 1)
         return page
 
-    def _build_scanner_launch_card(self) -> QWidget:
-        card = QWidget()
-        card.setObjectName("scannerLaunchCard")
-        layout = QVBoxLayout(card)
+    def _build_attacker_page(self) -> QWidget:
+        page = build_flat_container()
+        page.setObjectName("attackerCanvas")
+        layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PAGE_CARD_SPACING)
-
-        self.start_scan_button = QPushButton("Launch New Scan")
-        self.start_scan_button.setObjectName("scannerStartButton")
-        self.start_scan_button.clicked.connect(self._start_scan)
-        self.start_scan_button.setToolTip("Start a new scan in the active workspace or ad-hoc session. Shortcut: Ctrl+N.")
-        style_button(self.start_scan_button, min_height=38)
-        self.start_scan_button.setMinimumWidth(190)
-        self.start_scan_button.setMaximumWidth(280)
-        self.start_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        layout.addWidget(self.start_scan_button, 0, Qt.AlignLeft)
-        return card
+        layout.setSpacing(0)
+        layout.addStretch(1)
+        return page
 
     def _build_performance_slider_row(
         self,
@@ -732,15 +725,12 @@ class MainWindow(QMainWindow):
         rail_layout.setSpacing(PAGE_SECTION_SPACING)
         rail_title = QLabel("Settings")
         rail_title.setObjectName("sectionTitle")
-        rail_helper = QLabel("Jump to session, resource, storage, and cleanup controls.")
-        rail_helper.setObjectName("helperText")
-        rail_helper.setWordWrap(True)
         self.settings_nav_list = QListWidget()
         self.settings_nav_list.setObjectName("sidebarList")
         self.settings_nav_list.currentRowChanged.connect(self._scroll_to_settings_section)
         for section_title in (
             "Session",
-            "Workspace Controls",
+            "Project Controls",
             "Resource Limits",
             "Metadata Paths",
             "Storage & Utilities",
@@ -748,7 +738,6 @@ class MainWindow(QMainWindow):
         ):
             self.settings_nav_list.addItem(QListWidgetItem(section_title))
         rail_layout.addWidget(rail_title)
-        rail_layout.addWidget(rail_helper)
         rail_layout.addWidget(self.settings_nav_list, 1)
         self.settings_split.addWidget(rail)
 
@@ -772,23 +761,23 @@ class MainWindow(QMainWindow):
             summary="Current runtime scope for this GUI session.",
         )
         self._settings_section_widgets = [session_panel]
-        self.active_workspace_status_label = QLabel("Session workspace: Ad-Hoc")
+        self.active_workspace_status_label = QLabel("Session project: Ad-Hoc")
         self.active_workspace_status_label.setObjectName("infoBanner")
         self.active_workspace_status_label.setWordWrap(True)
-        set_tooltip(self.active_workspace_status_label, "Shows the workspace currently bound to this GUI session.")
+        set_tooltip(self.active_workspace_status_label, "Shows the project currently bound to this GUI session.")
         session_layout.addWidget(self.active_workspace_status_label)
         content_layout.addWidget(session_panel)
 
         workspace_panel, workspace_layout = self._build_settings_card(
-            "Workspace Controls",
-            summary="Switch between saved workspace state and ad-hoc operation.",
+            "Project Controls",
+            summary="Switch between saved project state and ad-hoc operation.",
         )
         self._settings_section_widgets.append(workspace_panel)
         self.settings_workspace_combo = QComboBox()
         self.settings_workspace_combo.setObjectName("workspaceSwitchCombo")
         self.settings_workspace_combo.currentIndexChanged.connect(lambda _index: self._update_settings_workspace_switch_actions())
         session_actions = FlowButtonRow()
-        self.apply_workspace_button = QPushButton("Apply Workspace")
+        self.apply_workspace_button = QPushButton("Apply Project")
         self.apply_workspace_button.clicked.connect(self._apply_settings_workspace_selection)
         self.settings_ad_hoc_button = QPushButton("Use Ad-Hoc Session")
         self.settings_ad_hoc_button.clicked.connect(self._switch_to_no_workspace)
@@ -796,14 +785,14 @@ class MainWindow(QMainWindow):
         style_button(self.settings_ad_hoc_button, role="secondary")
         set_tooltips(
             (
-                (self.settings_workspace_combo, "Choose which workspace should be active for this GUI session."),
-                (self.apply_workspace_button, "Switch the current GUI session to the selected workspace."),
-                (self.settings_ad_hoc_button, "Leave workspace-scoped mode and continue in ad-hoc session mode."),
+                (self.settings_workspace_combo, "Choose which project should be active for this GUI session."),
+                (self.apply_workspace_button, "Switch the current GUI session to the selected project."),
+                (self.settings_ad_hoc_button, "Leave project-scoped mode and continue in ad-hoc session mode."),
             )
         )
         session_actions.addWidget(self.apply_workspace_button)
         session_actions.addWidget(self.settings_ad_hoc_button)
-        workspace_label = QLabel("Active workspace")
+        workspace_label = QLabel("Active project")
         workspace_label.setObjectName("settingsFieldLabel")
         workspace_layout.addWidget(workspace_label)
         workspace_layout.addWidget(self.settings_workspace_combo)
@@ -874,7 +863,7 @@ class MainWindow(QMainWindow):
 
         paths_panel, paths_layout = self._build_settings_card(
             "Metadata Paths",
-            summary="Local files used for profiles, workspace metadata, audit state, and run registry data.",
+            summary="Local files used for profiles, project metadata, audit state, and run registry data.",
         )
         self._settings_section_widgets.append(paths_panel)
         self.profile_store_path_label = QLabel("")
@@ -888,7 +877,7 @@ class MainWindow(QMainWindow):
         self.workspace_store_path_label.setObjectName("monoLabel")
         self.workspace_store_path_label.setProperty("variant", "path")
         self.workspace_store_path_label.setWordWrap(True)
-        open_workspace = QPushButton("Open Workspace Store Folder")
+        open_workspace = QPushButton("Open Project Store Folder")
         style_button(open_workspace, role="secondary")
         open_workspace.clicked.connect(lambda: self._open_local_path(str(self.workspace_store.path.parent)))
         about_button = QPushButton("About AttackCastle")
@@ -897,13 +886,13 @@ class MainWindow(QMainWindow):
         set_tooltips(
             (
                 (open_profiles, "Open the folder that stores saved GUI profiles."),
-                (open_workspace, "Open the folder that stores workspace metadata, audit, and run registry state."),
+                (open_workspace, "Open the folder that stores project metadata, audit, and run registry state."),
                 (about_button, "Show a short description of the GUI."),
             )
         )
         profile_label = QLabel("Profile store path")
         profile_label.setObjectName("settingsFieldLabel")
-        workspace_store_label = QLabel("Workspace store path")
+        workspace_store_label = QLabel("Project store path")
         workspace_store_label.setObjectName("settingsFieldLabel")
         paths_layout.addWidget(profile_label)
         paths_layout.addWidget(self.profile_store_path_label)
@@ -920,7 +909,7 @@ class MainWindow(QMainWindow):
         )
         self._settings_section_widgets.append(store_panel)
         self.shortcut_summary_label = QLabel(
-            "Shortcuts: Ctrl+1..7 navigate sections, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder."
+            "Shortcuts: Ctrl+1..8 navigate sections, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder."
         )
         self.shortcut_summary_label.setObjectName("infoBanner")
         self.shortcut_summary_label.setWordWrap(True)
@@ -930,17 +919,17 @@ class MainWindow(QMainWindow):
 
         danger_panel, danger_layout = self._build_settings_card(
             "Danger Zone",
-            summary="Destructive workspace cleanup actions live here deliberately.",
+            summary="Destructive project cleanup actions live here deliberately.",
             danger=True,
         )
         self._settings_section_widgets.append(danger_panel)
-        self.danger_zone_status_label = QLabel("No workspace deletion is currently armed.")
+        self.danger_zone_status_label = QLabel("No project deletion is currently armed.")
         self.danger_zone_status_label.setObjectName("attentionBanner")
         self.danger_zone_status_label.setProperty("tone", "alert")
         self.danger_zone_status_label.setWordWrap(True)
-        self.delete_active_workspace_data_button = QPushButton("Delete This Workspace (and All Its Data)")
+        self.delete_active_workspace_data_button = QPushButton("Delete This Project (and All Its Data)")
         self.delete_active_workspace_data_button.clicked.connect(self._delete_active_workspace_and_data)
-        self.delete_all_workspaces_data_button = QPushButton("Delete All Workspaces (and All Data)")
+        self.delete_all_workspaces_data_button = QPushButton("Delete All Projects (and All Data)")
         self.delete_all_workspaces_data_button.clicked.connect(self._delete_all_workspaces_and_data)
         style_button(self.delete_active_workspace_data_button, role="danger")
         style_button(self.delete_all_workspaces_data_button, role="danger")
@@ -948,11 +937,11 @@ class MainWindow(QMainWindow):
             (
                 (
                     self.delete_active_workspace_data_button,
-                    "Permanently delete the active workspace, its tracked runs, and the workspace home directory after confirmation.",
+                    "Permanently delete the active project, its tracked runs, and the project home directory after confirmation.",
                 ),
                 (
                     self.delete_all_workspaces_data_button,
-                    "Permanently delete every saved workspace, tracked run directory, and workspace-scoped GUI data after confirmation.",
+                    "Permanently delete every saved project, tracked run directory, and project-scoped GUI data after confirmation.",
                 ),
             )
         )
@@ -987,6 +976,7 @@ class MainWindow(QMainWindow):
             "workspaces": "Overview",
             "runs": "Scanner",
             "assets": "Assets",
+            "attacker": "Attacker",
             "findings": "Findings",
             "profiles": "Profiles",
             "extensions": "Extensions",
@@ -1114,6 +1104,8 @@ class MainWindow(QMainWindow):
         tokens = manifest.theme.tokens if manifest is not None and manifest.theme is not None else None
         qss_append = manifest.theme.qss_append if manifest is not None and manifest.theme is not None else ""
         self.setStyleSheet(build_workstation_stylesheet(tokens=tokens, qss_append=qss_append))
+        if hasattr(self, "assets_tab"):
+            self.assets_tab.apply_theme(tokens)
         if hasattr(self, "header_status_badge"):
             refresh_widget_style(self.header_status_badge)
     def _profiles_changed(self, profiles: list[GuiProfile]) -> None:
@@ -1128,7 +1120,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self,
             "About AttackCastle GUI",
-            "AttackCastle GUI\n\nKali-native PySide6 operator workspace for launching, monitoring, comparing, and staging external assessment findings without changing CLI behavior.",
+            "AttackCastle GUI\n\nKali-native PySide6 operator project for launching, monitoring, comparing, and staging external assessment findings without changing CLI behavior.",
         )
 
     def _refresh_settings_page(self) -> None:
@@ -1372,7 +1364,7 @@ class MainWindow(QMainWindow):
         active_workspace = self._active_workspace()
         self.settings_workspace_combo.blockSignals(True)
         self.settings_workspace_combo.clear()
-        self.settings_workspace_combo.addItem("No Workspace (Ad-Hoc Session)", "")
+        self.settings_workspace_combo.addItem("No Project (Ad-Hoc Session)", "")
         for workspace in self._workspaces:
             label = workspace.name
             if workspace.client_name:
@@ -1382,10 +1374,10 @@ class MainWindow(QMainWindow):
         self.settings_workspace_combo.setCurrentIndex(current_index if current_index >= 0 else 0)
         self.settings_workspace_combo.blockSignals(False)
         if active_workspace is None:
-            self.active_workspace_status_label.setText("Session workspace: Ad-Hoc")
+            self.active_workspace_status_label.setText("Session project: Ad-Hoc")
         else:
             self.active_workspace_status_label.setText(
-                f"Session workspace: {active_workspace.name} | Client: {active_workspace.client_name or 'Unassigned'}"
+                f"Session project: {active_workspace.name} | Client: {active_workspace.client_name or 'Unassigned'}"
             )
         self._update_settings_workspace_switch_actions()
 
@@ -1406,12 +1398,12 @@ class MainWindow(QMainWindow):
         active_workspace = self._active_workspace()
         if active_workspace is None:
             self.danger_zone_status_label.setText(
-                "No active workspace is selected. Switch into a workspace to enable single-workspace deletion, or delete all saved workspaces at once."
+                "No active project is selected. Switch into a project to enable single-project deletion, or delete all saved projects at once."
             )
         else:
             run_count = len(self.workspace_store.load_run_registry(active_workspace.workspace_id))
             self.danger_zone_status_label.setText(
-                f"Active workspace '{active_workspace.name}' will remove {run_count} tracked run(s) and delete data rooted at {active_workspace.home_dir}."
+                f"Active project '{active_workspace.name}' will remove {run_count} tracked run(s) and delete data rooted at {active_workspace.home_dir}."
             )
         self.delete_active_workspace_data_button.setEnabled(
             not self._switch_in_progress and active_workspace is not None
@@ -2592,19 +2584,15 @@ class MainWindow(QMainWindow):
             self.workspace_list.addItem(item)
         self.workspace_list.blockSignals(False)
         if active_workspace is not None:
-            self.workspace_tab_context_label.setText(
-                f"Active workspace: {active_workspace.name} | Client: {active_workspace.client_name or 'Unassigned'}"
-            )
             self.workspace_list.setCurrentRow(0)
             self._workspace_selected(0)
         else:
             self._selected_workspace_id = ""
             self._selected_engagement_id = ""
-            self.workspace_tab_context_label.setText("Active workspace: Ad-Hoc session")
             if self._workspaces:
-                self.workspace_summary.setPlainText("Ad-hoc mode is active. Switch to a saved workspace from Settings when you want project-scoped context.")
+                self.workspace_summary.setPlainText("Ad-hoc mode is active. Switch to a saved project from Settings when you want project-scoped context.")
             else:
-                self.workspace_summary.setPlainText("No saved workspaces yet. Use the workspace editor to create one, or continue in ad-hoc mode.")
+                self.workspace_summary.setPlainText("No saved projects yet. Use the project editor to create one, or continue in ad-hoc mode.")
             self._update_workspace_action_state()
 
     def _workspace_selected(self, row: int) -> None:
@@ -2618,7 +2606,7 @@ class MainWindow(QMainWindow):
         self._selected_workspace_id = workspace.workspace_id
         self._selected_engagement_id = self._selected_workspace_id
         self.workspace_summary.setPlainText(
-            f"Workspace Home: {workspace.home_dir}\n"
+            f"Project Home: {workspace.home_dir}\n"
             f"Client: {workspace.client_name}\n"
             f"\nScope:\n{workspace.scope_summary}"
         )
@@ -2645,7 +2633,7 @@ class MainWindow(QMainWindow):
         self.workspace_store.save_workspace(workspace)
         self._workspaces = self.workspace_store.load_workspaces()
         self._selected_workspace_id = workspace.workspace_id
-        self._append_audit("workspace.created", f"Created workspace {workspace.name}", workspace_id=workspace.workspace_id)
+        self._append_audit("workspace.created", f"Created project {workspace.name}", workspace_id=workspace.workspace_id)
         self._sync_workspace_list()
 
     def _edit_selected_workspace(self) -> None:
@@ -2660,7 +2648,7 @@ class MainWindow(QMainWindow):
         self._workspaces = self.workspace_store.load_workspaces()
         if updated.workspace_id == self._active_workspace_id:
             self._active_workspace_id = updated.workspace_id
-        self._append_audit("workspace.updated", f"Updated workspace {updated.name}", workspace_id=updated.workspace_id)
+        self._append_audit("workspace.updated", f"Updated project {updated.name}", workspace_id=updated.workspace_id)
         self._sync_workspace_list()
         if updated.workspace_id == self._active_workspace_id:
             self._refresh_context_panels()
@@ -2736,7 +2724,7 @@ class MainWindow(QMainWindow):
             for protected in protected_paths:
                 if candidate == protected or self._path_contains(candidate, protected) or self._path_contains(protected, candidate):
                     raise ValueError(
-                        f"Deletion would overlap data that still belongs to another workspace: {candidate} conflicts with {protected}"
+                        f"Deletion would overlap data that still belongs to another project: {candidate} conflicts with {protected}"
                     )
         return target_workspaces, unique_candidates, total_run_count
 
@@ -2771,7 +2759,7 @@ class MainWindow(QMainWindow):
         try:
             target_workspaces, delete_paths, run_count = self._build_workspace_delete_plan(workspace_ids)
         except Exception as exc:
-            QMessageBox.warning(self, "Workspace Deletion Blocked", str(exc))
+            QMessageBox.warning(self, "Project Deletion Blocked", str(exc))
             return False
         if not target_workspaces:
             return False
@@ -2779,16 +2767,16 @@ class MainWindow(QMainWindow):
         if live_workspaces:
             QMessageBox.warning(
                 self,
-                "Workspace Deletion Blocked",
-                "One or more targeted workspaces still have live runs owned by this GUI session.\n\n"
+                "Project Deletion Blocked",
+                "One or more targeted projects still have live runs owned by this GUI session.\n\n"
                 + "\n".join(f"- {name}" for name in live_workspaces),
             )
             return False
 
         names = [workspace.name for workspace in target_workspaces]
-        workspace_label = names[0] if len(names) == 1 else f"{len(names)} workspaces"
+        workspace_label = names[0] if len(names) == 1 else f"{len(names)} projects"
         if not self._confirm_workspace_deletion(
-            title="Delete Workspace Data",
+            title="Delete Project Data",
             message=(
                 f"Permanently delete {workspace_label} and all tracked data?\n\n"
                 f"Tracked runs: {run_count}\n"
@@ -2806,15 +2794,15 @@ class MainWindow(QMainWindow):
             removed_paths = self._delete_paths(delete_paths)
             self.workspace_store.delete_workspaces([workspace.workspace_id for workspace in target_workspaces])
         except Exception as exc:
-            QMessageBox.warning(self, "Workspace Deletion Failed", f"AttackCastle could not finish deleting the requested workspace data.\n\n{exc}")
+            QMessageBox.warning(self, "Project Deletion Failed", f"AttackCastle could not finish deleting the requested project data.\n\n{exc}")
             return False
 
         next_workspace_id = self.workspace_store.get_active_workspace_id()
         self._load_workspace_state(next_workspace_id)
         summary = (
-            f"Deleted workspace {names[0]} and removed {len(removed_paths)} path(s)."
+            f"Deleted project {names[0]} and removed {len(removed_paths)} path(s)."
             if len(names) == 1
-            else f"Deleted {len(names)} workspaces and removed {len(removed_paths)} path(s)."
+            else f"Deleted {len(names)} projects and removed {len(removed_paths)} path(s)."
         )
         self.general_status.setText(summary)
         self._append_audit(
@@ -2870,7 +2858,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 self._switch_in_progress = False
                 self._update_workspace_action_state()
-                QMessageBox.warning(self, "Workspace Switch Failed", f"Could not pause {snapshot.scan_name} before switching workspaces.")
+                QMessageBox.warning(self, "Project Switch Failed", f"Could not pause {snapshot.scan_name} before switching projects.")
                 return False
             snapshot.pause_requested = True
             snapshot.resume_required = True
@@ -2881,8 +2869,8 @@ class MainWindow(QMainWindow):
             self._update_workspace_action_state()
             QMessageBox.warning(
                 self,
-                "Workspace Switch Failed",
-                "One or more runs did not acknowledge pause in time. The current workspace is still active.",
+                "Project Switch Failed",
+                "One or more runs did not acknowledge pause in time. The current project is still active.",
             )
             return False
 

@@ -89,3 +89,31 @@ def test_cve_enricher_handles_empty_inputs(tmp_path: Path):
     assert len(result.tool_executions) == 1
     assert result.tool_executions[0].status == "completed"
 
+
+def test_cve_enricher_does_not_fetch_kev_for_local_backend(tmp_path: Path, monkeypatch):
+    run_data = _run_data()
+    run_data.services.append(
+        Service(
+            service_id="svc-1",
+            asset_id="asset-1",
+            port=80,
+            protocol="tcp",
+            state="open",
+            name="Apache httpd",
+        )
+    )
+    audit = _AuditStub()
+    context = _context(tmp_path, audit)
+    context.config["cve_enricher"] = {
+        "backend": "local",
+        "kev_feed_url": "https://example.invalid/known_exploited_vulnerabilities.json",
+    }
+    monkeypatch.setattr(
+        "attackcastle.adapters.cve_enricher.adapter.fetch_kev_set",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("KEV feed should not be fetched")),
+    )
+
+    result = CVEEnricherAdapter().run(context, run_data)
+
+    assert result.facts["cve_enricher.backend"] == "local"
+    assert result.facts["cve_enricher.kev_count"] == 0

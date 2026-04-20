@@ -25,6 +25,9 @@ def built_in_profiles() -> list[GuiProfile]:
             rate_limit_mode="careful",
             masscan_rate=800,
             risk_mode="safe-active",
+            enable_nikto=False,
+            enable_nuclei=False,
+            enable_wpscan=False,
             enable_sqlmap=False,
         ),
         GuiProfile(
@@ -37,6 +40,7 @@ def built_in_profiles() -> list[GuiProfile]:
             rate_limit_mode="balanced",
             masscan_rate=2000,
             risk_mode="safe-active",
+            enable_wpscan=False,
             enable_sqlmap=False,
         ),
         GuiProfile(
@@ -49,6 +53,7 @@ def built_in_profiles() -> list[GuiProfile]:
             rate_limit_mode="balanced",
             masscan_rate=2500,
             risk_mode="safe-active",
+            enable_wpscan=True,
             enable_sqlmap=False,
         ),
         GuiProfile(
@@ -61,6 +66,7 @@ def built_in_profiles() -> list[GuiProfile]:
             rate_limit_mode="aggressive",
             masscan_rate=5000,
             risk_mode="aggressive",
+            enable_wpscan=True,
             enable_sqlmap=True,
         ),
     ]

@@ -51,9 +51,12 @@ def test_navigation_defaults_to_workspace_and_uses_workflow_sections(tmp_path: P
     try:
         sections = [window.workflow_tabs.tabText(idx) for idx in range(window.workflow_tabs.count())]
 
-        assert sections == ["Overview", "Scanner", "Assets", "Findings", "Profiles", "Extensions", "Settings"]
+        assert sections == ["Overview", "Scanner", "Assets", "Attacker", "Findings", "Profiles", "Extensions", "Settings"]
         assert window.workflow_tabs.tabText(window.workflow_tabs.currentIndex()) == "Overview"
         assert window.workflow_tabs.currentWidget() is window.workspace_page
+        assert window.workflow_tabs.objectName() == "masterTabs"
+        assert window.workflow_tabs.property("tabRole") == "master"
+        assert window.workflow_tabs.tabBar().objectName() == "masterTabBar"
         assert window.workflow_tabs.usesScrollButtons()
         assert window.workflow_tabs.tabBar().usesScrollButtons()
         assert window.workflow_tabs.tabBar().expanding()
@@ -82,7 +85,7 @@ def test_keyboard_shortcuts_cover_primary_navigation_and_operator_actions(tmp_pa
     try:
         shortcuts = {shortcut.key().toString() for shortcut in window.findChildren(QShortcut)}
 
-        assert {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+6", "Ctrl+7"}.issubset(shortcuts)
+        assert {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+6", "Ctrl+7", "Ctrl+8"}.issubset(shortcuts)
         assert {"Ctrl+N", "Ctrl+F", "Ctrl+R", "Ctrl+P", "Ctrl+O"}.issubset(shortcuts)
         assert "Ctrl+K" not in shortcuts
     finally:
@@ -456,6 +459,8 @@ def test_launch_controls_live_in_scanner_page_not_workspace_page(tmp_path: Path)
         assert "Scan Queue" in scanner_section_titles
         assert window.start_scan_button.parentWidget() is not None
         assert window.runs_page.isAncestorOf(window.start_scan_button)
+        assert window.start_scan_button.text() == "+"
+        assert window.start_scan_button.accessibleName() == "Launch New Scan"
         assert window.start_scan_button.isEnabled()
     finally:
         window._refresh_timer.stop()
@@ -466,13 +471,15 @@ def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: 
     window = _make_window(tmp_path)
 
     try:
-        assert window.workflow_tabs.count() == 7
+        assert window.workflow_tabs.count() == 8
         assert window.workspace_content_split.count() == 3
         assert not hasattr(window, "runs_page_split")
         assert window.runs_body_split.count() == 2
         assert window.output_tab.main_split.count() == 2
         assert window.assets_tab.main_split.count() == 2
-        assert window.settings_split.count() == 3
+        assert window.settings_split.count() == 2
+        assert window.attacker_page.objectName() == "attackerCanvas"
+        assert window.attacker_page.property("surface") == "flat"
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -588,7 +595,7 @@ def test_assets_workspace_is_available_in_navigation_and_tracks_selected_run(tmp
 
         assert window.workflow_tabs.currentWidget() is window.assets_tab
         assert window.assets_tab._snapshot is not None
-        assert window.assets_tab._snapshot.scan_name == "Workspace Asset Inventory"
+        assert window.assets_tab._snapshot.scan_name == "Project Asset Inventory"
         assert window.assets_tab.assets_model.rowCount() == 2
         assert window.assets_tab.services_model.rowCount() == 2
         assert window.output_tab._snapshot is snapshot
@@ -1097,7 +1104,9 @@ def test_workspace_tab_reflects_only_the_active_workspace(tmp_path: Path) -> Non
         assert window._get_selected_engagement() is not None
         assert window.workspace_list.count() == 1
         assert "Alpha" in window.workspace_list.item(0).text()
-        assert "Active workspace" in window.workspace_tab_context_label.text()
+        assert not hasattr(window, "workspace_tab_context_label")
+        assert "Project Home:" in window.workspace_summary.toPlainText()
+        assert "Client:" in window.workspace_summary.toPlainText()
         assert not window.edit_engagement_button.isVisible()
         assert not window.edit_engagement_button.isEnabled()
         assert not window.open_workspace_button.isVisible()
@@ -1242,7 +1251,7 @@ def test_main_window_surfaces_tooltips_on_primary_controls(tmp_path: Path) -> No
 
     try:
         assert "workflow areas" in window.workflow_tabs.toolTip().lower()
-        assert "active workspace" in window.start_scan_button.toolTip().lower()
+        assert "active project" in window.start_scan_button.toolTip().lower()
         assert "double-click" in window.workspace_run_table.toolTip().lower()
         assert "right-click for controls" in window.run_table.toolTip().lower()
         assert "active for this gui session" in window.settings_workspace_combo.toolTip().lower()
@@ -1323,8 +1332,8 @@ def test_settings_page_can_delete_active_workspace_and_its_data(tmp_path: Path, 
         assert workspace_store.get_active_workspace_id() == ""
         assert workspace_store.load_workspaces() == []
         assert not workspace_home.exists()
-        assert "Deleted workspace Alpha" in window.general_status.text()
-        assert "No active workspace is selected" in window.danger_zone_status_label.text()
+        assert "Deleted project Alpha" in window.general_status.text()
+        assert "No active project is selected" in window.danger_zone_status_label.text()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -1359,7 +1368,7 @@ def test_settings_page_can_delete_all_workspaces_and_data(tmp_path: Path, monkey
         assert workspace_store.get_active_workspace_id() == ""
         assert not alpha_home.exists()
         assert not beta_home.exists()
-        assert "Deleted 2 workspaces" in window.general_status.text()
+        assert "Deleted 2 projects" in window.general_status.text()
     finally:
         window._refresh_timer.stop()
         window.close()

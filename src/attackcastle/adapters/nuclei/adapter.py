@@ -151,6 +151,7 @@ class NucleiAdapter:
         risk_controls = risk_controls_from_context(context)
         existing_scanned = set(run_data.facts.get("nuclei.scanned_urls", []))
         scanned_urls: list[str] = []
+        failed_urls: list[str] = []
         total_issues = 0
         limiter = getattr(context, "rate_limiter", None)
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
@@ -357,13 +358,20 @@ class NucleiAdapter:
                 result.warnings.extend(partial.warnings)
                 for evidence in partial.evidence:
                     emit_entity_event(context, "evidence", evidence, source=self.name)
-                scanned_urls.append(url)
+                if any(getattr(execution, "status", "") == "completed" for execution in partial.tool_executions):
+                    scanned_urls.append(url)
+                else:
+                    failed_urls.append(url)
 
         ended_at = now_utc()
         scanned_set = sorted(existing_scanned.union(scanned_urls))
+        attempted_urls = sorted({str(item["url"]) for item in pending_targets})
         result.facts.update(
             {
                 "nuclei.available": True,
+                "nuclei.attempted_urls": attempted_urls,
+                "nuclei.completed_urls": scanned_set,
+                "nuclei.failed_urls": sorted(set(failed_urls)),
                 "nuclei.scanned_targets": len(scanned_urls),
                 "nuclei.scanned_urls": scanned_set,
                 "nuclei.total_issues": total_issues,

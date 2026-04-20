@@ -110,8 +110,12 @@ PROFILE_RECIPES: dict[str, dict[str, object]] = {
 }
 
 TOOL_FIELDS = (
+    "enable_subfinder",
+    "enable_dnsx",
+    "enable_dig_host",
     "enable_nmap",
     "enable_web_probe",
+    "enable_openssl_tls",
     "enable_whatweb",
     "enable_nikto",
     "enable_nuclei",
@@ -119,27 +123,174 @@ TOOL_FIELDS = (
     "enable_sqlmap",
 )
 
-TOOL_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...] = (
-    (
-        "Surface Discovery",
-        "Infrastructure and host enumeration for rapid external mapping with Nmap handling both discovery and service profiling.",
-        (("nmap", "Host discovery, port coverage, and service verification"),),
-    ),
-    (
-        "Web Fingerprinting",
-        "HTTP reachability, stack identification, and route-focused discovery.",
-        (("web_probe", "HTTP probing and screenshots"), ("whatweb", "Technology fingerprinting")),
-    ),
-    (
-        "Validation & Exposure",
-        "Safe validation checks for common web weaknesses and internet-facing issues.",
-        (("nikto", "Web server exposure checks"), ("nuclei", "Template-driven validation"), ("wpscan", "WordPress enumeration")),
-    ),
-    (
-        "Targeted Exploitation",
-        "Keep disabled unless the engagement explicitly authorizes deeper active testing.",
-        (("sqlmap", "Focused SQLi exploitation workflows"),),
-    ),
+TOOL_FIELD_NAMES = {
+    "enable_subfinder": "subfinder",
+    "enable_dnsx": "dnsx",
+    "enable_dig_host": "dig / host",
+    "enable_nmap": "nmap",
+    "enable_web_probe": "httpx",
+    "enable_openssl_tls": "openssl",
+    "enable_whatweb": "whatweb",
+    "enable_nikto": "nikto",
+    "enable_nuclei": "nuclei",
+    "enable_wpscan": "wpscan",
+    "enable_sqlmap": "sqlmap",
+}
+
+TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
+    {
+        "title": "Scope Expansion",
+        "description": "Find additional in-scope hosts, domains, and internet-facing assets.",
+        "tools": (
+            ("subfinder", "Passive subdomain enumeration for in-scope root domains.", "enable_subfinder"),
+            ("assetfinder", "Additional passive asset discovery source.", ""),
+            ("amass", "Deep OSINT and graph-based attack surface discovery.", ""),
+        ),
+    },
+    {
+        "title": "DNS Resolution & Host Validation",
+        "description": "Confirm discovered assets resolve and validate live host mappings.",
+        "tools": (
+            ("dnsx", "Bulk DNS resolution and record collection.", "enable_dnsx"),
+            ("puredns", "High-volume trusted resolver validation.", ""),
+            ("dig / host", "Resolver fallback for hostname and record checks.", "enable_dig_host"),
+        ),
+    },
+    {
+        "title": "Port Discovery",
+        "description": "Quickly identify exposed TCP services on discovered hosts.",
+        "tools": (
+            ("masscan", "Very fast wide TCP port discovery.", ""),
+            ("naabu", "Fast ProjectDiscovery port discovery.", ""),
+            ("rustscan", "Rapid TCP port discovery front-end.", ""),
+        ),
+    },
+    {
+        "title": "Service Detection & Version Enumeration",
+        "description": "Determine what open ports are actually running and identify service versions.",
+        "tools": (
+            ("nmap", "Service verification, versions, and selected script checks.", "enable_nmap"),
+            ("amap", "Protocol detection on unusual service ports.", ""),
+            ("nc / openssl s_client", "Manual socket and TLS handshake confirmation.", "enable_openssl_tls"),
+        ),
+    },
+    {
+        "title": "HTTP Probing & Screenshotting",
+        "description": "Identify web services, collect titles/statuses, and capture screenshots.",
+        "tools": (
+            ("httpx", "HTTP probing, metadata, tech hints, and built-in screenshots.", "enable_web_probe"),
+            ("aquatone", "Web screenshot inventory.", ""),
+            ("gowitness", "Web screenshot inventory.", ""),
+        ),
+    },
+    {
+        "title": "Web Fingerprinting",
+        "description": "Fingerprint frameworks, WAFs, CDNs, CMSs, and technology stacks.",
+        "tools": (
+            ("whatweb", "Technology fingerprinting for confirmed web targets.", "enable_whatweb"),
+            ("wafw00f", "WAF and edge protection detection.", ""),
+            ("nuclei tech-detect templates", "Template-based technology detection and framework checks.", "enable_nuclei"),
+        ),
+    },
+    {
+        "title": "Content Discovery",
+        "description": "Discover hidden files, directories, admin panels, and forgotten paths.",
+        "tools": (
+            ("ffuf", "Directory, file, and virtual-host fuzzing.", ""),
+            ("feroxbuster", "Recursive content discovery.", ""),
+            ("dirsearch", "Directory and file discovery.", ""),
+        ),
+    },
+    {
+        "title": "Parameter Discovery",
+        "description": "Identify hidden or unlinked parameters that expand attack surface.",
+        "tools": (
+            ("arjun", "Parameter name discovery.", ""),
+            ("ffuf", "Parameter fuzzing with supplied wordlists.", ""),
+            ("ParamSpider", "Archived parameter discovery.", ""),
+        ),
+    },
+    {
+        "title": "JavaScript & Client-Side Recon",
+        "description": "Extract endpoints, secrets, routes, and client-side attack surface from JavaScript.",
+        "tools": (
+            ("katana", "Crawler-assisted JavaScript and endpoint discovery.", ""),
+            ("LinkFinder", "JavaScript endpoint extraction.", ""),
+            ("SecretFinder", "JavaScript secret pattern detection.", ""),
+        ),
+    },
+    {
+        "title": "Vulnerability Validation",
+        "description": "Run safe broad validation and exposure checks against identified targets.",
+        "tools": (
+            ("nuclei", "Template-driven exposure and vulnerability validation.", "enable_nuclei"),
+            ("nikto", "Common web server exposure checks.", "enable_nikto"),
+            ("testssl.sh", "TLS weakness validation.", ""),
+        ),
+    },
+    {
+        "title": "TLS / Certificate Analysis",
+        "description": "Review TLS posture, certificate details, protocol support, and SSL weaknesses.",
+        "tools": (
+            ("testssl.sh", "Detailed TLS configuration assessment.", ""),
+            ("sslscan", "TLS protocol and cipher enumeration.", ""),
+            ("openssl", "Certificate collection and TLS handshake checks.", "enable_openssl_tls"),
+        ),
+    },
+    {
+        "title": "CMS / Platform-Specific Enumeration",
+        "description": "Run technology-specific enumeration for identified CMS or platform targets.",
+        "tools": (
+            ("wpscan", "WordPress-focused enumeration.", "enable_wpscan"),
+            ("droopescan", "Drupal and SilverStripe enumeration.", ""),
+            ("joomscan", "Joomla enumeration.", ""),
+        ),
+    },
+    {
+        "title": "API Discovery & API Surface Mapping",
+        "description": "Discover API endpoints, GraphQL surfaces, and OpenAPI/Swagger exposure.",
+        "tools": (
+            ("katana", "API and endpoint crawling.", ""),
+            ("ffuf", "API path discovery with supplied wordlists.", ""),
+            ("graphql-cop / inql-style workflow", "GraphQL-specific discovery and introspection workflow.", ""),
+        ),
+    },
+    {
+        "title": "Authentication & Session Checks",
+        "description": "Focus on login surfaces, session handling, cookies, token lifetime, and auth paths.",
+        "tools": (
+            ("Burp Suite automation", "Proxy-driven authenticated workflow automation.", ""),
+            ("ffuf for auth path discovery", "Login and auth route discovery.", ""),
+            ("custom curl/python request workflows", "Built-in replay and session-aware validation.", ""),
+        ),
+    },
+    {
+        "title": "Focused Exploitation",
+        "description": "Run targeted higher-impact validation when a likely issue is already suspected.",
+        "tools": (
+            ("sqlmap", "Targeted SQL injection exploitation workflow.", "enable_sqlmap"),
+            ("ghauri", "Targeted SQL injection exploitation workflow.", ""),
+            ("xsstrike", "Targeted reflected XSS validation.", ""),
+        ),
+    },
+    {
+        "title": "OAST / Callback Validation",
+        "description": "Validate blind and out-of-band behaviours such as SSRF and blind XSS callbacks.",
+        "tools": (
+            ("interactsh-client", "Out-of-band callback validation.", ""),
+            ("Burp Collaborator", "Out-of-band callback validation.", ""),
+            ("webhook/callback workflow", "Operator-supplied callback validation workflow.", ""),
+        ),
+    },
+    {
+        "title": "Visual Recon",
+        "description": "Capture screenshots and visual page inventory for rapid operator review.",
+        "tools": (
+            ("gowitness", "Screenshot collection and visual inventory.", ""),
+            ("aquatone", "Screenshot collection and visual inventory.", ""),
+            ("EyeWitness", "Screenshot collection and visual inventory.", ""),
+        ),
+    },
 )
 
 
@@ -159,10 +310,7 @@ class CollapsibleSection(QFrame):
         self.toggle_button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
         self.toggle_button.toggled.connect(self._sync_expanded)
         layout.addWidget(self.toggle_button)
-        self.description_label = QLabel(description)
-        self.description_label.setObjectName("helperText")
-        self.description_label.setWordWrap(True)
-        layout.addWidget(self.description_label)
+        self.setToolTip(description)
         self.body = body
         self.body.setVisible(expanded)
         layout.addWidget(self.body)
@@ -205,6 +353,7 @@ class ProfileFieldsMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PANEL_CONTENT_PADDING)
 
+        self._track_manual_tool_overrides = not include_identity
         self._build_profile_fields()
 
         sections: list[tuple[str, str, QWidget, bool]] = []
@@ -246,12 +395,6 @@ class ProfileFieldsMixin:
                     "Active Validation",
                     "Control validation posture, request replay, budget, target revisit windows, and strategic behavior.",
                     self._build_active_validation_form(),
-                    True,
-                ),
-                (
-                    "Playbooks / Preset Libraries",
-                    "Choose the investigation lanes and optional preset files that guide deeper validation.",
-                    self._build_playbook_libraries_form(),
                     True,
                 ),
                 (
@@ -334,52 +477,10 @@ class ProfileFieldsMixin:
         self.breadth_first_checkbox.setChecked(True)
         self.unauthenticated_only_checkbox = QCheckBox("Unauthenticated-only coverage lane")
         self.unauthenticated_only_checkbox.setChecked(True)
-        self.web_playbooks_checkbox = QCheckBox("Enable web playbook group")
-        self.web_playbooks_checkbox.setChecked(True)
-        self.tls_playbooks_checkbox = QCheckBox("Enable TLS and HTTPS edge playbook group")
-        self.tls_playbooks_checkbox.setChecked(True)
-        self.service_playbooks_checkbox = QCheckBox("Enable non-web service playbook group")
-        self.service_playbooks_checkbox.setChecked(True)
-        self.object_access_playbook_checkbox = QCheckBox("Object Access playbook")
-        self.object_access_playbook_checkbox.setChecked(True)
-        self.input_reflection_playbook_checkbox = QCheckBox("Input Reflection / Injection playbook")
-        self.input_reflection_playbook_checkbox.setChecked(True)
-        self.api_expansion_playbook_checkbox = QCheckBox("API Expansion playbook")
-        self.api_expansion_playbook_checkbox.setChecked(True)
-        self.admin_debug_playbook_checkbox = QCheckBox("Admin / Debug Exposure playbook")
-        self.admin_debug_playbook_checkbox.setChecked(True)
-        self.client_artifact_playbook_checkbox = QCheckBox("Client Artifact Exposure playbook")
-        self.client_artifact_playbook_checkbox.setChecked(True)
-        self.framework_component_playbook_checkbox = QCheckBox("Framework / Component Exposure playbook")
-        self.framework_component_playbook_checkbox.setChecked(True)
-        self.web_misconfiguration_playbook_checkbox = QCheckBox("Web Misconfiguration Breadth playbook")
-        self.web_misconfiguration_playbook_checkbox.setChecked(True)
-        self.use_default_validation_presets_checkbox = QCheckBox("Use bundled preset libraries unless overridden")
-        self.use_default_validation_presets_checkbox.setChecked(True)
-        self.injection_preset_edit = QLineEdit()
-        self.xss_preset_edit = QLineEdit()
-        self.sqli_preset_edit = QLineEdit()
-        self.auth_rate_limit_preset_edit = QLineEdit()
-        self.misconfig_preset_edit = QLineEdit()
-        self.data_exposure_preset_edit = QLineEdit()
-        self.api_idor_preset_edit = QLineEdit()
-        self.upload_preset_edit = QLineEdit()
-        self.component_preset_edit = QLineEdit()
-        self.infra_preset_edit = QLineEdit()
         for field in (
             self.profile_name_edit,
             self.description_edit,
             self.output_dir_edit,
-            self.injection_preset_edit,
-            self.xss_preset_edit,
-            self.sqli_preset_edit,
-            self.auth_rate_limit_preset_edit,
-            self.misconfig_preset_edit,
-            self.data_exposure_preset_edit,
-            self.api_idor_preset_edit,
-            self.upload_preset_edit,
-            self.component_preset_edit,
-            self.infra_preset_edit,
             self.endpoint_wordlist_edit,
             self.parameter_wordlist_edit,
             self.payload_wordlist_edit,
@@ -388,8 +489,12 @@ class ProfileFieldsMixin:
             field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.enable_masscan = QCheckBox("masscan")
+        self.enable_subfinder = QCheckBox("subfinder")
+        self.enable_dnsx = QCheckBox("dnsx")
+        self.enable_dig_host = QCheckBox("dig / host")
         self.enable_nmap = QCheckBox("nmap")
         self.enable_web_probe = QCheckBox("web probe")
+        self.enable_openssl_tls = QCheckBox("openssl")
         self.enable_whatweb = QCheckBox("whatweb")
         self.enable_nikto = QCheckBox("nikto")
         self.enable_nuclei = QCheckBox("nuclei")
@@ -420,39 +525,22 @@ class ProfileFieldsMixin:
                 (self.rate_mode_combo, "Choose how aggressively request pacing and runtime rate limits are applied."),
                 (self.proxy_enabled_checkbox, "Route supported HTTP-capable tooling through a proxy such as Burp."),
                 (self.proxy_url_edit, "Enter the proxy URL that supported HTTP tooling should use."),
-                (self.active_validation_mode_combo, "Choose how assertively active validation playbooks should probe findings."),
+                (self.active_validation_mode_combo, "Choose how assertively active validation should probe findings."),
                 (self.request_replay_enabled_checkbox, "Replay captured requests when the validation engine needs higher confidence."),
                 (self.validation_budget_spin, "Limit how many validation attempts AttackCastle spends per target."),
-                (self.target_duration_spin, "Set the target revisit window used by active validation playbooks."),
+                (self.target_duration_spin, "Set the target revisit window used by active validation."),
                 (self.revisit_enabled_checkbox, "Allow AttackCastle to revisit earlier surfaces when new evidence appears."),
                 (self.breadth_first_checkbox, "Cover more surfaces first before deepening individual targets."),
                 (self.unauthenticated_only_checkbox, "Keep validation limited to unauthenticated flows."),
-                (self.web_playbooks_checkbox, "Enable playbooks focused on HTTP and web application behavior."),
-                (self.tls_playbooks_checkbox, "Enable TLS and HTTPS edge checks."),
-                (self.service_playbooks_checkbox, "Enable playbooks for non-web exposed services."),
-                (self.object_access_playbook_checkbox, "Look for object access and authorization drift patterns."),
-                (self.input_reflection_playbook_checkbox, "Probe reflective input handling and injection-oriented signals."),
-                (self.api_expansion_playbook_checkbox, "Expand API coverage when the surface suggests more routes or objects."),
-                (self.admin_debug_playbook_checkbox, "Look for admin and debug interfaces exposed to the internet."),
-                (self.client_artifact_playbook_checkbox, "Inspect client-side assets for secrets, source maps, and exposure clues."),
-                (self.framework_component_playbook_checkbox, "Inspect framework- and component-specific exposure signals."),
-                (self.web_misconfiguration_playbook_checkbox, "Broaden common web misconfiguration coverage."),
-                (self.use_default_validation_presets_checkbox, "Keep using bundled preset libraries unless you explicitly override them."),
-                (self.injection_preset_edit, "Optional path to a custom injection preset list."),
-                (self.xss_preset_edit, "Optional path to a custom XSS preset list."),
-                (self.sqli_preset_edit, "Optional path to a custom SQL injection preset list."),
-                (self.auth_rate_limit_preset_edit, "Optional path to a custom auth and rate-limit preset list."),
-                (self.misconfig_preset_edit, "Optional path to a custom misconfiguration preset list."),
-                (self.data_exposure_preset_edit, "Optional path to a custom data exposure preset list."),
-                (self.api_idor_preset_edit, "Optional path to a custom API and IDOR preset list."),
-                (self.upload_preset_edit, "Optional path to a custom upload preset list."),
-                (self.component_preset_edit, "Optional path to a custom component preset list."),
-                (self.infra_preset_edit, "Optional path to a custom infrastructure preset list."),
                 (self.endpoint_wordlist_edit, "Optional endpoint wordlist used to expand route discovery."),
                 (self.parameter_wordlist_edit, "Optional parameter wordlist used during parameter discovery and replay."),
                 (self.payload_wordlist_edit, "Optional payload wordlist shared by supported validation tools."),
+                (self.enable_subfinder, "Enable subfinder-based passive subdomain enumeration."),
+                (self.enable_dnsx, "Enable dnsx-based DNS record checks."),
+                (self.enable_dig_host, "Enable dig/host fallback DNS resolution."),
                 (self.enable_nmap, "Enable service verification and host profiling with nmap."),
                 (self.enable_web_probe, "Enable HTTP probing, reachability checks, and screenshots."),
+                (self.enable_openssl_tls, "Enable openssl-based TLS and certificate inspection."),
                 (self.enable_whatweb, "Enable technology fingerprinting with whatweb."),
                 (self.enable_nikto, "Enable nikto for common web exposure checks."),
                 (self.enable_nuclei, "Enable nuclei template-based checks."),
@@ -465,7 +553,14 @@ class ProfileFieldsMixin:
 
         self._active_recipe_name = ""
         self._recipe_buttons: dict[str, QPushButton] = {}
-        self._tool_family_summary_labels: list[QLabel] = []
+        self._tool_category_cards: list[QFrame] = []
+        self._tool_category_summary_labels: list[QLabel] = []
+        self._tool_category_count_labels: list[QLabel] = []
+        self._tool_rows_by_field: dict[str, list[dict[str, object]]] = {}
+        self._profile_tool_defaults: dict[str, bool] = {}
+        self._manual_tool_overrides: dict[str, bool] = {}
+        self._syncing_tool_widgets = False
+        self._loading_profile_tools = False
         self._suspend_recipe_tracking = False
 
         for signal in (
@@ -487,27 +582,6 @@ class ProfileFieldsMixin:
             self.revisit_enabled_checkbox.toggled,
             self.breadth_first_checkbox.toggled,
             self.unauthenticated_only_checkbox.toggled,
-            self.web_playbooks_checkbox.toggled,
-            self.tls_playbooks_checkbox.toggled,
-            self.service_playbooks_checkbox.toggled,
-            self.object_access_playbook_checkbox.toggled,
-            self.input_reflection_playbook_checkbox.toggled,
-            self.api_expansion_playbook_checkbox.toggled,
-            self.admin_debug_playbook_checkbox.toggled,
-            self.client_artifact_playbook_checkbox.toggled,
-            self.framework_component_playbook_checkbox.toggled,
-            self.web_misconfiguration_playbook_checkbox.toggled,
-            self.use_default_validation_presets_checkbox.toggled,
-            self.injection_preset_edit.textChanged,
-            self.xss_preset_edit.textChanged,
-            self.sqli_preset_edit.textChanged,
-            self.auth_rate_limit_preset_edit.textChanged,
-            self.misconfig_preset_edit.textChanged,
-            self.data_exposure_preset_edit.textChanged,
-            self.api_idor_preset_edit.textChanged,
-            self.upload_preset_edit.textChanged,
-            self.component_preset_edit.textChanged,
-            self.infra_preset_edit.textChanged,
             self.endpoint_wordlist_edit.textChanged,
             self.parameter_wordlist_edit.textChanged,
             self.payload_wordlist_edit.textChanged,
@@ -515,8 +589,8 @@ class ProfileFieldsMixin:
             self.export_json.toggled,
         ):
             signal.connect(self._mark_recipe_as_custom)
-        for checkbox in self._tool_checkboxes():
-            checkbox.toggled.connect(self._tool_settings_changed)
+        for field, checkbox in zip(TOOL_FIELDS, self._tool_checkboxes(), strict=True):
+            checkbox.toggled.connect(lambda checked, tool_field=field: self._tool_settings_changed(tool_field, checked))
 
     def _build_preset_panel(self, title: str, helper: str) -> QWidget:
         return self._profile_card(title, helper, self._build_preset_panel_body(), surface="secondary")
@@ -631,7 +705,7 @@ class ProfileFieldsMixin:
         active_validation_layout.addWidget(
             self._checkbox_group(
                 "Strategic Behavior",
-                "Shape how validation spends attention before deeper playbooks run.",
+                "Shape how validation spends attention before deeper checks run.",
                 (
                     self.revisit_enabled_checkbox,
                     self.breadth_first_checkbox,
@@ -647,109 +721,6 @@ class ProfileFieldsMixin:
         active_validation_layout.addWidget(helper)
         return active_validation_form
 
-    def _build_playbook_libraries_form(self) -> QWidget:
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PANEL_CONTENT_PADDING)
-        layout.addWidget(
-            self._checkbox_group(
-                "Coverage Lanes",
-                "Open the broad playbook families needed for the surface under review.",
-                (
-                    self.web_playbooks_checkbox,
-                    self.tls_playbooks_checkbox,
-                    self.service_playbooks_checkbox,
-                ),
-            )
-        )
-        layout.addWidget(
-            self._checkbox_group(
-                "Web Investigation",
-                "Compact investigation loops for access control, injection signals, APIs, and web misconfiguration.",
-                (
-                    self.object_access_playbook_checkbox,
-                    self.input_reflection_playbook_checkbox,
-                    self.api_expansion_playbook_checkbox,
-                    self.web_misconfiguration_playbook_checkbox,
-                ),
-            )
-        )
-        layout.addWidget(
-            self._checkbox_group(
-                "Exposure Review",
-                "Focused checks for debug surfaces, client artifacts, and framework or component exposure.",
-                (
-                    self.admin_debug_playbook_checkbox,
-                    self.client_artifact_playbook_checkbox,
-                    self.framework_component_playbook_checkbox,
-                ),
-            )
-        )
-
-        preset_card = QFrame()
-        preset_card.setObjectName("profileSubCard")
-        preset_layout = QVBoxLayout(preset_card)
-        preset_layout.setContentsMargins(14, 14, 14, 14)
-        preset_layout.setSpacing(PANEL_CONTENT_PADDING)
-        preset_title = QLabel("Preset Libraries")
-        preset_title.setObjectName("profileGroupTitle")
-        preset_helper = QLabel("Use bundled validation presets by default, or point specific lanes at local files.")
-        preset_helper.setObjectName("helperText")
-        preset_helper.setWordWrap(True)
-        preset_form = QWidget()
-        preset_form_layout = QFormLayout(preset_form)
-        apply_form_layout_defaults(preset_form_layout)
-        preset_form_layout.addRow(self.use_default_validation_presets_checkbox)
-        preset_form_layout.addRow(
-            "Injection Presets",
-            self._file_row(self.injection_preset_edit, lambda: self._browse_file(self.injection_preset_edit, "Select injection preset list")),
-        )
-        preset_form_layout.addRow(
-            "XSS Presets",
-            self._file_row(self.xss_preset_edit, lambda: self._browse_file(self.xss_preset_edit, "Select XSS preset list")),
-        )
-        preset_form_layout.addRow(
-            "SQLi Presets",
-            self._file_row(self.sqli_preset_edit, lambda: self._browse_file(self.sqli_preset_edit, "Select SQLi preset list")),
-        )
-        preset_form_layout.addRow(
-            "Auth / Rate Limit",
-            self._file_row(
-                self.auth_rate_limit_preset_edit,
-                lambda: self._browse_file(self.auth_rate_limit_preset_edit, "Select auth and rate-limit preset list"),
-            ),
-        )
-        preset_form_layout.addRow(
-            "Misconfig",
-            self._file_row(self.misconfig_preset_edit, lambda: self._browse_file(self.misconfig_preset_edit, "Select misconfiguration preset list")),
-        )
-        preset_form_layout.addRow(
-            "Data Exposure",
-            self._file_row(self.data_exposure_preset_edit, lambda: self._browse_file(self.data_exposure_preset_edit, "Select data-exposure preset list")),
-        )
-        preset_form_layout.addRow(
-            "API / IDOR",
-            self._file_row(self.api_idor_preset_edit, lambda: self._browse_file(self.api_idor_preset_edit, "Select API or IDOR preset list")),
-        )
-        preset_form_layout.addRow(
-            "Upload Presets",
-            self._file_row(self.upload_preset_edit, lambda: self._browse_file(self.upload_preset_edit, "Select upload preset list")),
-        )
-        preset_form_layout.addRow(
-            "Component Presets",
-            self._file_row(self.component_preset_edit, lambda: self._browse_file(self.component_preset_edit, "Select component preset list")),
-        )
-        preset_form_layout.addRow(
-            "Infra Presets",
-            self._file_row(self.infra_preset_edit, lambda: self._browse_file(self.infra_preset_edit, "Select infrastructure preset list")),
-        )
-        preset_layout.addWidget(preset_title)
-        preset_layout.addWidget(preset_helper)
-        preset_layout.addWidget(preset_form)
-        layout.addWidget(preset_card)
-        return container
-
     def _checkbox_group(self, title: str, helper: str, checkboxes: tuple[QCheckBox, ...]) -> QWidget:
         group = QFrame()
         group.setObjectName("profileSubCard")
@@ -758,9 +729,7 @@ class ProfileFieldsMixin:
         layout.setSpacing(PAGE_CARD_SPACING)
         title_label = QLabel(title)
         title_label.setObjectName("profileGroupTitle")
-        helper_label = QLabel(helper)
-        helper_label.setObjectName("helperText")
-        helper_label.setWordWrap(True)
+        group.setToolTip(helper)
         grid_host = QWidget()
         grid_layout = QGridLayout(grid_host)
         grid_layout.setContentsMargins(0, 0, 0, 0)
@@ -769,7 +738,6 @@ class ProfileFieldsMixin:
         for index, checkbox in enumerate(checkboxes):
             grid_layout.addWidget(checkbox, index // 2, index % 2)
         layout.addWidget(title_label)
-        layout.addWidget(helper_label)
         layout.addWidget(grid_host)
         return group
 
@@ -780,29 +748,23 @@ class ProfileFieldsMixin:
         layout.setSpacing(PANEL_CONTENT_PADDING)
 
         actions = FlowButtonRow()
-        self.enable_recommended_button = QPushButton("Enable Recommended")
+        self.enable_recommended_button = QPushButton("Use Profile Baseline")
         self.enable_recommended_button.clicked.connect(self._enable_recommended_tools)
-        self.reset_preset_button = QPushButton("Reset To Preset")
+        self.reset_preset_button = QPushButton("Clear Manual Overrides")
         self.reset_preset_button.clicked.connect(self._reset_tools_to_active_recipe)
-        self.expert_toggle_button = QPushButton("Show Expert Toggles")
-        self.expert_toggle_button.setCheckable(True)
-        self.expert_toggle_button.toggled.connect(self._toggle_expert_tools)
         style_button(self.enable_recommended_button, role="secondary")
         style_button(self.reset_preset_button, role="secondary")
-        style_button(self.expert_toggle_button, role="secondary")
         set_tooltips(
             (
-                (self.enable_recommended_button, "Turn on the tool set recommended for the current base or preset posture."),
-                (self.reset_preset_button, "Restore tool toggles to the currently selected preset posture."),
-                (self.expert_toggle_button, "Show or hide direct per-tool toggles for expert fine-tuning."),
+                (self.enable_recommended_button, "Restore the tool state inherited from the selected scan profile."),
+                (self.reset_preset_button, "Remove manual per-scan tool choices and return to the selected profile baseline."),
             )
         )
         actions.addWidget(self.enable_recommended_button)
         actions.addWidget(self.reset_preset_button)
-        actions.addWidget(self.expert_toggle_button)
         layout.addWidget(actions)
 
-        helper = QLabel("Coverage is grouped by operator outcome so enabled tools read as a scan posture, not a raw checklist.")
+        helper = QLabel("Profile-enabled tools are the baseline for this launch. Tick extra available tools to create a per-scan override.")
         helper.setObjectName("helperText")
         helper.setWordWrap(True)
         layout.addWidget(helper)
@@ -810,46 +772,127 @@ class ProfileFieldsMixin:
         self.tool_family_grid = QGridLayout()
         self.tool_family_grid.setHorizontalSpacing(PANEL_CONTENT_PADDING)
         self.tool_family_grid.setVerticalSpacing(PANEL_CONTENT_PADDING)
-        self._tool_family_cards: list[QFrame] = []
-        self._tool_family_summary_labels = []
-        for idx, (title, description, entries) in enumerate(TOOL_GROUPS):
-            card = QFrame()
-            card.setObjectName("toolFamilyCard")
-            card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(14, 14, 14, 14)
-            card_layout.setSpacing(PAGE_CARD_SPACING)
-            title_label = QLabel(title)
-            title_label.setObjectName("profileGroupTitle")
-            body_label = QLabel(description)
-            body_label.setObjectName("helperText")
-            body_label.setWordWrap(True)
-            summary_label = QLabel("")
-            summary_label.setObjectName("profileToolSummary")
-            summary_label.setWordWrap(True)
-            self._tool_family_summary_labels.append(summary_label)
-            checklist = QLabel("\n".join(f"- {name}: {detail}" for name, detail in entries))
-            checklist.setObjectName("profileToolList")
-            checklist.setWordWrap(True)
-            card_layout.addWidget(title_label)
-            card_layout.addWidget(body_label)
-            card_layout.addWidget(summary_label)
-            card_layout.addWidget(checklist)
-            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
-            self._tool_family_cards.append(card)
+        self._tool_category_cards = []
+        self._tool_category_summary_labels = []
+        self._tool_category_count_labels = []
+        self._tool_rows_by_field = {}
+        for idx, category in enumerate(TOOL_COVERAGE_CATEGORIES):
+            card = self._build_tool_category_card(category)
+            self._tool_category_cards.append(card)
             self.tool_family_grid.addWidget(card, idx // 2, idx % 2)
         layout.addLayout(self.tool_family_grid)
 
+        # Kept as a hidden compatibility surface for callers/tests that still
+        # probe the old expert-toggle API; the category rows are now the editor.
         self.expert_tool_panel = QWidget()
         self.expert_tool_panel.setObjectName("expertToolPanel")
-        self.expert_layout = QGridLayout(self.expert_tool_panel)
-        self.expert_layout.setContentsMargins(0, 0, 0, 0)
-        self.expert_layout.setHorizontalSpacing(PANEL_CONTENT_PADDING)
-        self.expert_layout.setVerticalSpacing(PANEL_CONTENT_PADDING)
-        for idx, checkbox in enumerate(self._tool_checkboxes()):
-            self.expert_layout.addWidget(checkbox, idx // 2, idx % 2)
         self.expert_tool_panel.setVisible(False)
-        layout.addWidget(self.expert_tool_panel)
+        self.expert_toggle_button = QPushButton("Show Expert Toggles")
+        self.expert_toggle_button.setCheckable(True)
+        self.expert_toggle_button.setVisible(False)
+        self.expert_toggle_button.toggled.connect(self._toggle_expert_tools)
         return container
+
+    def _build_tool_category_card(self, category: dict[str, object]) -> QFrame:
+        card = QFrame()
+        card.setObjectName("toolCoverageCategory")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 14, 14, 14)
+        card_layout.setSpacing(PAGE_CARD_SPACING)
+
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(PAGE_CARD_SPACING)
+        title_label = QLabel(str(category.get("title", "")))
+        title_label.setObjectName("profileGroupTitle")
+        count_label = QLabel("")
+        count_label.setObjectName("toolCoverageCount")
+        header_layout.addWidget(title_label, 1)
+        header_layout.addWidget(count_label, 0, Qt.AlignTop)
+        self._tool_category_count_labels.append(count_label)
+
+        description_label = QLabel(str(category.get("description", "")))
+        description_label.setObjectName("helperText")
+        description_label.setWordWrap(True)
+        summary_label = QLabel("")
+        summary_label.setObjectName("profileToolSummary")
+        summary_label.setWordWrap(True)
+        self._tool_category_summary_labels.append(summary_label)
+
+        toggle = QToolButton()
+        toggle.setObjectName("toolCoverageExpander")
+        toggle.setText("Tools")
+        toggle.setCheckable(True)
+        toggle.setChecked(False)
+        toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        toggle.setArrowType(Qt.RightArrow)
+        body = QWidget()
+        body.setObjectName("toolCoverageBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(PAGE_CARD_SPACING)
+        for tool_name, description, field in category.get("tools", ()):
+            body_layout.addWidget(self._build_tool_row(str(tool_name), str(description), str(field)))
+        body.setVisible(False)
+
+        def sync_expanded(expanded: bool) -> None:
+            toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+            body.setVisible(expanded)
+
+        toggle.toggled.connect(sync_expanded)
+        card_layout.addWidget(header)
+        card_layout.addWidget(description_label)
+        card_layout.addWidget(summary_label)
+        card_layout.addWidget(toggle, 0, Qt.AlignLeft)
+        card_layout.addWidget(body)
+        return card
+
+    def _build_tool_row(self, tool_name: str, description: str, field: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName("toolCoverageRow")
+        available = bool(field and hasattr(self, field))
+        row.setProperty("available", available)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(8, 8, 8, 8)
+        row_layout.setSpacing(PAGE_CARD_SPACING)
+
+        checkbox = QCheckBox()
+        checkbox.setObjectName("toolCoverageCheckbox")
+        checkbox.setEnabled(available)
+        checkbox.setFocusPolicy(Qt.StrongFocus if available else Qt.NoFocus)
+        if available:
+            checkbox.toggled.connect(lambda checked, tool_field=field: self._set_tool_field_from_row(tool_field, checked))
+        row_layout.addWidget(checkbox, 0, Qt.AlignTop)
+
+        text_panel = QWidget()
+        text_layout = QVBoxLayout(text_panel)
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(2)
+        name_label = QLabel(tool_name)
+        name_label.setObjectName("toolCoverageName")
+        name_label.setProperty("available", available)
+        description_label = QLabel(description)
+        description_label.setObjectName("toolCoverageDescription")
+        description_label.setWordWrap(True)
+        text_layout.addWidget(name_label)
+        text_layout.addWidget(description_label)
+        row_layout.addWidget(text_panel, 1)
+
+        status_label = QLabel("Unavailable")
+        status_label.setObjectName("toolCoverageStatus")
+        status_label.setProperty("state", "unavailable")
+        status_label.setAlignment(Qt.AlignCenter)
+        row_layout.addWidget(status_label, 0, Qt.AlignTop)
+
+        if available:
+            rows = self._tool_rows_by_field.setdefault(field, [])
+            rows.append({"checkbox": checkbox, "status": status_label})
+        else:
+            checkbox.setToolTip("This tool is not currently wired into the AttackCastle scan pipeline.")
+            row.setToolTip("Unavailable: no implemented AttackCastle adapter or per-scan override hook exists yet.")
+        return row
 
     def _build_wordlists_form(self) -> QWidget:
         wordlists_form = QWidget()
@@ -878,8 +921,12 @@ class ProfileFieldsMixin:
 
     def _tool_checkboxes(self) -> tuple[QCheckBox, ...]:
         return (
+            self.enable_subfinder,
+            self.enable_dnsx,
+            self.enable_dig_host,
             self.enable_nmap,
             self.enable_web_probe,
+            self.enable_openssl_tls,
             self.enable_whatweb,
             self.enable_nikto,
             self.enable_nuclei,
@@ -888,20 +935,16 @@ class ProfileFieldsMixin:
         )
 
     def _enable_recommended_tools(self) -> None:
-        recommended = self._recommended_tool_state()
-        for field, checkbox in zip(TOOL_FIELDS, self._tool_checkboxes(), strict=True):
-            checkbox.setChecked(bool(recommended.get(field, False)))
+        defaults = self._profile_tool_defaults or self._recommended_tool_state()
+        self._manual_tool_overrides.clear()
+        self._apply_tool_state(defaults)
         self._mark_recipe_as_custom()
 
     def _reset_tools_to_active_recipe(self) -> None:
-        if self._active_recipe_name and self._active_recipe_name in PROFILE_RECIPES:
-            self._apply_profile_recipe(self._active_recipe_name)
-            return
         self._enable_recommended_tools()
 
     def _toggle_expert_tools(self, visible: bool) -> None:
         self.expert_tool_panel.setVisible(visible)
-        self.expert_toggle_button.setText("Hide Expert Toggles" if visible else "Show Expert Toggles")
 
     def _apply_profile_recipe(self, preset_name: str) -> None:
         recipe = PROFILE_RECIPES.get(preset_name)
@@ -927,6 +970,8 @@ class ProfileFieldsMixin:
         for field in TOOL_FIELDS:
             checkbox = getattr(self, field)
             checkbox.setChecked(bool(recipe.get(field, checkbox.isChecked())))
+        self._profile_tool_defaults = self._current_tool_state()
+        self._manual_tool_overrides.clear()
         self.export_html.setChecked(bool(recipe.get("export_html_report", self.export_html.isChecked())))
         self.export_json.setChecked(bool(recipe.get("export_json_data", self.export_json.isChecked())))
 
@@ -937,8 +982,12 @@ class ProfileFieldsMixin:
         base_profile = self.base_profile_combo.currentText().strip().lower()
         if base_profile == "cautious":
             return {
+                "enable_subfinder": True,
+                "enable_dnsx": True,
+                "enable_dig_host": True,
                 "enable_nmap": True,
                 "enable_web_probe": True,
+                "enable_openssl_tls": True,
                 "enable_whatweb": True,
                 "enable_nikto": False,
                 "enable_nuclei": False,
@@ -947,8 +996,12 @@ class ProfileFieldsMixin:
             }
         if base_profile == "aggressive":
             return {
+                "enable_subfinder": True,
+                "enable_dnsx": True,
+                "enable_dig_host": True,
                 "enable_nmap": True,
                 "enable_web_probe": True,
+                "enable_openssl_tls": True,
                 "enable_whatweb": True,
                 "enable_nikto": True,
                 "enable_nuclei": True,
@@ -956,8 +1009,12 @@ class ProfileFieldsMixin:
                 "enable_sqlmap": True,
             }
         return {
+            "enable_subfinder": True,
+            "enable_dnsx": True,
+            "enable_dig_host": True,
             "enable_nmap": True,
             "enable_web_probe": True,
+            "enable_openssl_tls": True,
             "enable_whatweb": True,
             "enable_nikto": True,
             "enable_nuclei": True,
@@ -965,25 +1022,94 @@ class ProfileFieldsMixin:
             "enable_sqlmap": False,
         }
 
-    def _tool_settings_changed(self, _checked: bool) -> None:
+    def _tool_settings_changed(self, field: str, checked: bool) -> None:
+        if self._syncing_tool_widgets:
+            return
+        # Launch overrides are stored as deltas from the selected profile so a
+        # later profile change can recompute the baseline without losing intent.
+        if not self._loading_profile_tools and getattr(self, "_track_manual_tool_overrides", False):
+            default = self._profile_tool_defaults.get(field)
+            if default is not None:
+                if checked == default:
+                    self._manual_tool_overrides.pop(field, None)
+                else:
+                    self._manual_tool_overrides[field] = checked
         self._update_tool_family_cards()
         self._mark_recipe_as_custom()
 
     def _update_tool_family_cards(self) -> None:
-        active_names = {
-            "nmap": self.enable_nmap.isChecked(),
-            "web_probe": self.enable_web_probe.isChecked(),
-            "whatweb": self.enable_whatweb.isChecked(),
-            "nikto": self.enable_nikto.isChecked(),
-            "nuclei": self.enable_nuclei.isChecked(),
-            "wpscan": self.enable_wpscan.isChecked(),
-            "sqlmap": self.enable_sqlmap.isChecked(),
-        }
-        for summary_label, (_title, _description, entries) in zip(self._tool_family_summary_labels, TOOL_GROUPS, strict=False):
-            enabled = [name for name, _detail in entries if active_names.get(name, False)]
-            summary_label.setText(
-                f"Active: {', '.join(enabled) if enabled else 'None'} | {len(enabled)}/{len(entries)} enabled"
-            )
+        self._sync_tool_rows()
+        for index, category in enumerate(TOOL_COVERAGE_CATEGORIES):
+            tools = list(category.get("tools", ()))
+            enabled = [
+                str(name)
+                for name, _detail, field in tools
+                if str(field) and hasattr(self, str(field)) and getattr(self, str(field)).isChecked()
+            ]
+            if index < len(self._tool_category_summary_labels):
+                self._tool_category_summary_labels[index].setText(
+                    f"Active: {', '.join(enabled) if enabled else 'None'}"
+                )
+            if index < len(self._tool_category_count_labels):
+                self._tool_category_count_labels[index].setText(f"{len(enabled)}/{len(tools)} enabled")
+
+    def _set_tool_field_from_row(self, field: str, checked: bool) -> None:
+        if self._syncing_tool_widgets or not hasattr(self, field):
+            return
+        checkbox = getattr(self, field)
+        checkbox.setChecked(checked)
+
+    def _current_tool_state(self) -> dict[str, bool]:
+        return {field: getattr(self, field).isChecked() for field in TOOL_FIELDS if hasattr(self, field)}
+
+    def _apply_tool_state(self, state: dict[str, bool]) -> None:
+        self._loading_profile_tools = True
+        try:
+            for field in TOOL_FIELDS:
+                if field in state and hasattr(self, field):
+                    getattr(self, field).setChecked(bool(state[field]))
+        finally:
+            self._loading_profile_tools = False
+        self._update_tool_family_cards()
+
+    def _apply_manual_tool_overrides(self) -> None:
+        if self._manual_tool_overrides:
+            self._apply_tool_state(self._manual_tool_overrides)
+
+    def _sync_tool_rows(self) -> None:
+        if self._syncing_tool_widgets:
+            return
+        self._syncing_tool_widgets = True
+        try:
+            for field, rows in self._tool_rows_by_field.items():
+                checked = getattr(self, field).isChecked() if hasattr(self, field) else False
+                default = self._profile_tool_defaults.get(field)
+                manual = field in self._manual_tool_overrides
+                for row in rows:
+                    checkbox = row.get("checkbox")
+                    status = row.get("status")
+                    if isinstance(checkbox, QCheckBox):
+                        checkbox.setChecked(checked)
+                    if isinstance(status, QLabel):
+                        if manual:
+                            label = "Manual +" if checked else "Manual off"
+                            state = "manual"
+                        elif checked and default is True:
+                            label = "Profile"
+                            state = "profile"
+                        elif checked:
+                            label = "Enabled"
+                            state = "enabled"
+                        else:
+                            label = "Off"
+                            state = "off"
+                        status.setText(label)
+                        status.setProperty("state", state)
+                        status.style().unpolish(status)
+                        status.style().polish(status)
+                        status.update()
+        finally:
+            self._syncing_tool_widgets = False
 
     def _mark_recipe_as_custom(self, *_args: object) -> None:
         if self._suspend_recipe_tracking:
@@ -1065,27 +1191,6 @@ class ProfileFieldsMixin:
             revisit_enabled=self.revisit_enabled_checkbox.isChecked(),
             breadth_first=self.breadth_first_checkbox.isChecked(),
             unauthenticated_only=self.unauthenticated_only_checkbox.isChecked(),
-            enable_web_playbooks=self.web_playbooks_checkbox.isChecked(),
-            enable_tls_playbooks=self.tls_playbooks_checkbox.isChecked(),
-            enable_service_playbooks=self.service_playbooks_checkbox.isChecked(),
-            enable_object_access_playbook=self.object_access_playbook_checkbox.isChecked(),
-            enable_input_reflection_playbook=self.input_reflection_playbook_checkbox.isChecked(),
-            enable_api_expansion_playbook=self.api_expansion_playbook_checkbox.isChecked(),
-            enable_admin_debug_playbook=self.admin_debug_playbook_checkbox.isChecked(),
-            enable_client_artifact_playbook=self.client_artifact_playbook_checkbox.isChecked(),
-            enable_framework_component_playbook=self.framework_component_playbook_checkbox.isChecked(),
-            enable_web_misconfiguration_playbook=self.web_misconfiguration_playbook_checkbox.isChecked(),
-            use_default_validation_presets=self.use_default_validation_presets_checkbox.isChecked(),
-            injection_preset_path=self.injection_preset_edit.text().strip(),
-            xss_preset_path=self.xss_preset_edit.text().strip(),
-            sqli_preset_path=self.sqli_preset_edit.text().strip(),
-            auth_rate_limit_preset_path=self.auth_rate_limit_preset_edit.text().strip(),
-            misconfig_preset_path=self.misconfig_preset_edit.text().strip(),
-            data_exposure_preset_path=self.data_exposure_preset_edit.text().strip(),
-            api_idor_preset_path=self.api_idor_preset_edit.text().strip(),
-            upload_preset_path=self.upload_preset_edit.text().strip(),
-            component_preset_path=self.component_preset_edit.text().strip(),
-            infra_preset_path=self.infra_preset_edit.text().strip(),
             endpoint_wordlist_path=self.endpoint_wordlist_edit.text().strip(),
             parameter_wordlist_path=self.parameter_wordlist_edit.text().strip(),
             payload_wordlist_path=self.payload_wordlist_edit.text().strip(),
@@ -1100,8 +1205,12 @@ class ProfileFieldsMixin:
             proxy_enabled=self.proxy_enabled_checkbox.isChecked(),
             proxy_url=self.proxy_url_edit.text().strip(),
             enable_masscan=False,
+            enable_subfinder=self.enable_subfinder.isChecked(),
+            enable_dnsx=self.enable_dnsx.isChecked(),
+            enable_dig_host=self.enable_dig_host.isChecked(),
             enable_nmap=self.enable_nmap.isChecked(),
             enable_web_probe=self.enable_web_probe.isChecked(),
+            enable_openssl_tls=self.enable_openssl_tls.isChecked(),
             enable_whatweb=self.enable_whatweb.isChecked(),
             enable_nikto=self.enable_nikto.isChecked(),
             enable_nuclei=self.enable_nuclei.isChecked(),
@@ -1111,7 +1220,11 @@ class ProfileFieldsMixin:
             export_json_data=self.export_json.isChecked(),
         )
 
-    def _apply_profile_to_form(self, profile: GuiProfile) -> None:
+    def _apply_profile_to_form(self, profile: GuiProfile, *, preserve_manual_overrides: bool = False) -> None:
+        # The launch dialog preserves explicit per-scan deltas when the operator
+        # changes the selected profile; the profile editor intentionally resets.
+        previous_overrides = dict(self._manual_tool_overrides) if preserve_manual_overrides else {}
+        self._loading_profile_tools = True
         self.profile_name_edit.setText(profile.name)
         self.description_edit.setText(profile.description)
         self.base_profile_combo.setCurrentText(profile.base_profile)
@@ -1123,27 +1236,6 @@ class ProfileFieldsMixin:
         self.revisit_enabled_checkbox.setChecked(profile.revisit_enabled)
         self.breadth_first_checkbox.setChecked(profile.breadth_first)
         self.unauthenticated_only_checkbox.setChecked(profile.unauthenticated_only)
-        self.web_playbooks_checkbox.setChecked(profile.enable_web_playbooks)
-        self.tls_playbooks_checkbox.setChecked(profile.enable_tls_playbooks)
-        self.service_playbooks_checkbox.setChecked(profile.enable_service_playbooks)
-        self.object_access_playbook_checkbox.setChecked(profile.enable_object_access_playbook)
-        self.input_reflection_playbook_checkbox.setChecked(profile.enable_input_reflection_playbook)
-        self.api_expansion_playbook_checkbox.setChecked(profile.enable_api_expansion_playbook)
-        self.admin_debug_playbook_checkbox.setChecked(profile.enable_admin_debug_playbook)
-        self.client_artifact_playbook_checkbox.setChecked(profile.enable_client_artifact_playbook)
-        self.framework_component_playbook_checkbox.setChecked(profile.enable_framework_component_playbook)
-        self.web_misconfiguration_playbook_checkbox.setChecked(profile.enable_web_misconfiguration_playbook)
-        self.use_default_validation_presets_checkbox.setChecked(profile.use_default_validation_presets)
-        self.injection_preset_edit.setText(profile.injection_preset_path)
-        self.xss_preset_edit.setText(profile.xss_preset_path)
-        self.sqli_preset_edit.setText(profile.sqli_preset_path)
-        self.auth_rate_limit_preset_edit.setText(profile.auth_rate_limit_preset_path)
-        self.misconfig_preset_edit.setText(profile.misconfig_preset_path)
-        self.data_exposure_preset_edit.setText(profile.data_exposure_preset_path)
-        self.api_idor_preset_edit.setText(profile.api_idor_preset_path)
-        self.upload_preset_edit.setText(profile.upload_preset_path)
-        self.component_preset_edit.setText(profile.component_preset_path)
-        self.infra_preset_edit.setText(profile.infra_preset_path)
         self.endpoint_wordlist_edit.setText(profile.endpoint_wordlist_path)
         self.parameter_wordlist_edit.setText(profile.parameter_wordlist_path)
         self.payload_wordlist_edit.setText(profile.payload_wordlist_path)
@@ -1156,8 +1248,12 @@ class ProfileFieldsMixin:
         self.rate_mode_combo.setCurrentText(profile.rate_limit_mode)
         self.proxy_enabled_checkbox.setChecked(profile.proxy_enabled)
         self.proxy_url_edit.setText(profile.proxy_url)
+        self.enable_subfinder.setChecked(profile.enable_subfinder)
+        self.enable_dnsx.setChecked(profile.enable_dnsx)
+        self.enable_dig_host.setChecked(profile.enable_dig_host)
         self.enable_nmap.setChecked(profile.enable_nmap)
         self.enable_web_probe.setChecked(profile.enable_web_probe)
+        self.enable_openssl_tls.setChecked(profile.enable_openssl_tls)
         self.enable_whatweb.setChecked(profile.enable_whatweb)
         self.enable_nikto.setChecked(profile.enable_nikto)
         self.enable_nuclei.setChecked(profile.enable_nuclei)
@@ -1165,6 +1261,14 @@ class ProfileFieldsMixin:
         self.enable_sqlmap.setChecked(profile.enable_sqlmap)
         self.export_html.setChecked(profile.export_html_report)
         self.export_json.setChecked(profile.export_json_data)
+        self._loading_profile_tools = False
+        self._profile_tool_defaults = self._current_tool_state()
+        self._manual_tool_overrides = {
+            field: value
+            for field, value in previous_overrides.items()
+            if field in self._profile_tool_defaults
+        }
+        self._apply_manual_tool_overrides()
         self._suspend_recipe_tracking = False
         self._active_recipe_name = ""
         self._sync_recipe_buttons()
@@ -1173,9 +1277,7 @@ class ProfileFieldsMixin:
 
     def sync_profile_form_width(self, width: int) -> None:
         tool_columns = 1 if width < 1100 else 2
-        expert_columns = 1 if width < 980 else 2
-        self._reflow_grid(self.tool_family_grid, self._tool_family_cards, tool_columns)
-        self._reflow_grid(self.expert_layout, list(self._tool_checkboxes()), expert_columns)
+        self._reflow_grid(self.tool_family_grid, self._tool_category_cards, tool_columns)
 
     def _reflow_grid(self, layout: QGridLayout, widgets: list[QWidget], columns: int) -> None:
         while layout.count():

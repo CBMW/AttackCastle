@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import socket
 from pathlib import Path
 
 from attackcastle.adapters.resolve_hosts.adapter import ResolveHostsAdapter, resolve_hostname
@@ -77,6 +78,7 @@ def _run_data(tmp_path: Path) -> RunData:
 
 
 def test_resolve_hostname_extracts_only_ipv4_lines(monkeypatch) -> None:
+    monkeypatch.setattr("attackcastle.adapters.resolve_hosts.adapter.shutil.which", lambda _cmd: "dig")
     monkeypatch.setattr(
         subprocess,
         "run",
@@ -166,6 +168,29 @@ def test_resolve_hosts_adapter_continues_after_timeout(monkeypatch, tmp_path: Pa
     assert any(asset.asset_id == "asset_fast" and asset.resolved_ips == ["198.51.100.20"] for asset in result.assets)
     assert not any(asset.asset_id == "asset_slow" for asset in result.assets)
     assert any("[resolve-hosts] slow.example.com returned no IP" in message for message in logger.messages)
+
+
+def test_resolve_hosts_adapter_uses_builtin_dns_when_dig_missing(monkeypatch, tmp_path: Path) -> None:
+    context, _logger, _audit = _context(tmp_path)
+    run_data = _run_data(tmp_path)
+    run_data.assets.append(Asset(asset_id="asset_api", kind="domain", name="api.example.com"))
+
+    monkeypatch.setattr("attackcastle.adapters.resolve_hosts.adapter.shutil.which", lambda _cmd: None)
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("203.0.113.44", 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("203.0.113.44", 0)),
+        ],
+    )
+
+    result = ResolveHostsAdapter().run(context, run_data)
+
+    assert any("Falling back to Python getaddrinfo" in warning for warning in result.warnings)
+    assert result.assets[0].resolved_ips == ["203.0.113.44"]
+    assert result.tool_executions[0].command == "python getaddrinfo api.example.com"
+    assert result.task_results[0].status == "completed"
 
 
 def test_resolve_hosts_adapter_follows_cname_only_answers(monkeypatch, tmp_path: Path) -> None:

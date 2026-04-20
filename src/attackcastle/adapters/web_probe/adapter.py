@@ -558,8 +558,14 @@ class WebProbeAdapter:
             "entities_created": created,
             "entities_updated": 0,
         }
+        attempted_urls = {str(item["url"]) for item in targets}
+        completed_urls = attempted_urls if command_result.task_result.status == "completed" else set()
+        completed_set = existing_scanned.union(completed_urls)
         result.facts["web.probed_targets"] = created
-        result.facts["web_probe.scanned_urls"] = sorted(existing_scanned.union(str(item["url"]) for item in targets))
+        result.facts["web_probe.attempted_urls"] = sorted(attempted_urls)
+        result.facts["web_probe.completed_urls"] = sorted(completed_set)
+        result.facts["web_probe.failed_urls"] = sorted(attempted_urls.difference(completed_urls))
+        result.facts["web_probe.scanned_urls"] = sorted(completed_set)
         context.audit.write(
             "adapter.completed",
             {"adapter": self.name, "probed_targets": created, "profile": policy.profile},

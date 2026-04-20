@@ -140,7 +140,7 @@ class AssetGraphBuilder:
                 entity_type="workspace",
                 entity_id=snapshot.workspace_id or snapshot.run_id,
                 label=snapshot.workspace_name or "Ad-Hoc Session",
-                subtitle="Workspace",
+                subtitle="Project",
                 metadata={
                     "workspace_id": snapshot.workspace_id,
                     "workspace_name": snapshot.workspace_name,

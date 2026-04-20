@@ -24,6 +24,8 @@ from attackcastle.gui.common import (
     MappingTableModel,
     PersistentSplitterController,
     apply_responsive_splitter,
+    build_flat_container,
+    configure_tab_widget,
     configure_scroll_surface,
     ensure_table_defaults,
     format_duration,
@@ -64,8 +66,7 @@ class ScannerPanel(QWidget):
         layout.addWidget(self.main_split)
 
         self.tabs = QTabWidget()
-        self.tabs.setObjectName("subTabs")
-        self.tabs.setDocumentMode(True)
+        configure_tab_widget(self.tabs, role="group")
         self.tabs.setMinimumWidth(300)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
@@ -96,7 +97,7 @@ class ScannerPanel(QWidget):
             ]
         )
         self.audit_model = MappingTableModel(
-            [("Time", "timestamp"), ("Action", "action"), ("Summary", "summary"), ("Run", "run_id"), ("Workspace", "workspace_id")]
+            [("Time", "timestamp"), ("Action", "action"), ("Summary", "summary"), ("Run", "run_id"), ("Project", "workspace_id")]
         )
 
         self.tasks_view = self._make_table(self.tasks_model, self._task_selected, context_kind="task")
@@ -121,8 +122,7 @@ class ScannerPanel(QWidget):
         self.main_split.addWidget(self.tabs)
 
         self.inspector_tabs = QTabWidget()
-        self.inspector_tabs.setObjectName("subTabs")
-        self.inspector_tabs.setDocumentMode(True)
+        configure_tab_widget(self.inspector_tabs, role="inspector")
         self.inspector_tabs.setMinimumWidth(260)
         self.inspector_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.inspector_summary = QLabel("Select a task, tool run, issue, or audit entry to inspect details.")
@@ -156,7 +156,7 @@ class ScannerPanel(QWidget):
         self.sync_responsive_mode(self.width())
 
     def _tab_surface(self, widget: QWidget) -> QWidget:
-        section = QWidget()
+        section = build_flat_container()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -167,11 +167,11 @@ class ScannerPanel(QWidget):
         return self._tab_surface(table)
 
     def _command_tab_surface(self) -> QWidget:
-        section = QWidget()
+        section = build_flat_container()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
-        header = QWidget()
+        header = build_flat_container()
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
@@ -195,7 +195,7 @@ class ScannerPanel(QWidget):
                 policies.append({"mode": "content", "min": 90, "max": 120})
             elif heading in {"task", "issue", "summary", "suggested action"}:
                 policies.append({"mode": "stretch", "min": 220})
-            elif heading in {"stdout", "run", "workspace"}:
+            elif heading in {"stdout", "run", "project"}:
                 policies.append({"mode": "stretch", "min": 180})
             else:
                 policies.append({"mode": "mixed", "min": 120, "width": 160})
@@ -305,7 +305,7 @@ class ScannerPanel(QWidget):
     ) -> str:
         lines = [
             f"Run: {snapshot.scan_name}",
-            f"Workspace: {snapshot.workspace_name or 'Ad-Hoc Session'}",
+            f"Project: {snapshot.workspace_name or 'Ad-Hoc Session'}",
             f"Target Summary: {summarize_target_input(snapshot.target_input)}",
             f"State: {title_case_label(snapshot.state)}",
             f"Elapsed: {format_duration(snapshot.elapsed_seconds)}",

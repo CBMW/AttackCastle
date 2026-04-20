@@ -182,6 +182,7 @@ def test_scheduler_emits_live_result_events_and_persists_task_rows_in_checkpoint
         "task_result.recorded",
         "tool_execution.recorded",
     }
+    assert (run_store.data_dir / "scan_data.partial.json").exists()
     assert states[0].status == "completed"
 
 
@@ -308,6 +309,57 @@ def test_scheduler_marks_adapter_results_with_errors_as_failed(tmp_path: Path):
     assert "subdomain enumeration failed" in str(states[0].error)
 
 
+def test_scheduler_marks_failed_tool_results_without_payload_as_failed(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-tool-failure-state")
+    started_at = now_utc()
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-tool-failure-state"),
+        audit=_AuditStub(),
+    )
+
+    def _runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        return AdapterResult(
+            tool_executions=[
+                ToolExecution(
+                    execution_id="exec-nmap-timeout",
+                    tool_name="nmap",
+                    command="nmap 198.51.100.10",
+                    started_at=started_at,
+                    ended_at=started_at,
+                    exit_code=None,
+                    status="failed",
+                    capability="network_port_scan",
+                    termination_reason="timeout",
+                    termination_detail="command exceeded timeout of 1s",
+                    timed_out=True,
+                )
+            ]
+        )
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-nmap",
+                label="Running Nmap",
+                capability="network_port_scan",
+                stage="recon",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+                retryable=False,
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert states[0].status == "failed"
+    assert "command exceeded timeout" in str(states[0].error)
+
+
 def test_scheduler_resource_pressure_cancels_one_running_task(tmp_path: Path):
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-resource-pressure")
     emitted: list[tuple[str, dict[str, object]]] = []
@@ -373,7 +425,12 @@ def test_scheduler_requeues_repeatable_task_when_new_frontier_appears(tmp_path: 
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-repeatable-frontier")
     context = AdapterContext(
         profile_name="standard",
-        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        config={
+            "orchestration": {
+                "task_start_delay_seconds": 0.0,
+                "capability_budgets": {"scanner": {"max_runs": 1, "max_runtime_seconds": 600}},
+            }
+        },
         profile_config={"concurrency": 1},
         run_store=run_store,
         logger=logging.getLogger("scheduler-repeatable-frontier"),

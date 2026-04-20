@@ -98,6 +98,78 @@ def _emit_adapter_result_runtime_events(context: AdapterContext, result: Adapter
         emit_runtime_event(context, "tool_execution.recorded", {"execution": execution})
 
 
+def _adapter_result_has_payload(result: AdapterResult) -> bool:
+    payload_groups = (
+        result.assets,
+        result.services,
+        result.web_apps,
+        result.technologies,
+        result.tls_assets,
+        result.endpoints,
+        result.parameters,
+        result.forms,
+        result.login_surfaces,
+        result.replay_requests,
+        result.surface_signals,
+        result.investigation_steps,
+        result.response_deltas,
+        result.authorization_comparisons,
+        result.proof_outcomes,
+        result.playbook_executions,
+        result.coverage_decisions,
+        result.validation_results,
+        result.hypotheses,
+        result.validation_tasks,
+        result.coverage_gaps,
+        result.observations,
+        result.evidence,
+        result.evidence_artifacts,
+        result.normalized_entities,
+    )
+    return any(bool(group) for group in payload_groups)
+
+
+def _adapter_result_failure_message(result: AdapterResult) -> str | None:
+    explicit_errors = [str(item).strip() for item in result.errors if str(item).strip()]
+    if explicit_errors:
+        return "; ".join(explicit_errors)
+    statuses: list[tuple[str, str | None, str | None]] = []
+    for execution in result.tool_executions:
+        statuses.append(
+            (
+                str(getattr(execution, "status", "") or "").lower(),
+                getattr(execution, "termination_reason", None),
+                getattr(execution, "termination_detail", None) or getattr(execution, "error_message", None),
+            )
+        )
+    for task_result in result.task_results:
+        statuses.append(
+            (
+                str(getattr(task_result, "status", "") or "").lower(),
+                getattr(task_result, "termination_reason", None),
+                getattr(task_result, "termination_detail", None),
+            )
+        )
+    failure_statuses = {"failed", "cancelled", "interrupted", "timeout"}
+    failure_reasons = {"timeout", "nonzero_exit", "spawn_failure", "interrupted", "unknown_runner_failure"}
+    meaningful_statuses = [
+        (status, reason, detail)
+        for status, reason, detail in statuses
+        if status != "skipped" and str(reason or "").lower() != "missing_dependency"
+    ]
+    failures = [
+        (status, reason, detail)
+        for status, reason, detail in meaningful_statuses
+        if status in failure_statuses or str(reason or "").lower() in failure_reasons
+    ]
+    if not failures or len(failures) != len(meaningful_statuses) or _adapter_result_has_payload(result):
+        return None
+    details = [str(detail).strip() for _status, _reason, detail in failures if str(detail or "").strip()]
+    if details:
+        return "; ".join(details[:3])
+    return "all tool executions for the task failed without producing parsed data"
+
+
 class WorkflowScheduler:
     def __init__(
         self,
@@ -178,7 +250,7 @@ class WorkflowScheduler:
                 iteration=1,
                 instance_key=instance_key,
             )
-        running: dict[Future, tuple[ScheduledTask, object, str, Event]] = {}
+        running: dict[Future, tuple[ScheduledTask, object, str, Event, float | None]] = {}
         resource_pressure_active = False
         resource_pressure_samples = 0
         resource_grace_samples = int(context.config.get("adaptive_execution", {}).get("resource_limits", {}).get("grace_samples", 3) or 3)
@@ -192,6 +264,7 @@ class WorkflowScheduler:
         resource_last_cancel_monotonic = 0.0
         resource_last_unmet_monotonic = 0.0
         resource_cancelled_instances: set[str] = set()
+        deadline_cancelled_instances: set[str] = set()
         executor = ThreadPoolExecutor(max_workers=max(1, hard_concurrency))
 
         progress = (
@@ -363,10 +436,59 @@ class WorkflowScheduler:
                             },
                         )
 
+                def write_live_scan_data_snapshot(reason: str) -> None:
+                    try:
+                        context.run_store.write_json("data/scan_data.partial.json", run_data)
+                    except Exception as exc:  # noqa: BLE001
+                        logger = getattr(context, "logger", None)
+                        if logger is not None:
+                            logger.debug("Unable to write partial scan_data snapshot after %s: %s", reason, exc)
+
+                def task_deadline_seconds(task: TaskDefinition) -> float | None:
+                    values: list[float] = []
+                    capability_budget = capability_budgets.get(task.capability, {})
+                    max_runtime_seconds = capability_budget.get("max_runtime_seconds")
+                    if isinstance(max_runtime_seconds, (int, float)) and float(max_runtime_seconds) > 0:
+                        values.append(float(max_runtime_seconds))
+                    stage_budget_limit = stage_budget.get(task.stage)
+                    if isinstance(stage_budget_limit, (int, float)) and float(stage_budget_limit) > 0:
+                        values.append(float(stage_budget_limit))
+                    task_timeout = context.config.get("orchestration", {}).get("task_timeout_seconds")
+                    if isinstance(task_timeout, (int, float)) and float(task_timeout) > 0:
+                        values.append(float(task_timeout))
+                    return min(values) if values else None
+
+                def cancel_running_deadline_tasks() -> None:
+                    now = time.monotonic()
+                    for _future, (running_item, _started_at, _reason, token, deadline) in list(running.items()):
+                        if deadline is None or now < deadline or running_item.instance_key in deadline_cancelled_instances:
+                            continue
+                        deadline_cancelled_instances.add(running_item.instance_key)
+                        token.set()
+                        warning = f"Task {running_item.definition.key} exceeded its configured time budget and was cancelled."
+                        run_data.warnings.append(warning)
+                        context.audit.write(
+                            "task.deadline_exceeded",
+                            {
+                                "task": running_item.definition.key,
+                                "instance_key": running_item.instance_key,
+                                "deadline_monotonic": deadline,
+                            },
+                        )
+                        emit_runtime_event(
+                            context,
+                            "task.deadline_exceeded",
+                            {
+                                "task": running_item.definition.key,
+                                "label": running_item.definition.label,
+                                "instance_key": running_item.instance_key,
+                            },
+                        )
+
                 def select_resource_cancel_candidate() -> tuple[Future, ScheduledTask, Event] | None:
                     candidates: list[tuple[int, float, Future, ScheduledTask, Event]] = []
                     now_value = time.monotonic()
-                    for future, (item, started_at, _reason, token) in running.items():
+                    for future, (item, started_at, _reason, token, _deadline) in running.items():
                         if future.done() or getattr(token, "is_set", lambda: False)():
                             continue
                         task = item.definition
@@ -629,7 +751,7 @@ class WorkflowScheduler:
                     nonlocal total_retries
                     done_futures = [future for future in list(running.keys()) if future.done()]
                     for future in done_futures:
-                        item, started_at, decision_reason, cancellation_token = running.pop(future)
+                        item, started_at, decision_reason, cancellation_token, _deadline = running.pop(future)
                         task = item.definition
                         attempt = item.attempt
                         input_signature = item.input_signature
@@ -637,10 +759,8 @@ class WorkflowScheduler:
                         ended_at = now_utc()
                         error_message = None
                         status = TaskStatus.COMPLETED.value
-                        cancelled_for_resource = (
-                            item.instance_key in resource_cancelled_instances
-                            or getattr(cancellation_token, "is_set", lambda: False)()
-                        )
+                        cancelled_for_resource = item.instance_key in resource_cancelled_instances
+                        cancelled_for_deadline = item.instance_key in deadline_cancelled_instances
                         duration_seconds = max((ended_at - started_at).total_seconds(), 0.001)
                         try:
                             if future.cancelled():
@@ -660,10 +780,10 @@ class WorkflowScheduler:
                                 merge_adapter_result(run_data, result)
                                 _emit_adapter_result_runtime_events(context, result)
                                 refresh_autonomy_state(run_data, context.config)
-                                if result.errors:
-                                    error_message = "; ".join(
-                                        str(item).strip() for item in result.errors if str(item).strip()
-                                    ) or "adapter reported one or more execution errors"
+                                write_live_scan_data_snapshot(task.key)
+                                failure_message = _adapter_result_failure_message(result)
+                                if failure_message:
+                                    error_message = failure_message
                                     status = TaskStatus.FAILED.value
                                     circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
                         except CancelledError:
@@ -679,6 +799,10 @@ class WorkflowScheduler:
                         if cancelled_for_resource and status != TaskStatus.CANCELLED.value:
                             status = TaskStatus.CANCELLED.value
                             error_message = "cancelled_for_resource_limit"
+                        if cancelled_for_deadline and status != TaskStatus.CANCELLED.value:
+                            status = TaskStatus.FAILED.value
+                            error_message = "task_time_budget_exceeded"
+                            circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
 
                         # Optional stage time budgets.
                         stage_budget_limit = stage_budget.get(task.stage)
@@ -814,6 +938,7 @@ class WorkflowScheduler:
                                 instance_key=item.instance_key,
                                 task_inputs=item.task_inputs,
                             )
+                            write_live_scan_data_snapshot(f"{task.key}:state")
                     update_live_metrics()
 
                 def mark_terminal(
@@ -1092,6 +1217,7 @@ class WorkflowScheduler:
                             last_control_signature = signature
 
                     process_done_futures()
+                    cancel_running_deadline_tasks()
                     enqueue_repeatable_frontiers()
 
                     if paused and not running:
@@ -1116,6 +1242,7 @@ class WorkflowScheduler:
                         if running:
                             wait(running.keys(), timeout=0.1)
                             process_done_futures()
+                            cancel_running_deadline_tasks()
                         else:
                             if (
                                 resource_last_cancel_monotonic <= 0
@@ -1201,6 +1328,8 @@ class WorkflowScheduler:
                         capability_budget = capability_budgets.get(task.capability, {})
                         max_runs = capability_budget.get("max_runs")
                         max_runtime_seconds = capability_budget.get("max_runtime_seconds")
+                        if task.repeatable_on_new_inputs:
+                            max_runs = None
                         capability_run_token = (
                             f"{task.capability}:{task.key}:{item.iteration}"
                             if task.can_run_many and task.input_items is not None
@@ -1514,9 +1643,20 @@ class WorkflowScheduler:
                             task_inputs=list(item.task_inputs),
                         )
                         cancellation_token = Event()
-                        task_context = replace(task_context, cancellation_token=cancellation_token)
+                        deadline_seconds = task_deadline_seconds(task)
+                        deadline_monotonic = (
+                            time.monotonic() + float(deadline_seconds)
+                            if deadline_seconds is not None
+                            else None
+                        )
+                        task_context = replace(
+                            task_context,
+                            cancellation_token=cancellation_token,
+                            deadline_monotonic=deadline_monotonic,
+                        )
+                        deadline_cancelled_instances.discard(item.instance_key)
                         future = executor.submit(task.runner, task_context, run_data)
-                        running[future] = (item, started_at, reason, cancellation_token)
+                        running[future] = (item, started_at, reason, cancellation_token, deadline_monotonic)
                         if capability_run_token not in capability_run_tokens:
                             capability_runs[task.capability] = capability_runs.get(task.capability, 0) + 1
                             capability_run_tokens.add(capability_run_token)
@@ -1710,6 +1850,7 @@ class WorkflowScheduler:
                     if running:
                         wait(running.keys(), timeout=0.1)
                         process_done_futures()
+                        cancel_running_deadline_tasks()
                         enqueue_repeatable_frontiers()
 
                 if self._cancel_event.is_set():

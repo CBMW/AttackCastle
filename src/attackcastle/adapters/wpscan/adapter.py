@@ -173,11 +173,13 @@ class WPScanAdapter:
         risk_controls = risk_controls_from_context(context)
         existing_scanned = set(run_data.facts.get("wpscan.scanned_urls", []))
         scanned_urls: list[str] = []
+        failed_urls: list[str] = []
         vulnerability_total = 0
         limiter = getattr(context, "rate_limiter", None)
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip()
 
-        for target in filter_url_targets_for_task_inputs(context, collect_wordpress_targets(run_data)):
+        pending_targets = filter_url_targets_for_task_inputs(context, collect_wordpress_targets(run_data))
+        for target in pending_targets:
             url = str(target["url"])
             if url in existing_scanned:
                 continue
@@ -367,13 +369,22 @@ class WPScanAdapter:
                     raw_command=" ".join(shlex.quote(str(item)) for item in command),
                 )
             )
-            scanned_urls.append(url)
+            if status == "completed":
+                scanned_urls.append(url)
+            else:
+                failed_urls.append(url)
 
         ended_at = now_utc()
         scanned_set = sorted(existing_scanned.union(scanned_urls))
+        attempted_urls = sorted(
+            {str(item.get("url") or "") for item in pending_targets if str(item.get("url") or "").strip()}
+        )
         result.facts.update(
             {
                 "wpscan.available": True,
+                "wpscan.attempted_urls": attempted_urls,
+                "wpscan.completed_urls": scanned_set,
+                "wpscan.failed_urls": sorted(set(failed_urls)),
                 "wpscan.scanned_targets": len(scanned_urls),
                 "wpscan.scanned_urls": scanned_set,
                 "wpscan.vulnerability_total": vulnerability_total,

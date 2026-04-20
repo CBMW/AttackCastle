@@ -187,8 +187,8 @@ class ExtensionsTab(QWidget):
             )
         )
         editor_layout.addWidget(editor_title)
-        editor_layout.addWidget(self.editor_status_label)
         editor_layout.addWidget(self.editor, 1)
+        editor_layout.addWidget(self.editor_status_label)
         splitter.addWidget(editor_panel)
 
         splitter.setSizes([320, 960])

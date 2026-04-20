@@ -1,7 +1,7 @@
 :root {
-  --graph-bg: #0b1119;
-  --graph-text: #d8e1ea;
-  --graph-line: #253246;
+  --graph-bg: #0d0d0d;
+  --graph-text: #d9d9d9;
+  --graph-line: #343434;
   --graph-radius: 3px;
 }
 

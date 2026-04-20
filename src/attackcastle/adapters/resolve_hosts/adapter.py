@@ -3,10 +3,11 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import shutil
+import socket
 import subprocess
 from dataclasses import dataclass, field
 
-from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.base import build_tool_execution, cancellation_requested
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -25,6 +26,7 @@ class ResolveHostnameResult:
     stderr: str
     exit_code: int | None
     termination_reason: str
+    resolver: str = "dig"
     termination_detail: str | None = None
     timed_out: bool = False
     cname_chain: list[str] = field(default_factory=list)
@@ -66,7 +68,52 @@ def _run_dig_short(hostname: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _resolve_hostname_builtin(hostname: str) -> ResolveHostnameResult:
+    previous_timeout = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(5)
+        rows = socket.getaddrinfo(hostname, None, family=socket.AF_INET, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        return ResolveHostnameResult(
+            ips=[],
+            stdout="",
+            stderr=str(exc),
+            exit_code=1,
+            termination_reason="nonzero_exit",
+            resolver="python_getaddrinfo",
+            termination_detail=str(exc),
+        )
+    except OSError as exc:
+        return ResolveHostnameResult(
+            ips=[],
+            stdout="",
+            stderr=str(exc),
+            exit_code=None,
+            termination_reason="spawn_failure",
+            resolver="python_getaddrinfo",
+            termination_detail=str(exc),
+        )
+    finally:
+        socket.setdefaulttimeout(previous_timeout)
+    ips: list[str] = []
+    for row in rows:
+        ip = str(row[4][0])
+        if IPV4_RE.match(ip) and ip not in ips:
+            ips.append(ip)
+    stdout = "\n".join(ips) + ("\n" if ips else "")
+    return ResolveHostnameResult(
+        ips=ips,
+        stdout=stdout,
+        stderr="",
+        exit_code=0,
+        termination_reason="completed",
+        resolver="python_getaddrinfo",
+    )
+
+
 def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
+    if shutil.which("dig") is None:
+        return _resolve_hostname_builtin(hostname)
     stdout_parts: list[str] = []
     stderr_parts: list[str] = []
     cname_chain: list[str] = []
@@ -98,6 +145,7 @@ def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
             stderr="\n".join(part for part in stderr_parts if part),
             exit_code=None,
             termination_reason="timeout",
+            resolver="dig",
             termination_detail="command exceeded timeout of 5s",
             timed_out=True,
             cname_chain=cname_chain,
@@ -109,6 +157,7 @@ def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
             stderr="",
             exit_code=None,
             termination_reason="missing_dependency",
+            resolver="dig",
             termination_detail="dig was not found in PATH",
             cname_chain=cname_chain,
         )
@@ -119,6 +168,7 @@ def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
             stderr="\n".join(part for part in stderr_parts if part),
             exit_code=None,
             termination_reason="spawn_failure",
+            resolver="dig",
             termination_detail=str(exc),
             cname_chain=cname_chain,
         )
@@ -133,6 +183,7 @@ def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
             stderr=stderr,
             exit_code=exit_code,
             termination_reason="completed",
+            resolver="dig",
             cname_chain=cname_chain,
         )
     detail = stderr.strip() or f"dig exited with code {exit_code}"
@@ -142,6 +193,7 @@ def _resolve_hostname_result(hostname: str) -> ResolveHostnameResult:
         stderr=stderr,
         exit_code=exit_code,
         termination_reason="nonzero_exit",
+        resolver="dig",
         termination_detail=detail,
         cname_chain=cname_chain,
     )
@@ -223,47 +275,16 @@ class ResolveHostsAdapter:
 
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         result = AdapterResult()
+        config = context.config.get("resolve_hosts", {})
+        if isinstance(config, dict) and not bool(config.get("enabled", True)):
+            result.facts["resolve_hosts.available"] = False
+            return result
         hostnames = self._collect_hostnames(run_data)
         if not hostnames:
             return result
 
         if shutil.which("dig") is None:
-            warning = "dig binary was not found in PATH. Skipping resolve-hosts stage."
-            started_at = now_utc()
-            ended_at = now_utc()
-            execution_id = new_id("exec")
-            task_id = new_id("task")
-            result.warnings.append(warning)
-            result.tool_executions.append(
-                build_tool_execution(
-                    tool_name=self.name,
-                    command="dig",
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    status="skipped",
-                    execution_id=execution_id,
-                    capability=self.capability,
-                    exit_code=None,
-                    error_message=warning,
-                    termination_reason="missing_dependency",
-                    termination_detail=warning,
-                )
-            )
-            result.task_results.append(
-                TaskResult(
-                    task_id=task_id,
-                    task_type="ResolveHosts",
-                    status="skipped",
-                    command="dig",
-                    exit_code=None,
-                    started_at=started_at,
-                    finished_at=ended_at,
-                    warnings=[warning],
-                    termination_reason="missing_dependency",
-                    termination_detail=warning,
-                )
-            )
-            return result
+            result.warnings.append("dig binary was not found in PATH. Falling back to Python getaddrinfo.")
 
         asset_groups: dict[str, list[Asset]] = {}
         for asset in run_data.assets:
@@ -285,6 +306,9 @@ class ResolveHostsAdapter:
                 executor.submit(_resolve_hostname_result, hostname): hostname for hostname in hostnames
             }
             for future in as_completed(future_map):
+                if cancellation_requested(context):
+                    result.warnings.append("resolve-hosts cancelled by scheduler before all hostnames were processed")
+                    break
                 hostname = future_map[future]
                 resolution = future.result()
                 partial = AdapterResult()
@@ -294,7 +318,7 @@ class ResolveHostsAdapter:
                     {"adapter": self.name, "phase": "hostname_started", "hostname": hostname},
                 )
                 command = ["dig", hostname, "+short"]
-                command_text = " ".join(command)
+                command_text = " ".join(command) if resolution.resolver == "dig" else f"python getaddrinfo {hostname}"
                 task_id = new_id("task")
                 execution_id = new_id("exec")
                 slug = hostname.replace("*", "_").replace(".", "_")

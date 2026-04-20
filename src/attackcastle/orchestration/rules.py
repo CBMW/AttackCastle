@@ -54,10 +54,20 @@ def _signature(values: list[str]) -> str:
     return "|".join(normalized)
 
 
+def _frontier_completed_values(run_data: RunData, legacy_fact_key: str) -> list[str]:
+    prefix = legacy_fact_key.rsplit(".", 1)[0]
+    completed_key = f"{prefix}.completed_urls" if legacy_fact_key.endswith("_urls") else f"{prefix}.completed_targets"
+    completed = run_data.facts.get(completed_key)
+    if isinstance(completed, list):
+        return [str(item).strip() for item in completed if str(item).strip()]
+    legacy = run_data.facts.get(legacy_fact_key, [])
+    return [str(item).strip() for item in legacy if str(item).strip()]
+
+
 def _pending_host_signature(run_data: RunData) -> str:
     scanned = {
         _normalize_host_target(item)
-        for item in run_data.facts.get("nmap.scanned_targets", [])
+        for item in _frontier_completed_values(run_data, "nmap.scanned_targets")
         if str(item).strip()
     }
     pending = [
@@ -71,7 +81,7 @@ def _pending_host_signature(run_data: RunData) -> str:
 def _pending_host_targets(run_data: RunData) -> list[str]:
     scanned = {
         _normalize_host_target(item)
-        for item in run_data.facts.get("nmap.scanned_targets", [])
+        for item in _frontier_completed_values(run_data, "nmap.scanned_targets")
         if str(item).strip()
     }
     return [
@@ -82,7 +92,7 @@ def _pending_host_targets(run_data: RunData) -> list[str]:
 
 
 def _pending_candidate_web_signature(run_data: RunData, fact_key: str) -> str:
-    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    scanned = {str(item).strip() for item in _frontier_completed_values(run_data, fact_key) if str(item).strip()}
     pending = [
         str(item.get("url") or "").strip()
         for item in collect_web_targets(run_data)
@@ -92,7 +102,7 @@ def _pending_candidate_web_signature(run_data: RunData, fact_key: str) -> str:
 
 
 def _pending_candidate_web_targets(run_data: RunData, fact_key: str) -> list[str]:
-    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    scanned = {str(item).strip() for item in _frontier_completed_values(run_data, fact_key) if str(item).strip()}
     return [
         str(item.get("url") or "").strip()
         for item in collect_web_targets(run_data)
@@ -101,7 +111,7 @@ def _pending_candidate_web_targets(run_data: RunData, fact_key: str) -> list[str
 
 
 def _pending_confirmed_web_signature(run_data: RunData, fact_key: str) -> str:
-    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    scanned = {str(item).strip() for item in _frontier_completed_values(run_data, fact_key) if str(item).strip()}
     pending = [
         str(item.get("url") or "").strip()
         for item in collect_confirmed_web_targets(run_data)
@@ -111,7 +121,7 @@ def _pending_confirmed_web_signature(run_data: RunData, fact_key: str) -> str:
 
 
 def _pending_confirmed_web_targets(run_data: RunData, fact_key: str) -> list[str]:
-    scanned = {str(item).strip() for item in run_data.facts.get(fact_key, []) if str(item).strip()}
+    scanned = {str(item).strip() for item in _frontier_completed_values(run_data, fact_key) if str(item).strip()}
     return [
         str(item.get("url") or "").strip()
         for item in collect_confirmed_web_targets(run_data)
@@ -120,7 +130,7 @@ def _pending_confirmed_web_targets(run_data: RunData, fact_key: str) -> list[str
 
 
 def _pending_wordpress_signature(run_data: RunData) -> str:
-    scanned = {str(item).strip() for item in run_data.facts.get("wpscan.scanned_urls", []) if str(item).strip()}
+    scanned = {str(item).strip() for item in _frontier_completed_values(run_data, "wpscan.scanned_urls") if str(item).strip()}
     pending = [
         str(item.get("url") or "").strip()
         for item in collect_wordpress_targets(run_data)
@@ -130,7 +140,7 @@ def _pending_wordpress_signature(run_data: RunData) -> str:
 
 
 def _pending_wordpress_targets(run_data: RunData) -> list[str]:
-    scanned = {str(item).strip() for item in run_data.facts.get("wpscan.scanned_urls", []) if str(item).strip()}
+    scanned = {str(item).strip() for item in _frontier_completed_values(run_data, "wpscan.scanned_urls") if str(item).strip()}
     return [
         str(item.get("url") or "").strip()
         for item in collect_wordpress_targets(run_data)

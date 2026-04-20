@@ -62,6 +62,9 @@ class SubdomainEnumAdapter:
     def run(self, context: AdapterContext, run_data: RunData) -> AdapterResult:
         result = AdapterResult()
         config = context.config.get("subdomain_enum", {})
+        if isinstance(config, dict) and not bool(config.get("enabled", True)):
+            result.facts["subdomain_enum.available"] = False
+            return result
         policy = build_scan_policy(context.profile_name, context.config)
         timeout_seconds = int(config.get("timeout_seconds", 90))
         max_candidates = int(config.get("max_candidates", 500))

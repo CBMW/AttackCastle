@@ -25,6 +25,7 @@ def test_external_dependency_rows_include_expected_tools(monkeypatch) -> None:
     nmap_row = next(row for row in rows if row["command"] == "nmap")
     assert nmap_row["available"] is True
     assert nmap_row["apt_package"] == "nmap"
+    assert "validation_status" in nmap_row
 
 
 def test_missing_dependency_message_is_sorted() -> None:
