@@ -371,8 +371,8 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         border-radius: 7px;
     }}
     QFrame#toolCoverageRow[available="false"] {{
-        background: rgba(157, 68, 80, 0.10);
-        border-color: {palette['danger_border']};
+        background: rgba(255, 255, 255, 0.012);
+        border-color: {palette['border_soft']};
     }}
     QWidget#profilePresetPanel,
     QWidget#profileBrowseRow,
@@ -429,33 +429,6 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#toolCoverageDescription {{
         color: {palette['text_soft']};
         background: transparent;
-    }}
-    QLabel#toolCoverageCount,
-    QLabel#toolCoverageStatus {{
-        padding: 3px 7px;
-        border: 1px solid {palette['border_soft']};
-        border-radius: 6px;
-        color: {palette['text_muted']};
-        background: {palette['chip_bg']};
-        font-size: 11px;
-        font-weight: 700;
-    }}
-    QLabel#toolCoverageStatus[state="profile"] {{
-        color: {workflow['confirmed'][1]};
-        background: {workflow['confirmed'][0]};
-    }}
-    QLabel#toolCoverageStatus[state="manual"] {{
-        color: {palette['selection_fg']};
-        background: {palette['selection_bg']};
-        border-color: {palette['accent_soft']};
-    }}
-    QLabel#toolCoverageStatus[state="enabled"] {{
-        color: {palette['accent_soft']};
-    }}
-    QLabel#toolCoverageStatus[state="unavailable"] {{
-        color: {severity['critical'][1]};
-        background: {severity['critical'][0]};
-        border-color: {palette['danger_border']};
     }}
     QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0; }}
     QLabel#appSubtitle {{ color: {palette['text_muted']}; font-size: 12px; font-weight: 600; background: transparent; }}

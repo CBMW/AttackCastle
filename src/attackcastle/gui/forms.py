@@ -139,7 +139,7 @@ TOOL_FIELD_NAMES = {
 
 TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
     {
-        "title": "Scope Expansion",
+        "title": "Subdomain Enumeration",
         "description": "Find additional in-scope hosts, domains, and internet-facing assets.",
         "tools": (
             ("subfinder", "Passive subdomain enumeration for in-scope root domains.", "enable_subfinder"),
@@ -148,7 +148,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "DNS Resolution & Host Validation",
+        "title": "DNS Resolution",
         "description": "Confirm discovered assets resolve and validate live host mappings.",
         "tools": (
             ("dnsx", "Bulk DNS resolution and record collection.", "enable_dnsx"),
@@ -163,10 +163,11 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
             ("masscan", "Very fast wide TCP port discovery.", ""),
             ("naabu", "Fast ProjectDiscovery port discovery.", ""),
             ("rustscan", "Rapid TCP port discovery front-end.", ""),
+            ("nmap", "TCP port discovery and service reachability checks.", "enable_nmap"),
         ),
     },
     {
-        "title": "Service Detection & Version Enumeration",
+        "title": "Service Detection",
         "description": "Determine what open ports are actually running and identify service versions.",
         "tools": (
             ("nmap", "Service verification, versions, and selected script checks.", "enable_nmap"),
@@ -175,16 +176,25 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "HTTP Probing & Screenshotting",
+        "title": "HTTP Service Discovery",
         "description": "Identify web services, collect titles/statuses, and capture screenshots.",
         "tools": (
             ("httpx", "HTTP probing, metadata, tech hints, and built-in screenshots.", "enable_web_probe"),
+            ("nmap", "HTTP service detection through service/version probes.", "enable_nmap"),
             ("aquatone", "Web screenshot inventory.", ""),
-            ("gowitness", "Web screenshot inventory.", ""),
         ),
     },
     {
-        "title": "Web Fingerprinting",
+        "title": "Web Screenshots",
+        "description": "Capture screenshots and visual page inventory for rapid operator review.",
+        "tools": (
+            ("gowitness", "Web screenshot inventory.", ""),
+            ("aquatone", "Web screenshot inventory.", ""),
+            ("EyeWitness", "Screenshot collection and visual inventory.", ""),
+        ),
+    },
+    {
+        "title": "Web Technology Fingerprinting",
         "description": "Fingerprint frameworks, WAFs, CDNs, CMSs, and technology stacks.",
         "tools": (
             ("whatweb", "Technology fingerprinting for confirmed web targets.", "enable_whatweb"),
@@ -193,7 +203,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "Content Discovery",
+        "title": "Directory and File Discovery",
         "description": "Discover hidden files, directories, admin panels, and forgotten paths.",
         "tools": (
             ("ffuf", "Directory, file, and virtual-host fuzzing.", ""),
@@ -211,7 +221,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "JavaScript & Client-Side Recon",
+        "title": "JavaScript Recon",
         "description": "Extract endpoints, secrets, routes, and client-side attack surface from JavaScript.",
         "tools": (
             ("katana", "Crawler-assisted JavaScript and endpoint discovery.", ""),
@@ -220,34 +230,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "Vulnerability Validation",
-        "description": "Run safe broad validation and exposure checks against identified targets.",
-        "tools": (
-            ("nuclei", "Template-driven exposure and vulnerability validation.", "enable_nuclei"),
-            ("nikto", "Common web server exposure checks.", "enable_nikto"),
-            ("testssl.sh", "TLS weakness validation.", ""),
-        ),
-    },
-    {
-        "title": "TLS / Certificate Analysis",
-        "description": "Review TLS posture, certificate details, protocol support, and SSL weaknesses.",
-        "tools": (
-            ("testssl.sh", "Detailed TLS configuration assessment.", ""),
-            ("sslscan", "TLS protocol and cipher enumeration.", ""),
-            ("openssl", "Certificate collection and TLS handshake checks.", "enable_openssl_tls"),
-        ),
-    },
-    {
-        "title": "CMS / Platform-Specific Enumeration",
-        "description": "Run technology-specific enumeration for identified CMS or platform targets.",
-        "tools": (
-            ("wpscan", "WordPress-focused enumeration.", "enable_wpscan"),
-            ("droopescan", "Drupal and SilverStripe enumeration.", ""),
-            ("joomscan", "Joomla enumeration.", ""),
-        ),
-    },
-    {
-        "title": "API Discovery & API Surface Mapping",
+        "title": "API Endpoint Discovery",
         "description": "Discover API endpoints, GraphQL surfaces, and OpenAPI/Swagger exposure.",
         "tools": (
             ("katana", "API and endpoint crawling.", ""),
@@ -256,11 +239,39 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "Authentication & Session Checks",
+        "title": "TLS and Certificate Analysis",
+        "description": "Review TLS posture, certificate details, protocol support, and SSL weaknesses.",
+        "tools": (
+            ("testssl.sh", "Detailed TLS configuration assessment.", ""),
+            ("sslscan", "TLS protocol and cipher enumeration.", ""),
+            ("openssl", "Certificate collection and TLS handshake checks.", "enable_openssl_tls"),
+            ("nmap", "TLS service scripts and certificate checks where enabled.", "enable_nmap"),
+        ),
+    },
+    {
+        "title": "General Vulnerability Scanning",
+        "description": "Run safe broad validation and exposure checks against identified targets.",
+        "tools": (
+            ("nuclei", "Template-driven exposure and vulnerability validation.", "enable_nuclei"),
+            ("nikto", "Common web server exposure checks.", "enable_nikto"),
+            ("nmap", "NSE-assisted exposure checks and service validation.", "enable_nmap"),
+        ),
+    },
+    {
+        "title": "CMS Enumeration",
+        "description": "Run technology-specific enumeration for identified CMS or platform targets.",
+        "tools": (
+            ("wpscan", "WordPress-focused enumeration.", "enable_wpscan"),
+            ("droopescan", "Drupal and SilverStripe enumeration.", ""),
+            ("joomscan", "Joomla enumeration.", ""),
+        ),
+    },
+    {
+        "title": "Authentication Surface Testing",
         "description": "Focus on login surfaces, session handling, cookies, token lifetime, and auth paths.",
         "tools": (
             ("Burp Suite automation", "Proxy-driven authenticated workflow automation.", ""),
-            ("ffuf for auth path discovery", "Login and auth route discovery.", ""),
+            ("ffuf", "Login and auth route discovery.", ""),
             ("custom curl/python request workflows", "Built-in replay and session-aware validation.", ""),
         ),
     },
@@ -274,21 +285,12 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
-        "title": "OAST / Callback Validation",
+        "title": "OAST / Callback Detection",
         "description": "Validate blind and out-of-band behaviours such as SSRF and blind XSS callbacks.",
         "tools": (
             ("interactsh-client", "Out-of-band callback validation.", ""),
             ("Burp Collaborator", "Out-of-band callback validation.", ""),
             ("webhook/callback workflow", "Operator-supplied callback validation workflow.", ""),
-        ),
-    },
-    {
-        "title": "Visual Recon",
-        "description": "Capture screenshots and visual page inventory for rapid operator review.",
-        "tools": (
-            ("gowitness", "Screenshot collection and visual inventory.", ""),
-            ("aquatone", "Screenshot collection and visual inventory.", ""),
-            ("EyeWitness", "Screenshot collection and visual inventory.", ""),
         ),
     },
 )
@@ -554,8 +556,6 @@ class ProfileFieldsMixin:
         self._active_recipe_name = ""
         self._recipe_buttons: dict[str, QPushButton] = {}
         self._tool_category_cards: list[QFrame] = []
-        self._tool_category_summary_labels: list[QLabel] = []
-        self._tool_category_count_labels: list[QLabel] = []
         self._tool_rows_by_field: dict[str, list[dict[str, object]]] = {}
         self._profile_tool_defaults: dict[str, bool] = {}
         self._manual_tool_overrides: dict[str, bool] = {}
@@ -747,34 +747,10 @@ class ProfileFieldsMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PANEL_CONTENT_PADDING)
 
-        actions = FlowButtonRow()
-        self.enable_recommended_button = QPushButton("Use Profile Baseline")
-        self.enable_recommended_button.clicked.connect(self._enable_recommended_tools)
-        self.reset_preset_button = QPushButton("Clear Manual Overrides")
-        self.reset_preset_button.clicked.connect(self._reset_tools_to_active_recipe)
-        style_button(self.enable_recommended_button, role="secondary")
-        style_button(self.reset_preset_button, role="secondary")
-        set_tooltips(
-            (
-                (self.enable_recommended_button, "Restore the tool state inherited from the selected scan profile."),
-                (self.reset_preset_button, "Remove manual per-scan tool choices and return to the selected profile baseline."),
-            )
-        )
-        actions.addWidget(self.enable_recommended_button)
-        actions.addWidget(self.reset_preset_button)
-        layout.addWidget(actions)
-
-        helper = QLabel("Profile-enabled tools are the baseline for this launch. Tick extra available tools to create a per-scan override.")
-        helper.setObjectName("helperText")
-        helper.setWordWrap(True)
-        layout.addWidget(helper)
-
         self.tool_family_grid = QGridLayout()
         self.tool_family_grid.setHorizontalSpacing(PANEL_CONTENT_PADDING)
         self.tool_family_grid.setVerticalSpacing(PANEL_CONTENT_PADDING)
         self._tool_category_cards = []
-        self._tool_category_summary_labels = []
-        self._tool_category_count_labels = []
         self._tool_rows_by_field = {}
         for idx, category in enumerate(TOOL_COVERAGE_CATEGORIES):
             card = self._build_tool_category_card(category)
@@ -807,27 +783,8 @@ class ProfileFieldsMixin:
         header_layout.setSpacing(PAGE_CARD_SPACING)
         title_label = QLabel(str(category.get("title", "")))
         title_label.setObjectName("profileGroupTitle")
-        count_label = QLabel("")
-        count_label.setObjectName("toolCoverageCount")
         header_layout.addWidget(title_label, 1)
-        header_layout.addWidget(count_label, 0, Qt.AlignTop)
-        self._tool_category_count_labels.append(count_label)
 
-        description_label = QLabel(str(category.get("description", "")))
-        description_label.setObjectName("helperText")
-        description_label.setWordWrap(True)
-        summary_label = QLabel("")
-        summary_label.setObjectName("profileToolSummary")
-        summary_label.setWordWrap(True)
-        self._tool_category_summary_labels.append(summary_label)
-
-        toggle = QToolButton()
-        toggle.setObjectName("toolCoverageExpander")
-        toggle.setText("Tools")
-        toggle.setCheckable(True)
-        toggle.setChecked(False)
-        toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        toggle.setArrowType(Qt.RightArrow)
         body = QWidget()
         body.setObjectName("toolCoverageBody")
         body_layout = QVBoxLayout(body)
@@ -835,17 +792,7 @@ class ProfileFieldsMixin:
         body_layout.setSpacing(PAGE_CARD_SPACING)
         for tool_name, description, field in category.get("tools", ()):
             body_layout.addWidget(self._build_tool_row(str(tool_name), str(description), str(field)))
-        body.setVisible(False)
-
-        def sync_expanded(expanded: bool) -> None:
-            toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
-            body.setVisible(expanded)
-
-        toggle.toggled.connect(sync_expanded)
         card_layout.addWidget(header)
-        card_layout.addWidget(description_label)
-        card_layout.addWidget(summary_label)
-        card_layout.addWidget(toggle, 0, Qt.AlignLeft)
         card_layout.addWidget(body)
         return card
 
@@ -880,15 +827,9 @@ class ProfileFieldsMixin:
         text_layout.addWidget(description_label)
         row_layout.addWidget(text_panel, 1)
 
-        status_label = QLabel("Unavailable")
-        status_label.setObjectName("toolCoverageStatus")
-        status_label.setProperty("state", "unavailable")
-        status_label.setAlignment(Qt.AlignCenter)
-        row_layout.addWidget(status_label, 0, Qt.AlignTop)
-
         if available:
             rows = self._tool_rows_by_field.setdefault(field, [])
-            rows.append({"checkbox": checkbox, "status": status_label})
+            rows.append({"checkbox": checkbox})
         else:
             checkbox.setToolTip("This tool is not currently wired into the AttackCastle scan pipeline.")
             row.setToolTip("Unavailable: no implemented AttackCastle adapter or per-scan override hook exists yet.")
@@ -933,15 +874,6 @@ class ProfileFieldsMixin:
             self.enable_wpscan,
             self.enable_sqlmap,
         )
-
-    def _enable_recommended_tools(self) -> None:
-        defaults = self._profile_tool_defaults or self._recommended_tool_state()
-        self._manual_tool_overrides.clear()
-        self._apply_tool_state(defaults)
-        self._mark_recipe_as_custom()
-
-    def _reset_tools_to_active_recipe(self) -> None:
-        self._enable_recommended_tools()
 
     def _toggle_expert_tools(self, visible: bool) -> None:
         self.expert_tool_panel.setVisible(visible)
@@ -1039,19 +971,6 @@ class ProfileFieldsMixin:
 
     def _update_tool_family_cards(self) -> None:
         self._sync_tool_rows()
-        for index, category in enumerate(TOOL_COVERAGE_CATEGORIES):
-            tools = list(category.get("tools", ()))
-            enabled = [
-                str(name)
-                for name, _detail, field in tools
-                if str(field) and hasattr(self, str(field)) and getattr(self, str(field)).isChecked()
-            ]
-            if index < len(self._tool_category_summary_labels):
-                self._tool_category_summary_labels[index].setText(
-                    f"Active: {', '.join(enabled) if enabled else 'None'}"
-                )
-            if index < len(self._tool_category_count_labels):
-                self._tool_category_count_labels[index].setText(f"{len(enabled)}/{len(tools)} enabled")
 
     def _set_tool_field_from_row(self, field: str, checked: bool) -> None:
         if self._syncing_tool_widgets or not hasattr(self, field):
@@ -1083,31 +1002,10 @@ class ProfileFieldsMixin:
         try:
             for field, rows in self._tool_rows_by_field.items():
                 checked = getattr(self, field).isChecked() if hasattr(self, field) else False
-                default = self._profile_tool_defaults.get(field)
-                manual = field in self._manual_tool_overrides
                 for row in rows:
                     checkbox = row.get("checkbox")
-                    status = row.get("status")
                     if isinstance(checkbox, QCheckBox):
                         checkbox.setChecked(checked)
-                    if isinstance(status, QLabel):
-                        if manual:
-                            label = "Manual +" if checked else "Manual off"
-                            state = "manual"
-                        elif checked and default is True:
-                            label = "Profile"
-                            state = "profile"
-                        elif checked:
-                            label = "Enabled"
-                            state = "enabled"
-                        else:
-                            label = "Off"
-                            state = "off"
-                        status.setText(label)
-                        status.setProperty("state", state)
-                        status.style().unpolish(status)
-                        status.style().polish(status)
-                        status.update()
         finally:
             self._syncing_tool_widgets = False
 
