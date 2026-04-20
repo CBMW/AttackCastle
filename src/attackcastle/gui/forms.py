@@ -348,6 +348,7 @@ class ProfileFieldsMixin:
         collapsible_sections: bool = False,
         preset_header: str = "Quick Presets",
         preset_helper: str = "Apply a tuned preset, then adjust only the fields the engagement needs.",
+        include_active_validation: bool = True,
     ) -> QWidget:
         container = QWidget()
         container.setObjectName("formContainer")
@@ -393,12 +394,19 @@ class ProfileFieldsMixin:
                     self._build_proxy_form(),
                     False,
                 ),
+            ]
+        )
+        if include_active_validation:
+            sections.append(
                 (
                     "Active Validation",
                     "Control validation posture, request replay, budget, target revisit windows, and strategic behavior.",
                     self._build_active_validation_form(),
                     True,
-                ),
+                )
+            )
+        sections.extend(
+            [
                 (
                     "Tool Coverage",
                     "Use families and recommended posture first, then reveal expert toggles only when needed.",
@@ -790,13 +798,13 @@ class ProfileFieldsMixin:
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(PAGE_CARD_SPACING)
-        for tool_name, description, field in category.get("tools", ()):
-            body_layout.addWidget(self._build_tool_row(str(tool_name), str(description), str(field)))
+        for tool_name, _description, field in category.get("tools", ()):
+            body_layout.addWidget(self._build_tool_row(str(tool_name), str(field)))
         card_layout.addWidget(header)
         card_layout.addWidget(body)
         return card
 
-    def _build_tool_row(self, tool_name: str, description: str, field: str) -> QFrame:
+    def _build_tool_row(self, tool_name: str, field: str) -> QFrame:
         row = QFrame()
         row.setObjectName("toolCoverageRow")
         available = bool(field and hasattr(self, field))
@@ -813,19 +821,10 @@ class ProfileFieldsMixin:
             checkbox.toggled.connect(lambda checked, tool_field=field: self._set_tool_field_from_row(tool_field, checked))
         row_layout.addWidget(checkbox, 0, Qt.AlignTop)
 
-        text_panel = QWidget()
-        text_layout = QVBoxLayout(text_panel)
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(2)
         name_label = QLabel(tool_name)
         name_label.setObjectName("toolCoverageName")
         name_label.setProperty("available", available)
-        description_label = QLabel(description)
-        description_label.setObjectName("toolCoverageDescription")
-        description_label.setWordWrap(True)
-        text_layout.addWidget(name_label)
-        text_layout.addWidget(description_label)
-        row_layout.addWidget(text_panel, 1)
+        row_layout.addWidget(name_label, 1, Qt.AlignVCenter)
 
         if available:
             rows = self._tool_rows_by_field.setdefault(field, [])
@@ -1024,6 +1023,8 @@ class ProfileFieldsMixin:
             button.blockSignals(False)
 
     def _refresh_preset_summary(self) -> None:
+        if not hasattr(self, "profile_preset_summary"):
+            return
         if self._active_recipe_name and self._active_recipe_name in PROFILE_RECIPES:
             recipe = PROFILE_RECIPES[self._active_recipe_name]
             enabled_count = sum(1 for field in TOOL_FIELDS if bool(recipe.get(field, False)))

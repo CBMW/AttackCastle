@@ -426,10 +426,6 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#toolCoverageName[available="false"] {{
         color: {severity['critical'][1]};
     }}
-    QLabel#toolCoverageDescription {{
-        color: {palette['text_soft']};
-        background: transparent;
-    }}
     QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0; }}
     QLabel#appSubtitle {{ color: {palette['text_muted']}; font-size: 12px; font-weight: 600; background: transparent; }}
     QLabel#headerMeta {{ color: {palette['text_muted']}; background: transparent; }}

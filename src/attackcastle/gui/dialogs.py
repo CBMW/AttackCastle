@@ -377,8 +377,8 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             self._profile_form(
                 include_identity=False,
                 collapsible_sections=True,
-                preset_header="Scan Presets",
-                preset_helper="Choose a workstation preset to align tool coverage and defaults before touching expert overrides.",
+                preset_header="",
+                include_active_validation=False,
             )
         )
         self.advanced_scroll = frame
