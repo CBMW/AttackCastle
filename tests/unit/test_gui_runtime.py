@@ -817,6 +817,20 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
     assert overrides["profile"]["cpu_cores"] == 3
 
 
+def test_profile_to_engine_overrides_scopes_reused_nmap_rows() -> None:
+    profile = GuiProfile(
+        name="Scoped Nmap",
+        enable_nmap=True,
+        tool_coverage_overrides={"service_detection.nmap": False},
+    )
+
+    overrides = profile_to_engine_overrides(profile)
+
+    assert overrides["nmap"]["enabled"] is True
+    assert overrides["nmap"]["port_discovery_enabled"] is True
+    assert overrides["nmap"]["service_detection_enabled"] is False
+
+
 def test_profile_to_engine_overrides_applies_performance_guard_caps() -> None:
     profile = GuiProfile(
         name="Aggressive Local",

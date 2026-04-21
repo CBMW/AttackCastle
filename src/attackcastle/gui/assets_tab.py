@@ -31,7 +31,6 @@ from attackcastle.gui.asset_inventory import (
     row_label,
     scan_target_for_row,
 )
-from attackcastle.gui.asset_graph_view import AssetGraphView
 from attackcastle.gui.common import (
     MappingTableModel,
     PAGE_SECTION_SPACING,
@@ -102,7 +101,6 @@ class AssetsTab(QWidget):
         self._active_detail_kind = ""
         self._active_detail_row: dict[str, Any] = {}
         self._active_detail_table: QTableView | None = None
-        self._active_graph_selection: dict[str, Any] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -251,15 +249,7 @@ class AssetsTab(QWidget):
         inventory_layout.setSpacing(PAGE_SECTION_SPACING)
         inventory_layout.addWidget(toolbar)
         inventory_layout.addWidget(self.inventory_tabs, 1)
-
-        self.graph_view = AssetGraphView()
-        self.graph_view.nodeSelected.connect(self._handle_graph_node_selected)
-
-        self.asset_views = QTabWidget()
-        configure_tab_widget(self.asset_views, role="group")
-        self.asset_views.addTab(inventory_page, "Inventory")
-        self.asset_views.addTab(self.graph_view, "Graph View")
-        content_layout.addWidget(self.asset_views, 1)
+        content_layout.addWidget(inventory_page, 1)
 
         detail_body = build_flat_container()
         detail_body_layout = QVBoxLayout(detail_body)
@@ -279,27 +269,6 @@ class AssetsTab(QWidget):
         self.detail_summary.setObjectName("helperText")
         self.detail_summary.setWordWrap(True)
         detail_body_layout.addWidget(self.detail_summary)
-        self.detail_action_row = QHBoxLayout()
-        self.detail_action_row.setContentsMargins(0, 0, 0, 0)
-        self.detail_action_row.setSpacing(PAGE_SECTION_SPACING)
-        self.graph_expand_button = QPushButton("Expand")
-        style_button(self.graph_expand_button, role="secondary")
-        self.graph_expand_button.clicked.connect(self._expand_graph_selection)
-        self.detail_action_row.addWidget(self.graph_expand_button)
-        self.graph_lineage_button = QPushButton("Show Lineage")
-        style_button(self.graph_lineage_button, role="secondary")
-        self.graph_lineage_button.clicked.connect(self._show_graph_lineage)
-        self.detail_action_row.addWidget(self.graph_lineage_button)
-        self.graph_reveal_button = QPushButton("Reveal in Inventory")
-        style_button(self.graph_reveal_button, role="secondary")
-        self.graph_reveal_button.clicked.connect(self._reveal_graph_selection_in_inventory)
-        self.detail_action_row.addWidget(self.graph_reveal_button)
-        self.graph_scan_button = QPushButton("Scan Asset")
-        style_button(self.graph_scan_button, role="secondary")
-        self.graph_scan_button.clicked.connect(self._scan_graph_selection)
-        self.detail_action_row.addWidget(self.graph_scan_button)
-        self.detail_action_row.addStretch(1)
-        detail_body_layout.addLayout(self.detail_action_row)
         self.detail_text = configure_scroll_surface(QTextEdit())
         self.detail_text.setReadOnly(True)
         self.detail_text.setObjectName("consoleText")
@@ -314,7 +283,6 @@ class AssetsTab(QWidget):
             summary_text="Selected entity details, notes context, and launch actions stay docked here while the inventory tables remain primary.",
         )
         self.detail_card.setMinimumWidth(0)
-        self._set_graph_actions_visible(False)
 
         self.main_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (5, 2))
         self.main_split_controller = PersistentSplitterController(
@@ -345,7 +313,7 @@ class AssetsTab(QWidget):
         return section
 
     def apply_theme(self, tokens: dict[str, Any] | None = None) -> None:
-        self.graph_view.apply_theme(tokens)
+        return None
 
     def _make_table(self, model: MappingTableModel, entity_kind: str) -> QTableView:
         table = configure_scroll_surface(QTableView())
@@ -455,7 +423,6 @@ class AssetsTab(QWidget):
         self._notes = self._load_notes(snapshot.workspace_id if snapshot is not None else "") if snapshot is not None else {}
         if snapshot is None or workspace_changed:
             self._hide_detail_card()
-        self.graph_view.set_snapshot(snapshot)
         self._refresh_models()
         if snapshot is not None and not workspace_changed:
             self._restore_active_detail()
@@ -466,7 +433,6 @@ class AssetsTab(QWidget):
             self.detail_title.setText("Asset Details")
             self.detail_summary.setText("Select an asset, service, route, or technology to inspect details.")
             self.detail_text.setPlainText("Choose an item from the inventory to open the docked inspector.")
-            self._set_graph_actions_visible(False)
             for model in (
                 self.assets_model,
                 self.services_model,
@@ -544,8 +510,6 @@ class AssetsTab(QWidget):
                 table.selectRow(row_index)
                 self._show_detail(self._active_detail_kind, row, table)
                 return
-        if self._active_graph_selection:
-            self._handle_graph_node_selected(self._active_graph_selection)
 
     def _enrich_rows(self, entity_kind: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         snapshot = self._snapshot
@@ -606,25 +570,21 @@ class AssetsTab(QWidget):
         if not isinstance(row, dict):
             return
         entity_kind = str(table.property("entity_kind") or row.get("__entity_kind") or "")
-        menu, scan_action, notes_action, graph_action = self._build_context_menu(table, entity_kind, row)
+        menu, scan_action, notes_action = self._build_context_menu(table, entity_kind, row)
         target = str(row.get("__target") or "")
         action = menu.exec(table.viewport().mapToGlobal(point))
         if action is scan_action and target:
             self._launch_scan(target, row.get("__label") or row_label(entity_kind, row, self._snapshot))
         elif action is notes_action:
             self._edit_note_for_row(entity_kind, row)
-        elif action is graph_action:
-            self._focus_row_in_graph(entity_kind, row)
 
-    def _build_context_menu(self, table: QTableView, entity_kind: str, row: dict[str, Any]) -> tuple[QMenu, Any, Any, Any]:
+    def _build_context_menu(self, table: QTableView, entity_kind: str, row: dict[str, Any]) -> tuple[QMenu, Any, Any]:
         target = str(row.get("__target") or "")
         menu = QMenu(table)
         scan_action = menu.addAction("Scan Asset")
         scan_action.setEnabled(bool(target))
         notes_action = menu.addAction("Add Notes")
-        graph_action = menu.addAction("Focus in Graph")
-        graph_action.setEnabled(self.graph_view.can_focus_entity(entity_kind, row))
-        return menu, scan_action, notes_action, graph_action
+        return menu, scan_action, notes_action
 
     def _open_header_context_menu(self, table: QTableView, point: QPoint) -> None:
         model = table.model()
@@ -809,8 +769,6 @@ class AssetsTab(QWidget):
             summary_parts.append("Has project notes")
         self.detail_summary.setText(" | ".join(part for part in summary_parts if part))
         self.detail_text.setPlainText(self._build_detail_text(payload))
-        self._active_graph_selection = {}
-        self._set_graph_actions_visible(False)
         self._expand_detail_card()
 
     def _build_detail_text(self, payload: dict[str, Any]) -> str:
@@ -829,156 +787,6 @@ class AssetsTab(QWidget):
             else:
                 lines.append(f"{title_case_label(str(key))}: {value}")
         return "\n".join(lines)
-
-    def _build_graph_detail_text(self, payload: dict[str, Any]) -> str:
-        lines = [
-            f"Node Type: {title_case_label(str(payload.get('node_type') or payload.get('entity_type') or 'graph'))}",
-            f"Entity Type: {title_case_label(str(payload.get('entity_type') or 'graph'))}",
-            f"Entity ID: {payload.get('entity_id') or payload.get('id') or '--'}",
-        ]
-        metadata = payload.get("metadata", {})
-        if isinstance(metadata, dict):
-            interesting_keys = (
-                "scan_target",
-                "source_tool",
-                "source_execution_id",
-                "severity",
-                "summary",
-                "value",
-                "port",
-                "protocol",
-                "url",
-                "path",
-                "status",
-                "title",
-                "category",
-            )
-            for key in interesting_keys:
-                value = metadata.get(key)
-                if value in (None, "", [], {}):
-                    continue
-                lines.append(f"{title_case_label(str(key))}: {value}")
-            hidden_type = metadata.get("hidden_type")
-            if hidden_type:
-                lines.append(f"Overflow Type: {title_case_label(str(hidden_type))}")
-            count = metadata.get("count")
-            if count:
-                lines.append(f"Overflow Count: {count}")
-        return "\n".join(lines)
-
-    def _set_graph_actions_visible(self, visible: bool) -> None:
-        for button in (
-            self.graph_expand_button,
-            self.graph_lineage_button,
-            self.graph_reveal_button,
-            self.graph_scan_button,
-        ):
-            button.setVisible(visible)
-
-    def _update_graph_action_state(self, payload: dict[str, Any]) -> None:
-        metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-        self._set_graph_actions_visible(True)
-        self.graph_expand_button.setEnabled(bool(payload.get("id")))
-        self.graph_lineage_button.setEnabled(bool(payload.get("id")))
-        self.graph_reveal_button.setEnabled(bool(self._graph_selection_resolve_inventory_row()[1]))
-        self.graph_scan_button.setEnabled(bool(metadata.get("scan_target")))
-
-    def _handle_graph_node_selected(self, payload: dict[str, Any]) -> None:
-        self._active_graph_selection = dict(payload)
-        metadata = payload.get("metadata", {}) if isinstance(payload.get("metadata"), dict) else {}
-        label = str(payload.get("label") or payload.get("id") or "Graph Node")
-        summary_parts = [
-            title_case_label(str(payload.get("node_type") or payload.get("entity_type") or "graph")),
-            str(metadata.get("scan_target") or ""),
-        ]
-        if metadata.get("source_tool"):
-            summary_parts.append(f"Source {metadata.get('source_tool')}")
-        self.detail_title.setText(label)
-        self.detail_summary.setText(" | ".join(part for part in summary_parts if part))
-        self.detail_text.setPlainText(self._build_graph_detail_text(payload))
-        self._update_graph_action_state(payload)
-        self._expand_detail_card()
-
-    def _graph_selection_resolve_inventory_row(self) -> tuple[str, dict[str, Any] | None]:
-        payload = self._active_graph_selection
-        if not payload:
-            return "", None
-        return self.graph_view.reveal_inventory_row(
-            entity_type=str(payload.get("entity_type") or ""),
-            entity_id=str(payload.get("entity_id") or ""),
-        )
-
-    def _select_inventory_row(self, entity_kind: str, row: dict[str, Any]) -> None:
-        table_map = {
-            "asset": (self.inventory_tabs, 0, self.assets_view),
-            "service": (self.inventory_tabs, 1, self.services_view),
-            "web_app": (self.web_tabs, 0, self.web_apps_view),
-            "endpoint": (self.web_tabs, 1, self.endpoints_view),
-            "technology": (self.inventory_tabs, 3, self.technologies_view),
-        }
-        if entity_kind not in table_map:
-            return
-        tab_widget, tab_index, table = table_map[entity_kind]
-        if tab_widget is self.inventory_tabs:
-            self.inventory_tabs.setCurrentIndex(tab_index)
-        else:
-            self.inventory_tabs.setCurrentIndex(2)
-            tab_widget.setCurrentIndex(tab_index)
-        model = table.model()
-        if model is None:
-            return
-        for index_row in range(model.rowCount()):
-            candidate = model.index(index_row, 0).data(Qt.UserRole) or {}
-            if not isinstance(candidate, dict):
-                continue
-            if entity_kind == "asset" and candidate.get("asset_id") == row.get("asset_id"):
-                table.selectRow(index_row)
-                break
-            if entity_kind == "service" and candidate.get("service_id") == row.get("service_id"):
-                table.selectRow(index_row)
-                break
-            if entity_kind == "web_app" and candidate.get("webapp_id") == row.get("webapp_id"):
-                table.selectRow(index_row)
-                break
-            if entity_kind == "endpoint" and candidate.get("endpoint_id") == row.get("endpoint_id"):
-                table.selectRow(index_row)
-                break
-            if entity_kind == "technology" and candidate.get("tech_id") == row.get("tech_id"):
-                table.selectRow(index_row)
-                break
-        self._show_detail(entity_kind, row, table)
-
-    def _focus_row_in_graph(self, entity_kind: str, row: dict[str, Any]) -> None:
-        if not self.graph_view.focus_entity(entity_kind, row):
-            return
-        self.asset_views.setCurrentWidget(self.graph_view)
-        self.detail_title.setText(str(row.get("__label") or row_label(entity_kind, row, self._snapshot)))
-        self.detail_summary.setText("Graph focus updated for the selected inventory row.")
-        self.detail_text.setPlainText("The graph is now centered on this asset relationship cluster.")
-        self._set_graph_actions_visible(False)
-        self._expand_detail_card()
-
-    def _expand_graph_selection(self) -> None:
-        self.graph_view.expand_selected()
-
-    def _show_graph_lineage(self) -> None:
-        self.graph_view.show_lineage()
-
-    def _reveal_graph_selection_in_inventory(self) -> None:
-        entity_kind, row = self._graph_selection_resolve_inventory_row()
-        if not entity_kind or row is None:
-            return
-        self.asset_views.setCurrentIndex(0)
-        self._select_inventory_row(entity_kind, row)
-
-    def _scan_graph_selection(self) -> None:
-        metadata = self._active_graph_selection.get("metadata", {})
-        if not isinstance(metadata, dict):
-            return
-        target = str(metadata.get("scan_target") or "").strip()
-        label = str(self._active_graph_selection.get("label") or target or "Graph Node").strip()
-        if target:
-            self._launch_scan(target, label)
 
     def _expand_detail_card(self) -> None:
         sizes = self.main_split.sizes()
@@ -1006,8 +814,6 @@ class AssetsTab(QWidget):
         self._active_detail_kind = ""
         self._active_detail_row = {}
         self._active_detail_table = None
-        self._active_graph_selection = {}
-        self._set_graph_actions_visible(False)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

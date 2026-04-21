@@ -56,6 +56,21 @@ def _profile_noise_limit(profile_name: str, config: dict[str, Any]) -> int:
     return 10
 
 
+def _task_enabled_by_config(rule_task: dict[str, Any], config: dict[str, Any]) -> tuple[bool, str]:
+    section_name = str(rule_task.get("config_section") or rule_task.get("adapter_key") or "")
+    enabled_key = str(rule_task.get("config_enabled_key") or "enabled")
+    if not section_name:
+        return True, ""
+    section = config.get(section_name, {})
+    if not isinstance(section, dict):
+        return True, ""
+    if section.get("enabled") is False:
+        return False, f"disabled by {section_name}.enabled"
+    if enabled_key != "enabled" and section.get(enabled_key) is False:
+        return False, f"disabled by {section_name}.{enabled_key}"
+    return True, ""
+
+
 def _build_task_definition(
     rule_task: dict[str, Any],
     runner: TaskRunner,
@@ -132,6 +147,7 @@ def build_task_plan(
             or approval_class_for_task(rule_task.get("key"), rule_task.get("capability"), config)
         )
         blocked_by_policy = False
+        enabled_by_config, config_disabled_reason = _task_enabled_by_config(rule_task, config)
         if adapter_key not in adapter_runners:
             items.append(
                 PlanItem(
@@ -151,6 +167,10 @@ def build_task_plan(
         runner, preview_callable = adapter_runners[adapter_key]
         condition = CONDITION_MAP.get(condition_name, CONDITION_MAP["always"])
         should_run, condition_reason = condition(run_data)
+        if not enabled_by_config:
+            should_run = False
+            blocked_by_policy = True
+            condition_reason = config_disabled_reason
         if rule_task.get("capability") in blocked_capabilities:
             should_run = False
             blocked_by_policy = True

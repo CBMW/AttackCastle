@@ -125,6 +125,7 @@ TOOL_EXPECTED_MARKERS: dict[str, tuple[str, ...]] = {
 CAPABILITY_TOOL_MAPPING: dict[str, tuple[str, str, str]] = {
     "subdomain_enumeration": ("subfinder", "subfinder", "Enumerating subdomains"),
     "network_port_scan": ("nmap", "nmap", "Running Nmap"),
+    "service_detection": ("nmap", "nmap", "Detecting services with Nmap"),
     "dns_resolution": ("dig", "dig", "Resolving hosts"),
     "web_probe": ("httpx", "httpx", "Checking if assets are websites"),
     "vhost_discovery": ("internal", "python", "Discovering virtual hosts"),

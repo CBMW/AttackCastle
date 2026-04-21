@@ -16,6 +16,13 @@ ACTIVE_TASK_STATUSES = {"running", "waiting"}
 RUNTIME_CHECKPOINT_KEYS = {"_runtime_state"}
 
 
+def _coverage_enabled(profile: GuiProfile, key: str, default: bool) -> bool:
+    overrides = profile.tool_coverage_overrides
+    if isinstance(overrides, dict) and key in overrides:
+        return bool(overrides[key])
+    return bool(default)
+
+
 def _performance_guard_overrides(profile: GuiProfile, settings: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(settings, dict) or not settings.get("enabled", True):
         return {}
@@ -79,6 +86,8 @@ def _performance_guard_overrides(profile: GuiProfile, settings: dict[str, Any] |
 
 
 def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str, Any] | None = None) -> dict[str, Any]:
+    nmap_port_discovery_enabled = _coverage_enabled(profile, "port_discovery.nmap", profile.enable_nmap)
+    nmap_service_detection_enabled = _coverage_enabled(profile, "service_detection.nmap", profile.enable_nmap)
     coverage_engine = {
         "enabled": True,
         "mode": profile.active_validation_mode,
@@ -114,20 +123,48 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
         "rate_limit": {
             "execution_mode": profile.rate_limit_mode,
         },
-        "subdomain_enum": {"enabled": profile.enable_subfinder},
-        "dns": {"enabled": profile.enable_dnsx},
-        "resolve_hosts": {"enabled": profile.enable_dig_host},
-        "nmap": {"enabled": profile.enable_nmap},
-        "whatweb": {"enabled": profile.enable_whatweb},
-        "nikto": {"enabled": profile.enable_nikto},
+        "subdomain_enum": {
+            "enabled": _coverage_enabled(profile, "subdomain_enumeration.subfinder", profile.enable_subfinder),
+        },
+        "dns": {"enabled": _coverage_enabled(profile, "dns_resolution.dnsx", profile.enable_dnsx)},
+        "resolve_hosts": {"enabled": _coverage_enabled(profile, "dns_resolution.dig_host", profile.enable_dig_host)},
+        "nmap": {
+            "enabled": bool(nmap_port_discovery_enabled or nmap_service_detection_enabled),
+            "port_discovery_enabled": nmap_port_discovery_enabled,
+            "service_detection_enabled": nmap_service_detection_enabled,
+        },
+        "whatweb": {
+            "enabled": _coverage_enabled(
+                profile,
+                "web_technology_fingerprinting.whatweb",
+                profile.enable_whatweb,
+            ),
+        },
+        "nikto": {
+            "enabled": _coverage_enabled(
+                profile,
+                "general_vulnerability_scanning.nikto",
+                profile.enable_nikto,
+            ),
+        },
         "nuclei": {
-            "enabled": profile.enable_nuclei,
+            "enabled": _coverage_enabled(
+                profile,
+                "general_vulnerability_scanning.nuclei",
+                profile.enable_nuclei,
+            ),
             "payload_wordlist_path": profile.payload_wordlist_path,
         },
-        "tls": {"enabled": profile.enable_openssl_tls},
-        "wpscan": {"enabled": profile.enable_wpscan},
+        "tls": {
+            "enabled": _coverage_enabled(
+                profile,
+                "tls_and_certificate_analysis.openssl",
+                profile.enable_openssl_tls,
+            ),
+        },
+        "wpscan": {"enabled": _coverage_enabled(profile, "cms_enumeration.wpscan", profile.enable_wpscan)},
         "sqlmap": {
-            "enabled": profile.enable_sqlmap,
+            "enabled": _coverage_enabled(profile, "focused_exploitation.sqlmap", profile.enable_sqlmap),
             "parameter_wordlist_path": profile.parameter_wordlist_path,
             "payload_wordlist_path": profile.payload_wordlist_path,
         },
@@ -136,7 +173,14 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
             "parameter_wordlist_path": profile.parameter_wordlist_path,
             "payload_wordlist_path": profile.payload_wordlist_path,
         },
-        "web_probe": {"enabled": profile.enable_web_probe, "capture_screenshots": True},
+        "web_probe": {
+            "enabled": _coverage_enabled(
+                profile,
+                "http_service_discovery.httpx",
+                profile.enable_web_probe,
+            ),
+            "capture_screenshots": True,
+        },
     }
     performance_overrides = _performance_guard_overrides(profile, performance_guard)
     for section, values in performance_overrides.items():

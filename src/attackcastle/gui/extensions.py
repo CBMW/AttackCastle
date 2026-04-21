@@ -110,9 +110,6 @@ DEFAULT_THEME_TOKENS: dict[str, Any] = {
         "danger_hover": "#481921",
         "danger_hover_border": "#bd5a69",
         "danger_text": "#ffd7dc",
-        "graph_bg": "#0d0d0d",
-        "graph_line": "#343434",
-        "graph_text": "#d9d9d9",
         "hero_end": "#070707",
         "hero_glow": "#171717",
         "hero_mid": "#101010",
@@ -425,6 +422,82 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QLabel#toolCoverageName[available="false"] {{
         color: {severity['critical'][1]};
+    }}
+    QDialog#launchScanDialog QScrollArea#launchDialogScroll,
+    QDialog#launchScanDialog QWidget#launchDialogContent {{
+        background: transparent;
+        border: 0;
+    }}
+    QDialog#launchScanDialog QGroupBox#launchPanelGroup {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: 8px;
+        margin-top: 8px;
+        padding-top: 10px;
+        color: {palette['text_strong']};
+        font-weight: 700;
+    }}
+    QDialog#launchScanDialog QGroupBox#launchPanelGroup::title {{
+        subcontrol-origin: margin;
+        subcontrol-position: top left;
+        left: 10px;
+        top: 0;
+        padding: 0 4px;
+        background: transparent;
+        color: {palette['text_strong']};
+        letter-spacing: 0;
+    }}
+    QDialog#launchScanDialog QFrame#launchAdvancedPanel {{
+        background: transparent;
+        border: 0;
+    }}
+    QDialog#launchScanDialog QFrame#profileCard {{
+        background: {palette['control_group_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 8px;
+    }}
+    QDialog#launchScanDialog QFrame#profileSubCard,
+    QDialog#launchScanDialog QFrame#toolCoverageCategory {{
+        background: rgba(255, 255, 255, 0.014);
+        border: 1px solid {palette['border_soft']};
+        border-radius: 7px;
+    }}
+    QDialog#launchScanDialog QFrame#toolCoverageRow {{
+        background: rgba(255, 255, 255, 0.012);
+        border: 1px solid rgba(95, 95, 95, 0.46);
+        border-radius: 6px;
+    }}
+    QDialog#launchScanDialog QPushButton#launchAdvancedToggle {{
+        min-height: 24px;
+        padding: 4px 10px;
+    }}
+    QDialog#launchScanDialog QLabel#infoBanner,
+    QDialog#launchScanDialog QLabel#attentionBanner {{
+        padding: 6px 8px;
+        background: {palette['info_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 6px;
+    }}
+    QDialog#launchScanDialog QLabel#attentionBanner[tone="alert"] {{
+        background: {severity['critical'][0]};
+        border-color: {palette['border']};
+        color: {severity['critical'][1]};
+    }}
+    QDialog#launchScanDialog QLabel#attentionBanner[tone="warning"] {{
+        background: {severity['medium'][0]};
+        border-color: {palette['border']};
+        color: {severity['medium'][1]};
+    }}
+    QDialog#launchScanDialog QLabel#attentionBanner[tone="ok"] {{
+        background: {workflow['confirmed'][0]};
+        border-color: {palette['border']};
+        color: {workflow['confirmed'][1]};
+    }}
+    QDialog#launchScanDialog QListWidget#sidebarList {{
+        background: {palette['input_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 6px;
+        padding: 2px;
     }}
     QLabel#appTitle, QLabel#heroTitle {{ font-size: {typography['title_size']}; font-weight: 700; color: {palette['text_strong']}; background: transparent; letter-spacing: 0; }}
     QLabel#appSubtitle {{ color: {palette['text_muted']}; font-size: 12px; font-weight: 600; background: transparent; }}
@@ -869,12 +942,13 @@ def build_asset_graph_stylesheet(tokens: dict[str, Any] | None = None) -> str:
     merged = _deep_merge(DEFAULT_THEME_TOKENS, tokens or {})
     palette = merged["palette"]
     typography = merged["typography"]
-    radii = merged["radii"]
+    graph_bg = palette.get("graph_bg", palette["input_bg"])
+    graph_text = palette.get("graph_text", palette["text_strong"])
+    graph_line = palette.get("graph_line", palette["border_soft"])
     return f""":root {{
-  --graph-bg: {palette['graph_bg']};
-  --graph-text: {palette['graph_text']};
-  --graph-line: {palette['graph_line']};
-  --graph-radius: {radii['surface']};
+  --graph-bg: {graph_bg};
+  --graph-text: {graph_text};
+  --graph-line: {graph_line};
 }}
 
 html,

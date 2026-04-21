@@ -21,9 +21,12 @@ def _safe_slug(value: str) -> str:
 
 class NmapAdapter:
     name = "nmap"
-    capability = "network_port_scan"
     noise_score = 4
     cost_score = 7
+
+    def __init__(self, scan_mode: str = "port_discovery") -> None:
+        self.scan_mode = scan_mode
+        self.capability = "service_detection" if scan_mode == "service_detection" else "network_port_scan"
 
     def _collect_scope_targets(self, run_data: RunData) -> list[str]:
         return collect_resolved_host_scan_targets(run_data)
@@ -44,6 +47,42 @@ class NmapAdapter:
         cleaned = [item for item in cleaned if item not in {"-F", "-p-"}]
         return cleaned
 
+    def _strip_service_detection_flags(self, command: list[str]) -> list[str]:
+        flags_with_values = {
+            "--script",
+            "--script-args",
+            "--script-help",
+            "--script-trace",
+            "--script-updatedb",
+            "--script-timeout",
+            "--version-intensity",
+            "--version-trace",
+        }
+        flags_without_values = {
+            "-sV",
+            "-sC",
+            "-A",
+            "--version-light",
+            "--version-all",
+            "--allports",
+        }
+        cleaned: list[str] = []
+        index = 0
+        while index < len(command):
+            item = command[index]
+            if item in flags_without_values:
+                index += 1
+                continue
+            if item in flags_with_values:
+                index += 2
+                continue
+            if any(item.startswith(f"{flag}=") for flag in flags_with_values):
+                index += 1
+                continue
+            cleaned.append(item)
+            index += 1
+        return cleaned
+
     def _build_command(
         self,
         nmap_path: str,
@@ -58,6 +97,10 @@ class NmapAdapter:
         profile_args = profile_config.get("nmap_args", [])
         extra_args = global_config.get("nmap", {}).get("args", [])
         command = [nmap_path, *profile_args, *extra_args]
+        if self.scan_mode == "port_discovery":
+            command = self._strip_service_detection_flags(command)
+        elif not any(item in command for item in ("-sV", "-A", "--version-light", "--version-all")):
+            command.append("-sV")
 
         # Masscan previously skipped ICMP-based host discovery. Keep Nmap aligned
         # with that behavior so we do not miss hosts that block probes.
@@ -83,6 +126,38 @@ class NmapAdapter:
         command.extend(["-oX", str(xml_output), *targets])
         return command
 
+    def _service_targets(self, run_data: RunData) -> dict[str, list[int]]:
+        assets_by_id = {asset.asset_id: asset for asset in run_data.assets}
+        grouped: dict[str, set[int]] = {}
+        for service in run_data.services:
+            if str(service.protocol or "tcp").lower() not in {"tcp", ""}:
+                continue
+            if int(service.port or 0) <= 0:
+                continue
+            asset = assets_by_id.get(service.asset_id)
+            target = ""
+            if asset is not None:
+                target = str(asset.ip or asset.name or "").strip()
+            if not target:
+                target = str(service.asset_id or "").strip()
+            if not target:
+                continue
+            grouped.setdefault(target, set()).add(int(service.port))
+        return {target: sorted(ports) for target, ports in grouped.items() if ports}
+
+    def _pending_service_targets(self, run_data: RunData) -> dict[str, list[int]]:
+        completed = {
+            str(item).strip()
+            for item in run_data.facts.get("nmap.service_scanned_targets", [])
+            if str(item).strip()
+        }
+        pending: dict[str, list[int]] = {}
+        for target, ports in self._service_targets(run_data).items():
+            key = f"{self._normalize_target(target)}:{','.join(str(port) for port in ports)}"
+            if key not in completed:
+                pending[target] = ports
+        return pending
+
     def _pending_targets(self, context: AdapterContext, run_data: RunData) -> list[str]:
         if context.task_inputs:
             return [str(item).strip() for item in context.task_inputs if str(item).strip()]
@@ -102,13 +177,15 @@ class NmapAdapter:
         started_at = now_utc()
         result = AdapterResult()
 
-        if not bool(context.config.get("nmap", {}).get("enabled", True)):
+        nmap_config = context.config.get("nmap", {})
+        mode_enabled_key = "service_detection_enabled" if self.scan_mode == "service_detection" else "port_discovery_enabled"
+        if not bool(nmap_config.get("enabled", True)) or not bool(nmap_config.get(mode_enabled_key, True)):
             ended_at = now_utc()
             result.facts["nmap.available"] = False
             result.tool_executions.append(
                 build_tool_execution(
                     tool_name=self.name,
-                    command="nmap (disabled)",
+                    command=f"nmap ({self.scan_mode} disabled)",
                     started_at=started_at,
                     ended_at=ended_at,
                     status="skipped",
@@ -152,9 +229,27 @@ class NmapAdapter:
             for item in run_data.facts.get("nmap.scanned_targets", [])
             if str(item).strip()
         }
-        targets = self._pending_targets(context, run_data)
+        targets = self._pending_targets(context, run_data) if self.scan_mode != "service_detection" else []
         task_suffix = _safe_slug(context.task_instance_key or "_".join(targets) or "batch")
-        if targets:
+        if self.scan_mode == "service_detection":
+            service_targets = self._pending_service_targets(run_data)
+            for target, ports in service_targets.items():
+                service_suffix = _safe_slug(context.task_instance_key or f"{target}_{'_'.join(str(port) for port in ports)}")
+                jobs.append(
+                    {
+                        "targets": [target],
+                        "ports": ports,
+                        "udp_top_ports": 0,
+                        "xml_path": context.run_store.artifact_path(self.name, f"nmap_services_{service_suffix}.xml"),
+                        "stdout_path": context.run_store.artifact_path(self.name, f"nmap_services_stdout_{service_suffix}.txt"),
+                        "stderr_path": context.run_store.artifact_path(self.name, f"nmap_services_stderr_{service_suffix}.txt"),
+                        "transcript_path": context.run_store.artifact_path(
+                            self.name,
+                            f"nmap_services_transcript_{service_suffix}.txt",
+                        ),
+                    }
+                )
+        elif targets:
             jobs.append(
                 {
                     "targets": targets,
@@ -169,9 +264,9 @@ class NmapAdapter:
                     ),
                 }
             )
-        result.facts["nmap.scan_mode"] = "scope_discovery"
+        result.facts["nmap.scan_mode"] = self.scan_mode
         udp_targets = targets
-        if udp_top_ports > 0 and udp_targets:
+        if self.scan_mode != "service_detection" and udp_top_ports > 0 and udp_targets:
             jobs.append(
                 {
                     "targets": udp_targets,
@@ -194,7 +289,7 @@ class NmapAdapter:
             result.tool_executions.append(
                 build_tool_execution(
                     tool_name=self.name,
-                    command="nmap (no targets)",
+                    command=f"nmap ({self.scan_mode} no targets)",
                     started_at=started_at,
                     ended_at=ended_at,
                     status="skipped",
@@ -209,6 +304,7 @@ class NmapAdapter:
         parsed_any = False
         completed_jobs = 0
         completed_targets: set[str] = set()
+        completed_service_targets: set[str] = set()
         provider_edges: dict[str, str] = {}
 
         for job in jobs:
@@ -340,20 +436,34 @@ class NmapAdapter:
             completed_jobs += 1
             if status == "completed":
                 completed_targets.update(self._normalize_target(item) for item in job["targets"])
+                if self.scan_mode == "service_detection":
+                    for item in job["targets"]:
+                        ports = ",".join(str(port) for port in job["ports"] or [])
+                        completed_service_targets.add(f"{self._normalize_target(item)}:{ports}")
 
         ended_at = now_utc()
         result.facts["nmap.available"] = True
         result.facts["nmap.parsed"] = parsed_any
         result.facts["nmap.discovered_hosts"] = discovered_hosts_total
-        result.facts["nmap.service_detection_runs"] = completed_jobs
+        if self.scan_mode == "service_detection":
+            existing_service_scanned = {
+                str(item).strip()
+                for item in run_data.facts.get("nmap.service_scanned_targets", [])
+                if str(item).strip()
+            }
+            result.facts["nmap.service_detection_runs"] = completed_jobs
+            result.facts["nmap.service_scanned_targets"] = sorted(existing_service_scanned.union(completed_service_targets))
+        else:
+            result.facts["nmap.port_discovery_runs"] = completed_jobs
         result.facts["nmap.udp_top_ports"] = udp_top_ports
         result.facts["nmap.provider_edges"] = provider_edges
         attempted_targets = {self._normalize_target(item) for item in targets}
         completed_set = existing_scanned.union(item for item in completed_targets if item)
-        result.facts["nmap.attempted_targets"] = sorted(attempted_targets)
-        result.facts["nmap.completed_targets"] = sorted(completed_set)
-        result.facts["nmap.failed_targets"] = sorted(attempted_targets.difference(completed_targets))
-        result.facts["nmap.scanned_targets"] = sorted(completed_set)
+        if self.scan_mode != "service_detection":
+            result.facts["nmap.attempted_targets"] = sorted(attempted_targets)
+            result.facts["nmap.completed_targets"] = sorted(completed_set)
+            result.facts["nmap.failed_targets"] = sorted(attempted_targets.difference(completed_targets))
+            result.facts["nmap.scanned_targets"] = sorted(completed_set)
 
         context.audit.write(
             "adapter.completed",
@@ -381,6 +491,27 @@ class NmapAdapter:
 
     def preview_commands(self, context: AdapterContext, run_data: RunData) -> list[str]:
         nmap_path = shutil.which("nmap") or "nmap"
+        if self.scan_mode == "service_detection":
+            service_targets = self._pending_service_targets(run_data)
+            commands: list[str] = []
+            for target, ports in list(service_targets.items())[:50]:
+                xml_output = context.run_store.artifact_path(self.name, f"nmap_services_{_safe_slug(target)}.xml")
+                command = self._build_command(
+                    nmap_path=nmap_path,
+                    targets=[target],
+                    xml_output=xml_output,
+                    profile_config=context.profile_config,
+                    global_config=context.config,
+                    ports=ports,
+                    parallelism=current_tool_budget(
+                        context,
+                        self.capability,
+                        target_count=1,
+                    ).get("threads"),
+                )
+                if command:
+                    commands.append(" ".join(shlex.quote(item) for item in command))
+            return commands
         targets = self._pending_targets(context, run_data)
         if not targets:
             return []

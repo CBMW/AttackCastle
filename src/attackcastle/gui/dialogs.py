@@ -241,6 +241,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             selected_engagement_id = ""
         super().__init__(parent)
         self.setWindowTitle("Launch Scan")
+        self.setObjectName("launchScanDialog")
         self.setModal(True)
         self.setMinimumSize(760, 620)
         size_dialog_to_screen(self, default_width=1080, default_height=900, min_width=760, min_height=620)
@@ -261,16 +262,18 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self._readiness_report: ReadinessReport | None = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
         content_scroll = configure_scroll_surface(QScrollArea())
+        content_scroll.setObjectName("launchDialogScroll")
         content_scroll.setWidgetResizable(True)
         content_scroll.setFrameShape(QFrame.NoFrame)
         layout.addWidget(content_scroll, 1)
         content = QWidget()
+        content.setObjectName("launchDialogContent")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 6, 0)
-        content_layout.setSpacing(14)
+        content_layout.setContentsMargins(0, 0, 4, 0)
+        content_layout.setSpacing(10)
         content_scroll.setWidget(content)
 
         helper = QLabel("Start with the essentials, then open advanced overrides only when the session needs extra tuning.")
@@ -310,8 +313,9 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         target_input_layout.addWidget(self.scope_status_label)
 
         essentials = QGroupBox("Launch Essentials")
+        essentials.setObjectName("launchPanelGroup")
         essentials_layout = QFormLayout(essentials)
-        essentials_layout.setContentsMargins(16, 16, 16, 16)
+        essentials_layout.setContentsMargins(12, 14, 12, 12)
         apply_form_layout_defaults(essentials_layout)
         essentials_layout.addRow("Scan Name", self.scan_name_edit)
         essentials_layout.addRow("Profile", self.profile_picker)
@@ -339,9 +343,10 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         content_layout.addWidget(self.launch_validation_label)
 
         extension_group = QGroupBox("GUI Extensions")
+        extension_group.setObjectName("launchPanelGroup")
         extension_layout = QVBoxLayout(extension_group)
-        extension_layout.setContentsMargins(16, 16, 16, 16)
-        extension_layout.setSpacing(10)
+        extension_layout.setContentsMargins(12, 14, 12, 12)
+        extension_layout.setSpacing(8)
         extension_helper = QLabel("Select enabled GUI-only command hook extensions to run after the core scan and before report generation.")
         extension_helper.setObjectName("helperText")
         extension_helper.setWordWrap(True)
@@ -363,6 +368,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self._populate_extensions()
 
         self.advanced_toggle = QPushButton("Show Advanced Overrides")
+        self.advanced_toggle.setObjectName("launchAdvancedToggle")
         self.advanced_toggle.setCheckable(True)
         style_button(self.advanced_toggle, role="secondary")
         self.advanced_toggle.toggled.connect(self._toggle_advanced_options)
@@ -370,14 +376,16 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         content_layout.addWidget(self.advanced_toggle, 0, Qt.AlignLeft)
 
         frame = QFrame()
-        frame.setObjectName("subtlePanel")
+        frame.setObjectName("launchAdvancedPanel")
         frame_layout = QVBoxLayout(frame)
         frame_layout.setContentsMargins(0, 0, 0, 0)
+        frame_layout.setSpacing(0)
         frame_layout.addWidget(
             self._profile_form(
                 include_identity=False,
                 collapsible_sections=True,
                 preset_header="",
+                include_posture=False,
                 include_active_validation=False,
             )
         )
@@ -520,6 +528,10 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         return issues
 
     def _enabled_tools(self) -> list[str]:
+        if hasattr(self, "_enabled_tool_coverage_labels"):
+            labels = self._enabled_tool_coverage_labels()
+            if labels:
+                return labels
         return [
             name
             for name, checkbox in (

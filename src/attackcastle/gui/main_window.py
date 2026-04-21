@@ -327,7 +327,6 @@ class MainWindow(QMainWindow):
         self.attacker_page = self._build_attacker_page()
         self.attacker_page.setMinimumHeight(0)
         self.output_tab = OutputTab(
-            self._resolve_snapshot,
             self._save_finding_state,
             self._open_local_path,
             layout_loader=self._load_ui_layout,
@@ -1930,7 +1929,6 @@ class MainWindow(QMainWindow):
         self.run_model.set_rows(filtered_rows)
         self.run_results_label.setText(f"Showing {len(filtered_rows)}/{len(rows)} runs")
         self._sync_workspace_run_table()
-        self.output_tab.set_compare_options(list(self._run_snapshots.values()), self._selected_run_id)
         self._update_run_action_state()
 
     def _run_selected(self, index: QModelIndex) -> None:
@@ -1953,7 +1951,6 @@ class MainWindow(QMainWindow):
         snapshot = self._run_snapshots[run_id]
         self.output_tab.set_snapshot(snapshot, self._finding_states_by_run.get(run_id, {}))
         self.scanner_panel.set_snapshot(snapshot)
-        self.output_tab.set_compare_options(list(self._run_snapshots.values()), run_id)
 
     def _resolve_snapshot(self, run_id: str) -> RunSnapshot | None:
         return self._run_snapshots.get(run_id)

@@ -137,8 +137,24 @@ TOOL_FIELD_NAMES = {
     "enable_sqlmap": "sqlmap",
 }
 
+
+def _coverage_slug(value: str) -> str:
+    normalized: list[str] = []
+    previous_separator = False
+    for char in str(value or "").strip().lower():
+        if char.isalnum():
+            normalized.append(char)
+            previous_separator = False
+            continue
+        if not previous_separator:
+            normalized.append("_")
+            previous_separator = True
+    return "".join(normalized).strip("_") or "item"
+
+
 TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
     {
+        "id": "subdomain_enumeration",
         "title": "Subdomain Enumeration",
         "description": "Find additional in-scope hosts, domains, and internet-facing assets.",
         "tools": (
@@ -148,6 +164,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "dns_resolution",
         "title": "DNS Resolution",
         "description": "Confirm discovered assets resolve and validate live host mappings.",
         "tools": (
@@ -157,6 +174,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "port_discovery",
         "title": "Port Discovery",
         "description": "Quickly identify exposed TCP services on discovered hosts.",
         "tools": (
@@ -167,6 +185,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "service_detection",
         "title": "Service Detection",
         "description": "Determine what open ports are actually running and identify service versions.",
         "tools": (
@@ -176,6 +195,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "http_service_discovery",
         "title": "HTTP Service Discovery",
         "description": "Identify web services, collect titles/statuses, and capture screenshots.",
         "tools": (
@@ -185,6 +205,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "web_screenshots",
         "title": "Web Screenshots",
         "description": "Capture screenshots and visual page inventory for rapid operator review.",
         "tools": (
@@ -194,6 +215,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "web_technology_fingerprinting",
         "title": "Web Technology Fingerprinting",
         "description": "Fingerprint frameworks, WAFs, CDNs, CMSs, and technology stacks.",
         "tools": (
@@ -203,6 +225,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "directory_and_file_discovery",
         "title": "Directory and File Discovery",
         "description": "Discover hidden files, directories, admin panels, and forgotten paths.",
         "tools": (
@@ -212,6 +235,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "parameter_discovery",
         "title": "Parameter Discovery",
         "description": "Identify hidden or unlinked parameters that expand attack surface.",
         "tools": (
@@ -221,6 +245,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "javascript_recon",
         "title": "JavaScript Recon",
         "description": "Extract endpoints, secrets, routes, and client-side attack surface from JavaScript.",
         "tools": (
@@ -230,6 +255,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "api_endpoint_discovery",
         "title": "API Endpoint Discovery",
         "description": "Discover API endpoints, GraphQL surfaces, and OpenAPI/Swagger exposure.",
         "tools": (
@@ -239,6 +265,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "tls_and_certificate_analysis",
         "title": "TLS and Certificate Analysis",
         "description": "Review TLS posture, certificate details, protocol support, and SSL weaknesses.",
         "tools": (
@@ -249,6 +276,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "general_vulnerability_scanning",
         "title": "General Vulnerability Scanning",
         "description": "Run safe broad validation and exposure checks against identified targets.",
         "tools": (
@@ -258,6 +286,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "cms_enumeration",
         "title": "CMS Enumeration",
         "description": "Run technology-specific enumeration for identified CMS or platform targets.",
         "tools": (
@@ -267,6 +296,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "authentication_surface_testing",
         "title": "Authentication Surface Testing",
         "description": "Focus on login surfaces, session handling, cookies, token lifetime, and auth paths.",
         "tools": (
@@ -276,6 +306,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "focused_exploitation",
         "title": "Focused Exploitation",
         "description": "Run targeted higher-impact validation when a likely issue is already suspected.",
         "tools": (
@@ -285,6 +316,7 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
         ),
     },
     {
+        "id": "oast_callback_detection",
         "title": "OAST / Callback Detection",
         "description": "Validate blind and out-of-band behaviours such as SSRF and blind XSS callbacks.",
         "tools": (
@@ -330,13 +362,14 @@ class ProfileFieldsMixin:
         return self._profile_card(title, description, widget)
 
     def _profile_card(self, title: str, description: str, widget: QWidget, *, surface: str = "primary") -> Card:
+        compact = bool(getattr(self, "_compact_profile_cards", False))
         card = Card(
             title,
             summary=description,
             object_name="profileCard",
             surface=surface,
-            padding=18,
-            spacing=12,
+            padding=12 if compact else 18,
+            spacing=8 if compact else 12,
         )
         card.content_layout.addWidget(widget)
         return card
@@ -348,6 +381,7 @@ class ProfileFieldsMixin:
         collapsible_sections: bool = False,
         preset_header: str = "Quick Presets",
         preset_helper: str = "Apply a tuned preset, then adjust only the fields the engagement needs.",
+        include_posture: bool = True,
         include_active_validation: bool = True,
     ) -> QWidget:
         container = QWidget()
@@ -356,11 +390,12 @@ class ProfileFieldsMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PANEL_CONTENT_PADDING)
 
+        self._compact_profile_cards = not include_identity
         self._track_manual_tool_overrides = not include_identity
         self._build_profile_fields()
 
         sections: list[tuple[str, str, QWidget, bool]] = []
-        if include_identity:
+        if include_identity and include_posture:
             sections.append(
                 (
                     "Profile Posture",
@@ -369,7 +404,7 @@ class ProfileFieldsMixin:
                     True,
                 ),
             )
-        else:
+        elif include_posture:
             sections.append(
                 (
                     "Profile Posture",
@@ -564,9 +599,15 @@ class ProfileFieldsMixin:
         self._active_recipe_name = ""
         self._recipe_buttons: dict[str, QPushButton] = {}
         self._tool_category_cards: list[QFrame] = []
+        self._tool_rows: list[QFrame] = []
+        self._tool_rows_by_card: dict[QFrame, list[QFrame]] = {}
         self._tool_rows_by_field: dict[str, list[dict[str, object]]] = {}
+        self._tool_rows_by_key: dict[str, dict[str, object]] = {}
         self._profile_tool_defaults: dict[str, bool] = {}
         self._manual_tool_overrides: dict[str, bool] = {}
+        self._tool_coverage_overrides: dict[str, bool] = {}
+        self._profile_tool_coverage_defaults: dict[str, bool] = {}
+        self._manual_tool_coverage_overrides: dict[str, bool] = {}
         self._syncing_tool_widgets = False
         self._loading_profile_tools = False
         self._suspend_recipe_tracking = False
@@ -732,8 +773,10 @@ class ProfileFieldsMixin:
     def _checkbox_group(self, title: str, helper: str, checkboxes: tuple[QCheckBox, ...]) -> QWidget:
         group = QFrame()
         group.setObjectName("profileSubCard")
+        compact = bool(getattr(self, "_compact_profile_cards", False))
         layout = QVBoxLayout(group)
-        layout.setContentsMargins(14, 14, 14, 14)
+        padding = 10 if compact else 14
+        layout.setContentsMargins(padding, padding, padding, padding)
         layout.setSpacing(PAGE_CARD_SPACING)
         title_label = QLabel(title)
         title_label.setObjectName("profileGroupTitle")
@@ -755,11 +798,26 @@ class ProfileFieldsMixin:
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(PANEL_CONTENT_PADDING)
 
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(PAGE_CARD_SPACING)
+        header_layout.addStretch(1)
+        self.hide_windows_only_checkbox = QCheckBox("Hide Windows Only")
+        self.hide_windows_only_checkbox.setObjectName("hideWindowsOnlyTools")
+        self.hide_windows_only_checkbox.toggled.connect(self._update_tool_family_cards)
+        set_tooltip(self.hide_windows_only_checkbox, "Hide tools that are not currently available in this Windows launch workflow.")
+        header_layout.addWidget(self.hide_windows_only_checkbox, 0, Qt.AlignRight)
+        layout.addWidget(header)
+
         self.tool_family_grid = QGridLayout()
         self.tool_family_grid.setHorizontalSpacing(PANEL_CONTENT_PADDING)
         self.tool_family_grid.setVerticalSpacing(PANEL_CONTENT_PADDING)
         self._tool_category_cards = []
+        self._tool_rows = []
+        self._tool_rows_by_card = {}
         self._tool_rows_by_field = {}
+        self._tool_rows_by_key = {}
         for idx, category in enumerate(TOOL_COVERAGE_CATEGORIES):
             card = self._build_tool_category_card(category)
             self._tool_category_cards.append(card)
@@ -781,8 +839,10 @@ class ProfileFieldsMixin:
         card = QFrame()
         card.setObjectName("toolCoverageCategory")
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        compact = bool(getattr(self, "_compact_profile_cards", False))
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 14, 14, 14)
+        padding = 10 if compact else 14
+        card_layout.setContentsMargins(padding, padding, padding, padding)
         card_layout.setSpacing(PAGE_CARD_SPACING)
 
         header = QWidget()
@@ -798,27 +858,41 @@ class ProfileFieldsMixin:
         body_layout = QVBoxLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(PAGE_CARD_SPACING)
+        category_rows: list[QFrame] = []
+        category_id = str(category.get("id") or _coverage_slug(str(category.get("title", ""))))
         for tool_name, _description, field in category.get("tools", ()):
-            body_layout.addWidget(self._build_tool_row(str(tool_name), str(field)))
+            row = self._build_tool_row(str(tool_name), str(field), category_id)
+            category_rows.append(row)
+            body_layout.addWidget(row)
+        self._tool_rows_by_card[card] = category_rows
         card_layout.addWidget(header)
         card_layout.addWidget(body)
         return card
 
-    def _build_tool_row(self, tool_name: str, field: str) -> QFrame:
+    def _build_tool_row(self, tool_name: str, field: str, category_id: str) -> QFrame:
         row = QFrame()
         row.setObjectName("toolCoverageRow")
+        self._tool_rows.append(row)
+        coverage_key = f"{category_id}.{_coverage_slug(tool_name)}"
+        row.setProperty("coverage_key", coverage_key)
         available = bool(field and hasattr(self, field))
         row.setProperty("available", available)
+        # In the Windows launch workflow, rows without an engine mapping are
+        # treated as Windows-only visibility noise until they are wired up.
+        row.setProperty("windows_only", not available)
         row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(8, 8, 8, 8)
+        compact = bool(getattr(self, "_compact_profile_cards", False))
+        padding = 6 if compact else 8
+        row_layout.setContentsMargins(padding, padding, padding, padding)
         row_layout.setSpacing(PAGE_CARD_SPACING)
 
         checkbox = QCheckBox()
         checkbox.setObjectName("toolCoverageCheckbox")
+        checkbox.setProperty("coverage_key", coverage_key)
         checkbox.setEnabled(available)
         checkbox.setFocusPolicy(Qt.StrongFocus if available else Qt.NoFocus)
         if available:
-            checkbox.toggled.connect(lambda checked, tool_field=field: self._set_tool_field_from_row(tool_field, checked))
+            checkbox.toggled.connect(lambda checked, key=coverage_key: self._set_tool_coverage_row(key, checked))
         row_layout.addWidget(checkbox, 0, Qt.AlignTop)
 
         name_label = QLabel(tool_name)
@@ -827,8 +901,16 @@ class ProfileFieldsMixin:
         row_layout.addWidget(name_label, 1, Qt.AlignVCenter)
 
         if available:
+            entry = {
+                "checkbox": checkbox,
+                "field": field,
+                "tool_name": tool_name,
+                "coverage_key": coverage_key,
+                "category_id": category_id,
+            }
+            self._tool_rows_by_key[coverage_key] = entry
             rows = self._tool_rows_by_field.setdefault(field, [])
-            rows.append({"checkbox": checkbox})
+            rows.append(entry)
         else:
             checkbox.setToolTip("This tool is not currently wired into the AttackCastle scan pipeline.")
             row.setToolTip("Unavailable: no implemented AttackCastle adapter or per-scan override hook exists yet.")
@@ -901,8 +983,11 @@ class ProfileFieldsMixin:
         for field in TOOL_FIELDS:
             checkbox = getattr(self, field)
             checkbox.setChecked(bool(recipe.get(field, checkbox.isChecked())))
+        self._tool_coverage_overrides.clear()
         self._profile_tool_defaults = self._current_tool_state()
+        self._profile_tool_coverage_defaults = self._current_tool_coverage_state()
         self._manual_tool_overrides.clear()
+        self._manual_tool_coverage_overrides.clear()
         self.export_html.setChecked(bool(recipe.get("export_html_report", self.export_html.isChecked())))
         self.export_json.setChecked(bool(recipe.get("export_json_data", self.export_json.isChecked())))
 
@@ -967,18 +1052,83 @@ class ProfileFieldsMixin:
                     self._manual_tool_overrides[field] = checked
         self._update_tool_family_cards()
         self._mark_recipe_as_custom()
+        refresh = getattr(self, "_refresh_launch_summary", None)
+        if callable(refresh):
+            refresh()
 
     def _update_tool_family_cards(self) -> None:
         self._sync_tool_rows()
+        hide_windows_only = (
+            hasattr(self, "hide_windows_only_checkbox")
+            and self.hide_windows_only_checkbox.isChecked()
+        )
+        for row in getattr(self, "_tool_rows", []):
+            row.setVisible(not (hide_windows_only and bool(row.property("windows_only"))))
+        for card, rows in getattr(self, "_tool_rows_by_card", {}).items():
+            card.setVisible(any(not row.isHidden() for row in rows))
 
-    def _set_tool_field_from_row(self, field: str, checked: bool) -> None:
-        if self._syncing_tool_widgets or not hasattr(self, field):
+    def _row_baseline_checked(self, entry: dict[str, object]) -> bool:
+        field = str(entry.get("field") or "")
+        return bool(getattr(self, field).isChecked()) if field and hasattr(self, field) else False
+
+    def _row_checked(self, coverage_key: str) -> bool:
+        entry = self._tool_rows_by_key.get(coverage_key)
+        if not entry:
+            return False
+        if coverage_key in self._tool_coverage_overrides:
+            return bool(self._tool_coverage_overrides[coverage_key])
+        return self._row_baseline_checked(entry)
+
+    def _set_tool_coverage_override(self, coverage_key: str, checked: bool) -> None:
+        entry = self._tool_rows_by_key.get(coverage_key)
+        if not entry:
             return
-        checkbox = getattr(self, field)
-        checkbox.setChecked(checked)
+        if checked == self._row_baseline_checked(entry):
+            self._tool_coverage_overrides.pop(coverage_key, None)
+        else:
+            self._tool_coverage_overrides[coverage_key] = checked
+
+    def _set_tool_coverage_row(self, coverage_key: str, checked: bool) -> None:
+        if self._syncing_tool_widgets:
+            return
+        self._set_tool_coverage_override(coverage_key, checked)
+        if not self._loading_profile_tools and getattr(self, "_track_manual_tool_overrides", False):
+            default = self._profile_tool_coverage_defaults.get(coverage_key)
+            if default is not None:
+                if checked == default:
+                    self._manual_tool_coverage_overrides.pop(coverage_key, None)
+                else:
+                    self._manual_tool_coverage_overrides[coverage_key] = checked
+        self._update_tool_family_cards()
+        self._mark_recipe_as_custom()
 
     def _current_tool_state(self) -> dict[str, bool]:
         return {field: getattr(self, field).isChecked() for field in TOOL_FIELDS if hasattr(self, field)}
+
+    def _current_tool_coverage_state(self) -> dict[str, bool]:
+        return {
+            key: self._row_checked(key)
+            for key in self._tool_rows_by_key
+        }
+
+    def _current_tool_coverage_overrides(self) -> dict[str, bool]:
+        overrides: dict[str, bool] = {}
+        for key, entry in self._tool_rows_by_key.items():
+            checked = self._row_checked(key)
+            if checked != self._row_baseline_checked(entry):
+                overrides[key] = checked
+        return overrides
+
+    def _enabled_tool_coverage_labels(self) -> list[str]:
+        labels: list[str] = []
+        for key, entry in self._tool_rows_by_key.items():
+            if not self._row_checked(key):
+                continue
+            tool_name = str(entry.get("tool_name") or "")
+            category_id = str(entry.get("category_id") or "").replace("_", " ")
+            label = f"{tool_name} ({category_id.title()})" if tool_name else category_id.title()
+            labels.append(label)
+        return labels
 
     def _apply_tool_state(self, state: dict[str, bool]) -> None:
         self._loading_profile_tools = True
@@ -994,17 +1144,20 @@ class ProfileFieldsMixin:
         if self._manual_tool_overrides:
             self._apply_tool_state(self._manual_tool_overrides)
 
+    def _apply_manual_tool_coverage_overrides(self) -> None:
+        for coverage_key, checked in self._manual_tool_coverage_overrides.items():
+            self._set_tool_coverage_override(coverage_key, checked)
+        self._update_tool_family_cards()
+
     def _sync_tool_rows(self) -> None:
         if self._syncing_tool_widgets:
             return
         self._syncing_tool_widgets = True
         try:
-            for field, rows in self._tool_rows_by_field.items():
-                checked = getattr(self, field).isChecked() if hasattr(self, field) else False
-                for row in rows:
-                    checkbox = row.get("checkbox")
-                    if isinstance(checkbox, QCheckBox):
-                        checkbox.setChecked(checked)
+            for coverage_key, entry in self._tool_rows_by_key.items():
+                checkbox = entry.get("checkbox")
+                if isinstance(checkbox, QCheckBox):
+                    checkbox.setChecked(self._row_checked(coverage_key))
         finally:
             self._syncing_tool_widgets = False
 
@@ -1032,7 +1185,7 @@ class ProfileFieldsMixin:
                 f"{self._active_recipe_name}: {recipe['description']} | {enabled_count} tools active | Risk posture: {self.risk_mode_combo.currentText()}"
             )
             return
-        enabled_count = sum(1 for checkbox in self._tool_checkboxes() if checkbox.isChecked())
+        enabled_count = sum(1 for checked in self._current_tool_coverage_state().values() if checked)
         self.profile_preset_summary.setText(
             f"Custom posture. {enabled_count} tools active | Base profile: {self.base_profile_combo.currentText()} | Risk posture: {self.risk_mode_combo.currentText()}"
         )
@@ -1093,6 +1246,7 @@ class ProfileFieldsMixin:
             endpoint_wordlist_path=self.endpoint_wordlist_edit.text().strip(),
             parameter_wordlist_path=self.parameter_wordlist_edit.text().strip(),
             payload_wordlist_path=self.payload_wordlist_edit.text().strip(),
+            tool_coverage_overrides=self._current_tool_coverage_overrides(),
             concurrency=self.concurrency_spin.value(),
             cpu_cores=self.cpu_cores_spin.value(),
             adaptive_execution_enabled=self.adaptive_execution_checkbox.isChecked(),
@@ -1123,6 +1277,7 @@ class ProfileFieldsMixin:
         # The launch dialog preserves explicit per-scan deltas when the operator
         # changes the selected profile; the profile editor intentionally resets.
         previous_overrides = dict(self._manual_tool_overrides) if preserve_manual_overrides else {}
+        previous_coverage_overrides = dict(self._manual_tool_coverage_overrides) if preserve_manual_overrides else {}
         self._loading_profile_tools = True
         self.profile_name_edit.setText(profile.name)
         self.description_edit.setText(profile.description)
@@ -1158,16 +1313,24 @@ class ProfileFieldsMixin:
         self.enable_nuclei.setChecked(profile.enable_nuclei)
         self.enable_wpscan.setChecked(profile.enable_wpscan)
         self.enable_sqlmap.setChecked(profile.enable_sqlmap)
+        self._tool_coverage_overrides = dict(profile.tool_coverage_overrides)
         self.export_html.setChecked(profile.export_html_report)
         self.export_json.setChecked(profile.export_json_data)
         self._loading_profile_tools = False
         self._profile_tool_defaults = self._current_tool_state()
+        self._profile_tool_coverage_defaults = self._current_tool_coverage_state()
         self._manual_tool_overrides = {
             field: value
             for field, value in previous_overrides.items()
             if field in self._profile_tool_defaults
         }
+        self._manual_tool_coverage_overrides = {
+            key: value
+            for key, value in previous_coverage_overrides.items()
+            if key in self._profile_tool_coverage_defaults
+        }
         self._apply_manual_tool_overrides()
+        self._apply_manual_tool_coverage_overrides()
         self._suspend_recipe_tracking = False
         self._active_recipe_name = ""
         self._sync_recipe_buttons()

@@ -75,6 +75,39 @@ def test_build_task_plan_enforces_noise_limit(tmp_path):
     assert result.conflicts
 
 
+def test_build_task_plan_respects_nmap_service_detection_toggle(tmp_path):
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="test",
+            target_input="example.com",
+            profile="standard",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        )
+    )
+    result = build_task_plan(
+        adapters={
+            "nmap": NmapAdapter(scan_mode="port_discovery"),
+            "nmap_service_detection": NmapAdapter(scan_mode="service_detection"),
+        },
+        findings_runner=_noop,
+        report_runner=_noop,
+        run_data=run_data,
+        profile_name="standard",
+        config={
+            "profile": {"max_noise_score": 10},
+            "nmap": {"enabled": True, "port_discovery_enabled": True, "service_detection_enabled": False},
+        },
+    )
+    keys = {task.key for task in result.tasks}
+    service_item = next(item for item in result.items if item.key == "run-nmap-service-detection")
+
+    assert "run-nmap" in keys
+    assert "run-nmap-service-detection" not in keys
+    assert service_item.selected is False
+    assert "service_detection_enabled" in service_item.reason
+
+
 def test_seed_scope_assets_only_sets_ip_for_ip_literals(tmp_path):
     run_data = RunData(
         metadata=RunMetadata(

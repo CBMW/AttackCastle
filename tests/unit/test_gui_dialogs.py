@@ -133,6 +133,25 @@ def test_launch_dialog_tool_coverage_marks_unwired_tools_unavailable() -> None:
         dialog.close()
 
 
+def test_launch_dialog_reused_tool_rows_are_independent() -> None:
+    dialog = _make_dialog()
+
+    try:
+        rows = {
+            str(checkbox.property("coverage_key")): checkbox
+            for checkbox in dialog.findChildren(QCheckBox)
+            if checkbox.objectName() == "toolCoverageCheckbox" and checkbox.isEnabled()
+        }
+
+        rows["port_discovery.nmap"].setChecked(False)
+
+        assert rows["port_discovery.nmap"].isChecked() is False
+        assert rows["service_detection.nmap"].isChecked() is True
+        assert dialog._profile_from_form().tool_coverage_overrides == {"port_discovery.nmap": False}
+    finally:
+        dialog.close()
+
+
 def test_launch_dialog_removes_playbook_and_preset_library_overrides() -> None:
     dialog = _make_dialog()
 

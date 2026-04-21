@@ -6,7 +6,7 @@ from attackcastle.adapters.nmap.adapter import NmapAdapter
 from attackcastle.adapters.nuclei.parser import parse_nuclei_jsonl
 from attackcastle.core.enums import TargetType
 from attackcastle.core.errors import ValidationError
-from attackcastle.core.models import Asset, Observation, RunData, RunMetadata, ScanTarget, WebApplication, now_utc
+from attackcastle.core.models import Asset, Observation, RunData, RunMetadata, ScanTarget, Service, WebApplication, now_utc
 from attackcastle.normalization.correlator import collect_sqlmap_targets
 from attackcastle.orchestration.rules import INPUT_ITEMS_MAP
 from attackcastle.scope.validators import validate_targets
@@ -56,6 +56,50 @@ def test_nmap_collect_scope_targets_normalizes_url_and_host_port():
     assert "api.example.com" in targets
     assert "https://app.example.com/login" not in targets
     assert "api.example.com:8443" not in targets
+
+
+def test_nmap_port_discovery_strips_service_detection_flags(tmp_path: Path):
+    command = NmapAdapter(scan_mode="port_discovery")._build_command(
+        nmap_path="nmap",
+        targets=["203.0.113.10"],
+        xml_output=tmp_path / "ports.xml",
+        profile_config={"nmap_args": ["-sV", "-sC", "-T3"]},
+        global_config={"scan": {"max_ports": 1000}, "nmap": {"args": ["--version-light"]}},
+    )
+
+    assert "-sV" not in command
+    assert "-sC" not in command
+    assert "--version-light" not in command
+    assert "-T3" in command
+    assert "--top-ports" in command
+
+
+def test_nmap_service_detection_scans_known_ports(tmp_path: Path):
+    run_data = _run_data()
+    run_data.assets.append(Asset(asset_id="asset-1", kind="ip", name="203.0.113.10", ip="203.0.113.10"))
+    run_data.services.append(
+        Service(
+            service_id="svc-1",
+            asset_id="asset-1",
+            port=443,
+            protocol="tcp",
+            state="open",
+        )
+    )
+    adapter = NmapAdapter(scan_mode="service_detection")
+    targets = adapter._pending_service_targets(run_data)
+    command = adapter._build_command(
+        nmap_path="nmap",
+        targets=["203.0.113.10"],
+        xml_output=tmp_path / "services.xml",
+        profile_config={"nmap_args": ["-T3"]},
+        global_config={"scan": {"max_ports": 1000}, "nmap": {"args": []}},
+        ports=targets["203.0.113.10"],
+    )
+
+    assert targets == {"203.0.113.10": [443]}
+    assert "-sV" in command
+    assert command[command.index("-p") + 1] == "443"
 
 
 def test_repeatable_scan_input_items_split_pending_targets():

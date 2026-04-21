@@ -43,6 +43,8 @@ tasks:
     capability: network_port_scan
     approval_class: safe_auto
     adapter_key: nmap
+    config_section: nmap
+    config_enabled_key: port_discovery_enabled
     condition: has_service_scan_targets
     dependencies:
       - resolve-hosts
@@ -53,6 +55,29 @@ tasks:
     network_intensity: medium
     noise_score: 4
     cost_score: 7
+    stage: recon
+    repeatable_on_new_inputs: true
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.6
+
+  - key: run-nmap-service-detection
+    label: Detecting services with Nmap
+    capability: service_detection
+    approval_class: safe_auto
+    adapter_key: nmap_service_detection
+    config_section: nmap
+    config_enabled_key: service_detection_enabled
+    condition: has_service_targets
+    dependencies:
+      - run-nmap
+    input_entity_types: [PortService]
+    produced_entity_types: [PortService]
+    can_run_many: false
+    profile_sensitivity: balanced
+    network_intensity: medium
+    noise_score: 4
+    cost_score: 5
     stage: recon
     repeatable_on_new_inputs: true
     retryable: true
@@ -129,6 +154,7 @@ tasks:
     condition: has_service_targets
     dependencies:
       - run-nmap
+      - run-nmap-service-detection
     input_entity_types: [PortService, WebService, Certificate]
     produced_entity_types: [FindingCandidate, CloudSignal]
     can_run_many: true
@@ -361,6 +387,7 @@ tasks:
     condition: has_enrichment_targets
     dependencies:
       - run-nmap
+      - run-nmap-service-detection
       - fingerprint-web
     input_entity_types: [PortService, WebService]
     produced_entity_types: [FindingCandidate]
@@ -382,6 +409,7 @@ tasks:
     condition: always
     dependencies:
       - run-nmap
+      - run-nmap-service-detection
       - check-websites
       - run-vhost-discovery
       - discover-web

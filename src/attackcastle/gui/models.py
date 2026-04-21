@@ -82,6 +82,7 @@ class GuiProfile:
     endpoint_wordlist_path: str = ""
     parameter_wordlist_path: str = ""
     payload_wordlist_path: str = ""
+    tool_coverage_overrides: dict[str, bool] = field(default_factory=dict)
     export_html_report: bool = True
     export_json_data: bool = True
 
@@ -135,6 +136,12 @@ class GuiProfile:
             endpoint_wordlist_path=str(payload.get("endpoint_wordlist_path", "")),
             parameter_wordlist_path=str(payload.get("parameter_wordlist_path", "")),
             payload_wordlist_path=str(payload.get("payload_wordlist_path", "")),
+            tool_coverage_overrides={
+                str(key): _coerce_bool(value, False)
+                for key, value in (payload.get("tool_coverage_overrides") or {}).items()
+            }
+            if isinstance(payload.get("tool_coverage_overrides"), dict)
+            else {},
             export_html_report=_coerce_bool(payload.get("export_html_report", True), True),
             export_json_data=_coerce_bool(payload.get("export_json_data", True), True),
         )

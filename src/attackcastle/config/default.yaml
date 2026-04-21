@@ -45,6 +45,7 @@ risk_modes:
       max_sqlmap_targets: 0
       blocked_capabilities:
         - network_port_scan
+        - service_detection
         - web_vuln_scan
         - web_template_scan
         - web_injection_scan
@@ -207,6 +208,8 @@ adaptive_execution:
 
 nmap:
   enabled: true
+  port_discovery_enabled: true
+  service_detection_enabled: true
   timeout_seconds: 1800
   args: []
   host_discovery_args:
