@@ -7,6 +7,7 @@ from attackcastle.gui.extensions import (
     DEFAULT_THEME_EXTENSION_NAME,
     ExtensionValidationError,
     LEGACY_DEFAULT_THEME_EXTENSION_ID,
+    REPORTS_EXTENSION_ID,
     build_default_theme_manifest,
     build_starter_command_hook_manifest,
 )
@@ -25,7 +26,11 @@ def test_extension_store_bootstraps_default_theme(tmp_path) -> None:
     assert active.name == DEFAULT_THEME_EXTENSION_NAME
     assert active.description == "Modern graphite AttackCastle theme with premium blue-violet accents and cleaner contrast."
     assert active.theme is not None
-    assert active.theme.tokens["palette"]["accent_primary"] == "#78a6ff"
+    assert active.theme.tokens["palette"]["accent_primary"] == "#e3e3e3"
+    reports = next(record for record in records if record.extension_id == REPORTS_EXTENSION_ID)
+    assert reports.manifest is not None
+    assert "report" in reports.capabilities
+    assert reports.enabled is False
 
 
 def test_extension_store_migrates_legacy_default_theme_state(tmp_path) -> None:

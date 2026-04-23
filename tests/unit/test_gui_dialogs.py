@@ -74,18 +74,16 @@ def test_launch_dialog_uses_inline_validation_for_missing_fields(monkeypatch: py
         dialog.close()
 
 
-def test_launch_dialog_preset_updates_tools_and_risk_summary() -> None:
+def test_launch_dialog_has_no_profile_preset_controls() -> None:
     dialog = _make_dialog()
 
     try:
-        dialog._apply_profile_recipe("WordPress")
         dialog._refresh_launch_summary()
 
-        assert dialog.enable_wpscan.isChecked() is True
-        assert dialog.enable_sqlmap.isChecked() is False
-        assert dialog.risk_mode_combo.currentText() == "safe-active"
         assert "Coverage:" in dialog.launch_summary.text()
-        assert "Validation Presets:" not in dialog.launch_summary.text()
+        assert "Active Validation:" not in dialog.launch_summary.text()
+        assert not hasattr(dialog, "_apply_profile_recipe")
+        assert not hasattr(dialog, "profile_preset_summary")
     finally:
         dialog.close()
 

@@ -87,6 +87,8 @@ class AssetsTab(QWidget):
         launch_scan: Callable[[str, str], None],
         load_notes: Callable[[str], dict[str, EntityNote]],
         save_note: Callable[[str, EntityNote], None],
+        send_to_attacker: Callable[[str, dict[str, Any], RunSnapshot, str], None] | None = None,
+        attacker_action_types: Callable[[str], list[tuple[str, str]]] | None = None,
         parent: QWidget | None = None,
         layout_loader: Callable[[str, str], list[int] | None] | None = None,
         layout_saver: Callable[[str, str, list[int]], None] | None = None,
@@ -95,6 +97,8 @@ class AssetsTab(QWidget):
         self._launch_scan = launch_scan
         self._load_notes = load_notes
         self._save_note = save_note
+        self._send_to_attacker = send_to_attacker
+        self._attacker_action_types = attacker_action_types
         self._snapshot: RunSnapshot | None = None
         self._notes: dict[str, EntityNote] = {}
         self._active_detail_signature = ""
@@ -577,12 +581,39 @@ class AssetsTab(QWidget):
             self._launch_scan(target, row.get("__label") or row_label(entity_kind, row, self._snapshot))
         elif action is notes_action:
             self._edit_note_for_row(entity_kind, row)
+        elif action is not None and self._send_to_attacker is not None:
+            action_payload = action.data()
+            if isinstance(action_payload, dict) and action_payload.get("action") == "send_to_attacker":
+                self._send_to_attacker(
+                    entity_kind,
+                    row,
+                    self._snapshot,
+                    str(action_payload.get("workspace_type") or ""),
+                )
 
     def _build_context_menu(self, table: QTableView, entity_kind: str, row: dict[str, Any]) -> tuple[QMenu, Any, Any]:
         target = str(row.get("__target") or "")
         menu = QMenu(table)
         scan_action = menu.addAction("Scan Asset")
         scan_action.setEnabled(bool(target))
+        if self._send_to_attacker is not None:
+            send_menu = QMenu("Send to Attacker", menu)
+            menu.addMenu(send_menu)
+            menu._attackcastle_send_menu = send_menu  # type: ignore[attr-defined]
+            action_types = (
+                self._attacker_action_types(entity_kind)
+                if self._attacker_action_types is not None
+                else []
+            )
+            for workspace_type, label in action_types:
+                attack_action = send_menu.addAction(label)
+                attack_action.setData(
+                    {
+                        "action": "send_to_attacker",
+                        "workspace_type": workspace_type,
+                    }
+                )
+            send_menu.setEnabled(bool(action_types))
         notes_action = menu.addAction("Add Notes")
         return menu, scan_action, notes_action
 

@@ -42,6 +42,7 @@ class ExtensionsTab(QWidget):
         store: GuiExtensionStore,
         on_theme_applied: Callable[[ExtensionManifest], None],
         open_path: Callable[[str], None],
+        on_extensions_changed: Callable[[], None] | None = None,
         parent: QWidget | None = None,
         layout_loader: Callable[[str, str], list[int] | None] | None = None,
         layout_saver: Callable[[str, str, list[int]], None] | None = None,
@@ -50,6 +51,7 @@ class ExtensionsTab(QWidget):
         self.store = store
         self.on_theme_applied = on_theme_applied
         self.open_path = open_path
+        self.on_extensions_changed = on_extensions_changed
         self._records = []
         self._selected_extension_id = ""
         self._loaded_text = ""
@@ -407,6 +409,8 @@ class ExtensionsTab(QWidget):
         self.store.set_extension_enabled(self._selected_extension_id, not record.enabled)
         self.reload_extensions()
         self._select_extension_id(self._selected_extension_id)
+        if self.on_extensions_changed is not None:
+            self.on_extensions_changed()
 
     def _apply_theme(self) -> None:
         if not self._selected_extension_id:

@@ -88,16 +88,6 @@ def _performance_guard_overrides(profile: GuiProfile, settings: dict[str, Any] |
 def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str, Any] | None = None) -> dict[str, Any]:
     nmap_port_discovery_enabled = _coverage_enabled(profile, "port_discovery.nmap", profile.enable_nmap)
     nmap_service_detection_enabled = _coverage_enabled(profile, "service_detection.nmap", profile.enable_nmap)
-    coverage_engine = {
-        "enabled": True,
-        "mode": profile.active_validation_mode,
-        "request_replay_enabled": profile.request_replay_enabled,
-        "per_target_budget": profile.validation_budget_per_target,
-        "target_duration_hours": profile.target_duration_hours,
-        "revisit_enabled": profile.revisit_enabled,
-        "breadth_first": profile.breadth_first,
-        "unauthenticated_only": profile.unauthenticated_only,
-    }
     overrides: dict[str, Any] = {
         "profile": {
             "concurrency": profile.concurrency,
@@ -112,10 +102,14 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
             "url": profile.proxy_url.strip() if profile.proxy_enabled else "",
         },
         "request_capture": {
-            "enabled": True,
+            "enabled": False,
         },
-        "coverage_engine": coverage_engine,
-        "active_validation": coverage_engine,
+        "coverage_engine": {
+            "enabled": False,
+        },
+        "active_validation": {
+            "enabled": False,
+        },
         "adaptive_execution": {
             "enabled": profile.adaptive_execution_enabled,
             "cpu_core_cap": profile.cpu_cores,

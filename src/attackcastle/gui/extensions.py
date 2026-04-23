@@ -15,6 +15,9 @@ DEFAULT_THEME_EXTENSION_NAME = "AttackCastle Graphite Modern"
 DEFAULT_THEME_EXTENSION_DESCRIPTION = (
     "Modern graphite AttackCastle theme with premium blue-violet accents and cleaner contrast."
 )
+REPORTS_EXTENSION_ID = "attackcastle-reports"
+REPORTS_EXTENSION_NAME = "Reports"
+REPORTS_EXTENSION_DESCRIPTION = "HackLabs-style DOCX report exporting from the AttackCastle GUI."
 
 
 class ExtensionValidationError(ValueError):
@@ -371,7 +374,193 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         background: rgba(255, 255, 255, 0.012);
         border-color: {palette['border_soft']};
     }}
-    QWidget#profilePresetPanel,
+    QFrame#reportsSetupPanel,
+    QFrame#reportsScopePanel {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['panel']['start']}, stop:0.58 {gradients['panel']['mid']}, stop:1 {gradients['panel']['end']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['surface']};
+    }}
+    QFrame#attackerToolSidebar,
+    QFrame#attackerWorkspaceShell {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {gradients['panel']['start']}, stop:0.56 {gradients['panel']['mid']}, stop:1 {gradients['panel']['end']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['surface']};
+    }}
+    QFrame#attackerToolSidebar {{
+        border-color: {palette['border']};
+    }}
+    QFrame#attackerToolCard {{
+        background: rgba(255, 255, 255, 0.012);
+        border: 1px solid transparent;
+        border-radius: 6px;
+    }}
+    QFrame#attackerToolCard:hover {{
+        background: rgba(255, 255, 255, 0.02);
+        border-color: {palette['border_soft']};
+    }}
+    QFrame#attackerToolCard[active="true"] {{
+        background: rgba(255, 255, 255, 0.024);
+        border-color: {palette['accent_border']};
+    }}
+    QFrame#attackerToolCard[available="false"] {{
+        background: rgba(255, 255, 255, 0.008);
+        border-color: transparent;
+    }}
+    QFrame#attackerToolHeader,
+    QFrame#attackerEditorPanel,
+    QFrame#attackerEmptyState,
+    QFrame#attackerComingSoonPanel {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: 7px;
+    }}
+    QFrame#attackerToolHeader {{
+        border-color: {palette['border']};
+    }}
+    QFrame#attackerEditorPanel {{
+        background: rgba(18, 18, 18, 0.72);
+    }}
+    QLabel#attackerRailTitle,
+    QLabel#attackerWorkspaceTitle {{
+        color: {palette['text_strong']};
+        font-size: 20px;
+        font-weight: 800;
+        background: transparent;
+    }}
+    QLabel#attackerRailTitle {{
+        font-size: 15px;
+    }}
+    QLabel#attackerRailHelper,
+    QLabel#attackerWorkspaceSubtitle,
+    QLabel#attackerPanelHelper,
+    QLabel#attackerToolDescription,
+    QLabel#attackerComingSoonText {{
+        color: {palette['text_soft']};
+        background: transparent;
+    }}
+    QLabel#attackerToolName,
+    QLabel#attackerPanelTitle {{
+        color: {palette['text_strong']};
+        font-weight: 800;
+        background: transparent;
+    }}
+    QLabel#attackerToolName {{
+        color: {palette['text_soft']};
+        font-weight: 700;
+    }}
+    QFrame#attackerToolCard[active="true"] QLabel#attackerToolName {{
+        color: {palette['text_strong']};
+    }}
+    QFrame#attackerToolCard[available="false"] QLabel#attackerToolName,
+    QFrame#attackerToolCard[available="false"] QLabel#attackerToolDescription {{
+        color: {palette['text_soft']};
+    }}
+    QLabel#attackerToolBadge,
+    QLabel#attackerPill,
+    QLabel#attackerPanelMeta {{
+        padding: 3px 7px;
+        background: {palette['chip_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: {radii['badge']};
+        color: {palette['text_muted']};
+        font-size: 11px;
+        font-weight: 800;
+    }}
+    QLabel#attackerToolBadge[state="ready"],
+    QLabel#attackerPill[state="completed"] {{
+        background: {workflow['confirmed'][0]};
+        color: {workflow['confirmed'][1]};
+        border-color: {palette['border']};
+    }}
+    QLabel#attackerToolBadge[state="coming-soon"],
+    QLabel#attackerPill[state="draft"],
+    QLabel#attackerPill[state="target"],
+    QLabel#attackerPill[state="method"] {{
+        background: {palette['chip_bg']};
+        color: {palette['text_primary']};
+    }}
+    QLabel#attackerPill[state="running"] {{
+        background: {run_states['running'][0]};
+        color: {run_states['running'][1]};
+        border-color: {palette['accent_border']};
+    }}
+    QLabel#attackerPill[state="failed"],
+    QLabel#attackerPill[state="blocked"] {{
+        background: {run_states['failed'][0]};
+        color: {run_states['failed'][1]};
+    }}
+    QPushButton#attackerPrimaryAction {{
+        min-height: 30px;
+        padding: 5px 13px;
+        border-radius: {radii['button']};
+    }}
+    QPlainTextEdit#attackerConsoleText {{
+        background: {palette['input_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 5px;
+        padding: 7px;
+        font-family: {typography['mono_family']};
+        selection-background-color: {palette['selection_bg']};
+        selection-color: {palette['selection_fg']};
+    }}
+    QFrame#reportsSetupSection,
+    QFrame#reportsScopeSection {{
+        background: {palette['control_group_bg']};
+        border: 1px solid {palette['border_soft']};
+        border-radius: 6px;
+    }}
+    QFrame#reportsScopeSection {{
+        background: rgba(255, 255, 255, 0.014);
+    }}
+    QFrame#scopeRow {{
+        background: rgba(255, 255, 255, 0.018);
+        border: 1px solid {palette['border_soft']};
+        border-radius: 4px;
+    }}
+    QFrame#scopeRow:hover {{
+        border-color: {palette['border']};
+        background: rgba(255, 255, 255, 0.026);
+    }}
+    QWidget#reportsPanelHeader,
+    QWidget#reportsSetupSectionBody,
+    QWidget#reportsPathRow,
+    QWidget#reportsCheckGrid,
+    QWidget#scopeRowsHost,
+    QWidget#scopeColumnHeaderRow,
+    QScrollArea#reportsScopeScroll {{
+        background: transparent;
+        border: 0;
+    }}
+    QLabel#scopeColumnHeader {{
+        color: {palette['text_soft']};
+        font-size: 11px;
+        font-weight: 700;
+        background: transparent;
+        padding: 0 3px 2px 3px;
+    }}
+    QFrame#reportsSetupPanel QLineEdit,
+    QFrame#reportsScopePanel QLineEdit {{
+        min-height: 22px;
+        padding: 3px 6px;
+    }}
+    QFrame#reportsSetupPanel QCheckBox,
+    QFrame#reportsScopePanel QCheckBox {{
+        min-height: 22px;
+        spacing: 7px;
+    }}
+    QFrame#reportsSetupPanel QPushButton,
+    QFrame#reportsScopePanel QPushButton {{
+        border-radius: {radii['button']};
+    }}
+    QPushButton#reportsBrowseButton {{
+        min-width: 74px;
+        max-width: 88px;
+    }}
+    QPushButton#scopeAddButton,
+    QPushButton#scopeRemoveButton {{
+        padding: 3px 7px;
+        font-size: 12px;
+    }}
     QWidget#profileBrowseRow,
     QWidget#toolCoverageBody,
     QWidget#expertToolPanel,
@@ -654,9 +843,30 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QTabBar#inspectorTabBar::tab {{
         color: {palette['text_soft']};
     }}
-    QPushButton {{ background: {palette['accent_primary']}; color: {palette['window_bg']}; border: 1px solid {palette['accent_border']}; border-radius: {radii['button']}; padding: {spacing['button_padding']}; font-weight: 700; min-height: 18px; }}
-    QPushButton:hover {{ background: {palette['accent_soft']}; }}
-    QPushButton:disabled {{ background: {palette['panel_bottom']}; color: {palette['text_soft']}; border-color: {palette['border_soft']}; }}
+    QPushButton {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {palette['accent_soft']}, stop:0.56 {palette['accent_primary']}, stop:1 {palette['accent_secondary']});
+        color: {palette['window_bg']};
+        border: 1px solid {palette['accent_border']};
+        border-bottom-color: {palette['accent_secondary']};
+        border-radius: {radii['button']};
+        padding: {spacing['button_padding']};
+        font-weight: 700;
+        min-height: 18px;
+    }}
+    QPushButton:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:0.58 {palette['accent_soft']}, stop:1 {palette['accent_primary']});
+        border-color: {palette['accent_soft']};
+        color: {palette['window_bg_secondary']};
+    }}
+    QPushButton:pressed {{
+        background: {palette['accent_secondary']};
+        border-color: {palette['accent_border']};
+        padding-top: 6px;
+        padding-bottom: 4px;
+    }}
+    QPushButton:focus {{
+        border-color: {palette['accent_soft']};
+    }}
     QPushButton#scannerStartButton {{
         min-width: 24px;
         max-width: 28px;
@@ -680,13 +890,65 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         color: {palette['text_soft']};
     }}
     QPushButton#scannerActionButton, QPushButton#scannerDangerButton {{ padding: 4px 8px; }}
-    QPushButton[variant="secondary"] {{ background: rgba(16, 22, 31, 0.88); color: {palette['text_primary']}; border: 1px solid {palette['border_soft']}; }}
-    QPushButton[variant="secondary"]:hover {{ background: {palette['chip_hover']}; border-color: {palette['border']}; }}
-    QPushButton[variant="danger"] {{ background: {severity['critical'][0]}; color: {severity['critical'][1]}; border: 1px solid {palette['danger_border']}; }}
-    QPushButton[variant="danger"]:hover {{ background: {palette['danger_hover']}; border-color: {palette['danger_hover_border']}; color: {palette['text_strong']}; }}
-    QPushButton[variant="chip"] {{ background: {palette['chip_bg']}; color: {palette['text_muted']}; border: 1px solid {palette['border']}; padding: {spacing['chip_padding']}; }}
-    QPushButton[variant="chip"]:hover {{ background: {palette['chip_hover']}; color: {palette['text_strong']}; }}
-    QPushButton[variant="chip"]:checked {{ background: {palette['selection_bg']}; color: {palette['selection_fg']}; border-color: {palette['accent_soft']}; }}
+    QPushButton[variant="secondary"] {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
+        color: {palette['text_primary']};
+        border: 1px solid {palette['border_soft']};
+        border-bottom-color: {palette['panel_bottom']};
+    }}
+    QPushButton[variant="secondary"]:hover {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {palette['chip_hover']}, stop:1 {palette['surface_bottom']});
+        border-color: {palette['border']};
+        color: {palette['text_strong']};
+    }}
+    QPushButton[variant="secondary"]:pressed {{
+        background: {palette['panel_bottom']};
+        border-color: {palette['border_soft']};
+    }}
+    QPushButton[variant="danger"] {{
+        background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {palette['danger_hover']}, stop:1 {severity['critical'][0]});
+        color: {severity['critical'][1]};
+        border: 1px solid {palette['danger_border']};
+    }}
+    QPushButton[variant="danger"]:hover {{
+        background: {palette['danger_hover']};
+        border-color: {palette['danger_hover_border']};
+        color: {palette['text_strong']};
+    }}
+    QPushButton[variant="danger"]:pressed {{
+        background: {severity['critical'][0]};
+        border-color: {palette['danger_border']};
+    }}
+    QPushButton[variant="chip"] {{
+        background: {palette['chip_bg']};
+        color: {palette['text_muted']};
+        border: 1px solid {palette['border_soft']};
+        padding: {spacing['chip_padding']};
+        font-weight: 700;
+    }}
+    QPushButton[variant="chip"]:hover {{
+        background: {palette['chip_hover']};
+        border-color: {palette['border']};
+        color: {palette['text_strong']};
+    }}
+    QPushButton[variant="chip"]:checked {{
+        background: {palette['selection_bg']};
+        color: {palette['selection_fg']};
+        border-color: {palette['accent_soft']};
+    }}
+    QPushButton:disabled,
+    QPushButton[variant="secondary"]:disabled,
+    QPushButton[variant="danger"]:disabled,
+    QPushButton[variant="chip"]:disabled {{
+        background: {palette['panel_bottom']};
+        color: {palette['text_soft']};
+        border-color: {palette['border_soft']};
+    }}
+    QPushButton#scannerStartButton:disabled {{
+        background: transparent;
+        border: 0;
+        color: {palette['text_soft']};
+    }}
     QFrame#settingsCard QPushButton,
     QFrame#settingsPrimaryCard QPushButton,
     QFrame#settingsDangerCard QPushButton {{
@@ -806,6 +1068,60 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QSlider::handle:horizontal:hover {{
         background: {palette['accent_soft']};
+    }}
+    QFrame#overviewGeneralPanel {{
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+    }}
+    QWidget#overviewGeneralBody,
+    QWidget#generalDonutPanel,
+    QWidget#generalLegendHost,
+    QWidget#generalLegendRow,
+    QWidget#generalTabs {{
+        background: transparent;
+        border: 0;
+    }}
+    QFrame#generalMetricsPanel {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['control_group_bg']}, stop:1 {palette['input_bg']});
+        border: 1px solid {palette['border_soft']};
+        border-radius: 8px;
+    }}
+    QFrame#generalMetricRow {{
+        background: rgba(255, 255, 255, 0.012);
+        border: 1px solid transparent;
+        border-radius: 6px;
+    }}
+    QFrame#generalMetricRow:hover {{
+        background: rgba(255, 255, 255, 0.02);
+        border-color: {palette['border_soft']};
+    }}
+    QLabel#generalMetricLabel {{
+        color: {palette['text_soft']};
+        font-weight: 700;
+        background: transparent;
+    }}
+    QLabel#generalMetricValue {{
+        color: {palette['text_strong']};
+        font-size: 17px;
+        font-weight: 800;
+        background: transparent;
+    }}
+    QLabel#generalLegendLabel {{
+        color: {palette['text_primary']};
+        background: transparent;
+    }}
+    QLabel#generalLegendValue {{
+        color: {palette['text_strong']};
+        font-weight: 800;
+        background: transparent;
+    }}
+    QLabel#generalLegendEmpty {{
+        color: {palette['text_soft']};
+        background: transparent;
+    }}
+    QLabel#generalLegendSwatch {{
+        border-radius: 1px;
     }}
     QWidget#overviewChecklistHeader, QWidget#overviewChecklistListContainer {{ background: transparent; }}
     QLabel#overviewChecklistTitle {{ color: {palette['text_strong']}; font-size: 16px; font-weight: 700; letter-spacing: 0; background: transparent; }}
@@ -1195,4 +1511,20 @@ def build_starter_command_hook_manifest(name: str = "New Command Hook Extension"
         description="GUI-only command hook extension scaffold.",
         capabilities=["command_hook"],
         command_hook=CommandHookExtensionConfig(command="python", args=["-c", "print('hello from extension')"]),
+    )
+
+
+def build_reports_extension_manifest() -> ExtensionManifest:
+    return ExtensionManifest(
+        schema_version=EXTENSION_SCHEMA_VERSION,
+        extension_id=REPORTS_EXTENSION_ID,
+        name=REPORTS_EXTENSION_NAME,
+        version="1.0.0",
+        description=REPORTS_EXTENSION_DESCRIPTION,
+        capabilities=["report"],
+        report={
+            "title": REPORTS_EXTENSION_NAME,
+            "notes": ["Adds a Reports tab for HackLabs-style DOCX exports."],
+            "gui_tab": "reports",
+        },
     )

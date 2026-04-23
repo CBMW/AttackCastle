@@ -8,7 +8,6 @@ from typing import Any
 BUILT_IN_PROFILE_NAMES = ("cautious", "standard", "prototype", "aggressive")
 RATE_LIMIT_MODES = ("careful", "balanced", "aggressive")
 RISK_MODES = ("safe-active", "aggressive", "passive")
-ACTIVE_VALIDATION_MODES = ("passive", "safe-active", "aggressive")
 
 
 def now_iso() -> str:
@@ -72,13 +71,6 @@ class GuiProfile:
     enable_sqlmap: bool = False
     proxy_enabled: bool = False
     proxy_url: str = ""
-    active_validation_mode: str = "safe-active"
-    request_replay_enabled: bool = True
-    validation_budget_per_target: int = 6
-    target_duration_hours: int = 24
-    revisit_enabled: bool = True
-    breadth_first: bool = True
-    unauthenticated_only: bool = True
     endpoint_wordlist_path: str = ""
     parameter_wordlist_path: str = ""
     payload_wordlist_path: str = ""
@@ -118,21 +110,6 @@ class GuiProfile:
             enable_sqlmap=_coerce_bool(payload.get("enable_sqlmap", False), False),
             proxy_enabled=_coerce_bool(payload.get("proxy_enabled", False), False),
             proxy_url=str(payload.get("proxy_url", "")),
-            active_validation_mode=_coerce_choice(
-                payload.get("active_validation_mode"),
-                "safe-active",
-                ACTIVE_VALIDATION_MODES,
-            ),
-            request_replay_enabled=_coerce_bool(payload.get("request_replay_enabled", True), True),
-            validation_budget_per_target=_coerce_int(
-                payload.get("validation_budget_per_target", 6),
-                6,
-                1,
-            ),
-            target_duration_hours=_coerce_int(payload.get("target_duration_hours", 24), 24, 1),
-            revisit_enabled=_coerce_bool(payload.get("revisit_enabled", True), True),
-            breadth_first=_coerce_bool(payload.get("breadth_first", True), True),
-            unauthenticated_only=_coerce_bool(payload.get("unauthenticated_only", True), True),
             endpoint_wordlist_path=str(payload.get("endpoint_wordlist_path", "")),
             parameter_wordlist_path=str(payload.get("parameter_wordlist_path", "")),
             payload_wordlist_path=str(payload.get("payload_wordlist_path", "")),
@@ -145,6 +122,44 @@ class GuiProfile:
             export_html_report=_coerce_bool(payload.get("export_html_report", True), True),
             export_json_data=_coerce_bool(payload.get("export_json_data", True), True),
         )
+
+
+@dataclass(slots=True)
+class GuiProxySettings:
+    proxy_all_traffic: bool = False
+    global_proxy_url: str = ""
+    scanner_proxy_enabled: bool = False
+    scanner_proxy_url: str = ""
+    attacker_proxy_enabled: bool = False
+    attacker_proxy_url: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "GuiProxySettings":
+        return cls(
+            proxy_all_traffic=_coerce_bool(payload.get("proxy_all_traffic", False), False),
+            global_proxy_url=str(payload.get("global_proxy_url", "")),
+            scanner_proxy_enabled=_coerce_bool(payload.get("scanner_proxy_enabled", False), False),
+            scanner_proxy_url=str(payload.get("scanner_proxy_url", "")),
+            attacker_proxy_enabled=_coerce_bool(payload.get("attacker_proxy_enabled", False), False),
+            attacker_proxy_url=str(payload.get("attacker_proxy_url", "")),
+        )
+
+    def effective_scanner_proxy_url(self) -> str:
+        if self.proxy_all_traffic:
+            return self.global_proxy_url.strip()
+        if self.scanner_proxy_enabled:
+            return self.scanner_proxy_url.strip()
+        return ""
+
+    def effective_attacker_proxy_url(self) -> str:
+        if self.proxy_all_traffic:
+            return self.global_proxy_url.strip()
+        if self.attacker_proxy_enabled:
+            return self.attacker_proxy_url.strip()
+        return ""
 
 
 @dataclass(slots=True)
@@ -409,6 +424,7 @@ class FindingState:
     analyst_note: str = ""
     severity_override: str = ""
     include_in_report: bool = True
+    report_flag_touched: bool = False
     reproduce_steps: str = ""
     updated_at: str = field(default_factory=now_iso)
 
@@ -423,8 +439,92 @@ class FindingState:
             analyst_note=str(payload.get("analyst_note", "")),
             severity_override=str(payload.get("severity_override", "")),
             include_in_report=bool(payload.get("include_in_report", True)),
+            report_flag_touched=_coerce_bool(payload.get("report_flag_touched", False), False),
             reproduce_steps=str(payload.get("reproduce_steps", "")),
             updated_at=str(payload.get("updated_at", now_iso())),
+        )
+
+
+@dataclass(slots=True)
+class ReportScopeItem:
+    scope_type: str
+    value: str = ""
+    is_uat: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "ReportScopeItem":
+        return cls(
+            scope_type=str(payload.get("scope_type", "")).strip(),
+            value=str(payload.get("value", "")),
+            is_uat=_coerce_bool(payload.get("is_uat", False), False),
+        )
+
+
+@dataclass(slots=True)
+class ReportsConfig:
+    export_path: str = ""
+    merge_tool_path: str = ""
+    export_formats: list[str] = field(default_factory=lambda: ["docx"])
+    report_title: str = ""
+    report_types: list[str] = field(default_factory=list)
+    client_name: str = ""
+    report_date: str = ""
+    engagement_start_date: str = ""
+    engagement_end_date: str = ""
+    scope_items: list[ReportScopeItem] = field(default_factory=list)
+    add_all_findings: bool = True
+    add_report_only_findings: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "export_path": self.export_path,
+            "merge_tool_path": self.merge_tool_path,
+            "export_formats": list(self.export_formats),
+            "report_title": self.report_title,
+            "report_types": list(self.report_types),
+            "client_name": self.client_name,
+            "report_date": self.report_date,
+            "engagement_start_date": self.engagement_start_date,
+            "engagement_end_date": self.engagement_end_date,
+            "scope_items": [item.to_dict() for item in self.scope_items if item.scope_type],
+            "add_all_findings": self.add_all_findings,
+            "add_report_only_findings": self.add_report_only_findings,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "ReportsConfig":
+        if not isinstance(payload, dict):
+            return cls()
+        raw_types = payload.get("report_types", [])
+        raw_scope = payload.get("scope_items", [])
+        raw_formats = payload.get("export_formats", ["docx"])
+        export_formats = [
+            str(item).strip().lower()
+            for item in raw_formats
+            if str(item).strip().lower() in {"docx", "pdf"}
+        ] if isinstance(raw_formats, list) else ["docx"]
+        return cls(
+            export_path=str(payload.get("export_path", "")),
+            merge_tool_path=str(payload.get("merge_tool_path", "")),
+            export_formats=export_formats or ["docx"],
+            report_title=str(payload.get("report_title", "")),
+            report_types=[str(item) for item in raw_types if str(item).strip()] if isinstance(raw_types, list) else [],
+            client_name=str(payload.get("client_name", "")),
+            report_date=str(payload.get("report_date", "")),
+            engagement_start_date=str(payload.get("engagement_start_date", "")),
+            engagement_end_date=str(payload.get("engagement_end_date", "")),
+            scope_items=[
+                ReportScopeItem.from_dict(item)
+                for item in raw_scope
+                if isinstance(item, dict) and str(item.get("scope_type", "")).strip()
+            ]
+            if isinstance(raw_scope, list)
+            else [],
+            add_all_findings=_coerce_bool(payload.get("add_all_findings", True), True),
+            add_report_only_findings=_coerce_bool(payload.get("add_report_only_findings", False), False),
         )
 
 
@@ -483,6 +583,155 @@ class EntityNote:
             label=str(payload.get("label", "")),
             note=str(payload.get("note", "")),
             target=str(payload.get("target", "")),
+            updated_at=str(payload.get("updated_at", now_iso())),
+        )
+
+
+@dataclass(slots=True)
+class AttackTargetObject:
+    target_object_id: str
+    entity_kind: str
+    label: str = ""
+    target: str = ""
+    signature: str = ""
+    source_run_id: str = ""
+    data: dict[str, Any] = field(default_factory=dict)
+    added_at: str = field(default_factory=now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AttackTargetObject":
+        data = payload.get("data", {})
+        return cls(
+            target_object_id=str(payload.get("target_object_id", "")).strip(),
+            entity_kind=str(payload.get("entity_kind", "")).strip(),
+            label=str(payload.get("label", "")),
+            target=str(payload.get("target", "")),
+            signature=str(payload.get("signature", "")),
+            source_run_id=str(payload.get("source_run_id", "")),
+            data=data if isinstance(data, dict) else {},
+            added_at=str(payload.get("added_at", now_iso())),
+        )
+
+
+@dataclass(slots=True)
+class AttackSession:
+    session_id: str
+    session_type: str
+    label: str = ""
+    status: str = "draft"
+    command: str = ""
+    request: str = ""
+    response: str = ""
+    notes: str = ""
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AttackSession":
+        return cls(
+            session_id=str(payload.get("session_id", "")).strip(),
+            session_type=str(payload.get("session_type", "terminal")).strip() or "terminal",
+            label=str(payload.get("label", "")),
+            status=str(payload.get("status", "draft")) or "draft",
+            command=str(payload.get("command", "")),
+            request=str(payload.get("request", "")),
+            response=str(payload.get("response", "")),
+            notes=str(payload.get("notes", "")),
+            created_at=str(payload.get("created_at", now_iso())),
+            updated_at=str(payload.get("updated_at", now_iso())),
+        )
+
+
+@dataclass(slots=True)
+class AttackEvidence:
+    evidence_id: str
+    source: str = ""
+    summary: str = ""
+    raw_output: str = ""
+    route_to: str = "evidence"
+    created_at: str = field(default_factory=now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AttackEvidence":
+        return cls(
+            evidence_id=str(payload.get("evidence_id", "")).strip(),
+            source=str(payload.get("source", "")),
+            summary=str(payload.get("summary", "")),
+            raw_output=str(payload.get("raw_output", "")),
+            route_to=str(payload.get("route_to", "evidence")) or "evidence",
+            created_at=str(payload.get("created_at", now_iso())),
+        )
+
+
+@dataclass(slots=True)
+class AttackWorkspace:
+    attack_workspace_id: str
+    name: str
+    workspace_type: str = "terminal"
+    status: str = "draft"
+    target_objects: list[AttackTargetObject] = field(default_factory=list)
+    sessions: list[AttackSession] = field(default_factory=list)
+    evidence: list[AttackEvidence] = field(default_factory=list)
+    notes: str = ""
+    linked_findings: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "attack_workspace_id": self.attack_workspace_id,
+            "name": self.name,
+            "workspace_type": self.workspace_type,
+            "status": self.status,
+            "target_objects": [target.to_dict() for target in self.target_objects],
+            "sessions": [session.to_dict() for session in self.sessions],
+            "evidence": [item.to_dict() for item in self.evidence],
+            "notes": self.notes,
+            "linked_findings": list(self.linked_findings),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "AttackWorkspace":
+        raw_targets = payload.get("target_objects", [])
+        raw_sessions = payload.get("sessions", [])
+        raw_evidence = payload.get("evidence", [])
+        raw_linked = payload.get("linked_findings", [])
+        return cls(
+            attack_workspace_id=str(payload.get("attack_workspace_id", "")).strip(),
+            name=str(payload.get("name", "Untitled Attack")).strip() or "Untitled Attack",
+            workspace_type=str(payload.get("workspace_type", "terminal")).strip() or "terminal",
+            status=str(payload.get("status", "draft")) or "draft",
+            target_objects=[
+                AttackTargetObject.from_dict(item)
+                for item in raw_targets
+                if isinstance(item, dict)
+            ],
+            sessions=[
+                AttackSession.from_dict(item)
+                for item in raw_sessions
+                if isinstance(item, dict)
+            ],
+            evidence=[
+                AttackEvidence.from_dict(item)
+                for item in raw_evidence
+                if isinstance(item, dict)
+            ],
+            notes=str(payload.get("notes", "")),
+            linked_findings=[str(item) for item in raw_linked if str(item).strip()]
+            if isinstance(raw_linked, list)
+            else [],
+            created_at=str(payload.get("created_at", now_iso())),
             updated_at=str(payload.get("updated_at", now_iso())),
         )
 

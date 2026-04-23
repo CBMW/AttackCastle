@@ -27,27 +27,30 @@ def test_reload_profiles_preserves_current_selection(tmp_path: Path) -> None:
 
     try:
         names = [tab.profile_list.item(idx).text() for idx in range(tab.profile_list.count())]
-        tab.profile_list.setCurrentRow(names.index("Standard"))
+        tab.profile_list.setCurrentRow(names.index("Basic"))
 
         tab.reload_profiles()
 
         assert tab.profile_list.currentItem() is not None
-        assert tab.profile_list.currentItem().text() == "Standard"
+        assert tab.profile_list.currentItem().text() == "Basic"
     finally:
         tab.close()
 
 
-def test_profile_presets_drive_tool_posture_without_hiding_expert_controls(tmp_path: Path) -> None:
+def test_profile_settings_hide_presets_and_active_validation(tmp_path: Path) -> None:
     tab = _make_tab(tmp_path)
 
     try:
-        tab._apply_profile_recipe("WordPress")
+        section_titles = {
+            label.text()
+            for label in tab.findChildren(QLabel, "sectionTitle")
+        }
 
-        assert tab.enable_wpscan.isChecked() is True
-        assert tab.enable_sqlmap.isChecked() is False
-        assert tab.expert_tool_panel.isHidden()
-        tab.expert_toggle_button.click()
-        assert not tab.expert_tool_panel.isHidden()
+        assert "Profile Presets" not in section_titles
+        assert "Active Validation" not in section_titles
+        assert not hasattr(tab, "_apply_profile_recipe")
+        assert not hasattr(tab, "active_validation_mode_combo")
+        assert not hasattr(tab, "request_replay_enabled_checkbox")
     finally:
         tab.close()
 
@@ -86,7 +89,7 @@ def test_configuration_tab_stacks_library_above_editor_on_narrow_widths(tmp_path
         tab.close()
 
 
-def test_selected_profile_updates_posture_banner(tmp_path: Path) -> None:
+def test_profile_editor_omits_summary_banner(tmp_path: Path) -> None:
     store = GuiProfileStore(tmp_path / "profiles.json")
     store.save_profile(GuiProfile(name="Aggro", risk_mode="aggressive", enable_sqlmap=True))
     tab = _make_tab(tmp_path, store=store)
@@ -94,9 +97,15 @@ def test_selected_profile_updates_posture_banner(tmp_path: Path) -> None:
     try:
         names = [tab.profile_list.item(idx).text() for idx in range(tab.profile_list.count())]
         tab.profile_list.setCurrentRow(names.index("Aggro"))
+        section_titles = {
+            label.text()
+            for label in tab.findChildren(QLabel, "sectionTitle")
+        }
 
-        assert "Stored risk mode: Aggressive" in tab.profile_posture_label.text()
-        assert tab.profile_posture_label.property("tone") == "alert"
+        assert "Profile Summary" not in section_titles
+        assert "Proxy" not in section_titles
+        assert not hasattr(tab, "profile_posture_label")
+        assert not hasattr(tab, "profile_summary_chips")
     finally:
         tab.close()
 

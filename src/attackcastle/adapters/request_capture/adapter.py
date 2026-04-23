@@ -159,6 +159,20 @@ class RequestCaptureAdapter:
         execution_id = new_id("exec")
         result = AdapterResult()
         config = context.config.get("request_capture", {})
+        if isinstance(config, dict) and config.get("enabled") is False:
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="request capture (disabled)",
+                    started_at=started_at,
+                    ended_at=now_utc(),
+                    status="skipped",
+                    execution_id=execution_id,
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            return result
         max_saved_requests = int(config.get("max_saved_requests_per_webapp", 20))
         max_total_requests = int(config.get("max_total_requests", 800))
         user_agent = str(

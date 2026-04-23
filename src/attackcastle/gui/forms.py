@@ -25,90 +25,6 @@ from attackcastle.gui.common import Card, FlowButtonRow, PAGE_CARD_SPACING, PANE
 from attackcastle.gui.common import apply_form_layout_defaults, style_button
 from attackcastle.gui.models import GuiProfile
 
-
-PROFILE_RECIPES: dict[str, dict[str, object]] = {
-    "Recon": {
-        "description": "Low-noise discovery posture for early external scoping and infrastructure mapping.",
-        "base_profile": "cautious",
-        "concurrency": 3,
-        "cpu_cores": 0,
-        "max_ports": 800,
-        "delay_ms_between_requests": 200,
-        "rate_limit_mode": "careful",
-        "risk_mode": "safe-active",
-        "adaptive_execution_enabled": True,
-        "enable_nmap": True,
-        "enable_web_probe": True,
-        "enable_whatweb": True,
-        "enable_nikto": False,
-        "enable_nuclei": False,
-        "enable_wpscan": False,
-        "enable_sqlmap": False,
-        "export_html_report": True,
-        "export_json_data": True,
-    },
-    "Web": {
-        "description": "Balanced web-application posture with discovery, fingerprinting, and safe validation.",
-        "base_profile": "standard",
-        "concurrency": 4,
-        "cpu_cores": 0,
-        "max_ports": 1000,
-        "delay_ms_between_requests": 100,
-        "rate_limit_mode": "balanced",
-        "risk_mode": "safe-active",
-        "adaptive_execution_enabled": True,
-        "enable_nmap": True,
-        "enable_web_probe": True,
-        "enable_whatweb": True,
-        "enable_nikto": True,
-        "enable_nuclei": True,
-        "enable_wpscan": False,
-        "enable_sqlmap": False,
-        "export_html_report": True,
-        "export_json_data": True,
-    },
-    "WordPress": {
-        "description": "Web-focused posture tuned for WordPress surface identification and plugin/theme review.",
-        "base_profile": "prototype",
-        "concurrency": 5,
-        "cpu_cores": 0,
-        "max_ports": 1200,
-        "delay_ms_between_requests": 75,
-        "rate_limit_mode": "balanced",
-        "risk_mode": "safe-active",
-        "adaptive_execution_enabled": True,
-        "enable_nmap": True,
-        "enable_web_probe": True,
-        "enable_whatweb": True,
-        "enable_nikto": True,
-        "enable_nuclei": True,
-        "enable_wpscan": True,
-        "enable_sqlmap": False,
-        "export_html_report": True,
-        "export_json_data": True,
-    },
-    "Full External": {
-        "description": "Broader external coverage for mature engagements while keeping invasive checks opt-in.",
-        "base_profile": "prototype",
-        "concurrency": 6,
-        "cpu_cores": 0,
-        "max_ports": 1500,
-        "delay_ms_between_requests": 50,
-        "rate_limit_mode": "balanced",
-        "risk_mode": "safe-active",
-        "adaptive_execution_enabled": True,
-        "enable_nmap": True,
-        "enable_web_probe": True,
-        "enable_whatweb": True,
-        "enable_nikto": True,
-        "enable_nuclei": True,
-        "enable_wpscan": True,
-        "enable_sqlmap": False,
-        "export_html_report": True,
-        "export_json_data": True,
-    },
-}
-
 TOOL_FIELDS = (
     "enable_subfinder",
     "enable_dnsx",
@@ -379,10 +295,7 @@ class ProfileFieldsMixin:
         *,
         include_identity: bool = True,
         collapsible_sections: bool = False,
-        preset_header: str = "Quick Presets",
-        preset_helper: str = "Apply a tuned preset, then adjust only the fields the engagement needs.",
         include_posture: bool = True,
-        include_active_validation: bool = True,
     ) -> QWidget:
         container = QWidget()
         container.setObjectName("formContainer")
@@ -413,8 +326,6 @@ class ProfileFieldsMixin:
                     True,
                 )
             )
-        if preset_header:
-            sections.append((preset_header, preset_helper, self._build_preset_panel_body(), True))
         sections.extend(
             [
                 (
@@ -423,23 +334,8 @@ class ProfileFieldsMixin:
                     self._build_performance_form(),
                     False,
                 ),
-                (
-                    "Proxy",
-                    "Route supported HTTP tooling through Burp or another HTTP(S) proxy while raw network discovery remains direct.",
-                    self._build_proxy_form(),
-                    False,
-                ),
             ]
         )
-        if include_active_validation:
-            sections.append(
-                (
-                    "Active Validation",
-                    "Control validation posture, request replay, budget, target revisit windows, and strategic behavior.",
-                    self._build_active_validation_form(),
-                    True,
-                )
-            )
         sections.extend(
             [
                 (
@@ -471,7 +367,6 @@ class ProfileFieldsMixin:
 
         layout.addStretch(1)
         self._update_tool_family_cards()
-        self._refresh_preset_summary()
         return container
 
     def _build_profile_fields(self) -> None:
@@ -503,25 +398,6 @@ class ProfileFieldsMixin:
         self.risk_mode_combo.addItems(["safe-active", "aggressive", "passive"])
         self.rate_mode_combo = QComboBox()
         self.rate_mode_combo.addItems(["careful", "balanced", "aggressive"])
-        self.proxy_enabled_checkbox = QCheckBox("Route HTTP-capable tooling through an HTTP(S) proxy")
-        self.proxy_url_edit = QLineEdit()
-        self.proxy_url_edit.setPlaceholderText("http://127.0.0.1:8080")
-        self.active_validation_mode_combo = QComboBox()
-        self.active_validation_mode_combo.addItems(["passive", "safe-active", "aggressive"])
-        self.request_replay_enabled_checkbox = QCheckBox("Enable built-in request replay")
-        self.request_replay_enabled_checkbox.setChecked(True)
-        self.validation_budget_spin = QSpinBox()
-        self.validation_budget_spin.setRange(1, 100)
-        self.validation_budget_spin.setValue(6)
-        self.target_duration_spin = QSpinBox()
-        self.target_duration_spin.setRange(1, 168)
-        self.target_duration_spin.setValue(24)
-        self.revisit_enabled_checkbox = QCheckBox("Revisit surfaces as new evidence appears")
-        self.revisit_enabled_checkbox.setChecked(True)
-        self.breadth_first_checkbox = QCheckBox("Breadth-first coverage before deepening individual surfaces")
-        self.breadth_first_checkbox.setChecked(True)
-        self.unauthenticated_only_checkbox = QCheckBox("Unauthenticated-only coverage lane")
-        self.unauthenticated_only_checkbox.setChecked(True)
         for field in (
             self.profile_name_edit,
             self.description_edit,
@@ -529,7 +405,6 @@ class ProfileFieldsMixin:
             self.endpoint_wordlist_edit,
             self.parameter_wordlist_edit,
             self.payload_wordlist_edit,
-            self.proxy_url_edit,
         ):
             field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
@@ -568,15 +443,6 @@ class ProfileFieldsMixin:
                 (self.delay_spin, "Add a delay between HTTP requests to reduce pressure on targets."),
                 (self.risk_mode_combo, "Choose the overall activity posture for the scan."),
                 (self.rate_mode_combo, "Choose how aggressively request pacing and runtime rate limits are applied."),
-                (self.proxy_enabled_checkbox, "Route supported HTTP-capable tooling through a proxy such as Burp."),
-                (self.proxy_url_edit, "Enter the proxy URL that supported HTTP tooling should use."),
-                (self.active_validation_mode_combo, "Choose how assertively active validation should probe findings."),
-                (self.request_replay_enabled_checkbox, "Replay captured requests when the validation engine needs higher confidence."),
-                (self.validation_budget_spin, "Limit how many validation attempts AttackCastle spends per target."),
-                (self.target_duration_spin, "Set the target revisit window used by active validation."),
-                (self.revisit_enabled_checkbox, "Allow AttackCastle to revisit earlier surfaces when new evidence appears."),
-                (self.breadth_first_checkbox, "Cover more surfaces first before deepening individual targets."),
-                (self.unauthenticated_only_checkbox, "Keep validation limited to unauthenticated flows."),
                 (self.endpoint_wordlist_edit, "Optional endpoint wordlist used to expand route discovery."),
                 (self.parameter_wordlist_edit, "Optional parameter wordlist used during parameter discovery and replay."),
                 (self.payload_wordlist_edit, "Optional payload wordlist shared by supported validation tools."),
@@ -596,8 +462,6 @@ class ProfileFieldsMixin:
             )
         )
 
-        self._active_recipe_name = ""
-        self._recipe_buttons: dict[str, QPushButton] = {}
         self._tool_category_cards: list[QFrame] = []
         self._tool_rows: list[QFrame] = []
         self._tool_rows_by_card: dict[QFrame, list[QFrame]] = {}
@@ -610,7 +474,6 @@ class ProfileFieldsMixin:
         self._manual_tool_coverage_overrides: dict[str, bool] = {}
         self._syncing_tool_widgets = False
         self._loading_profile_tools = False
-        self._suspend_recipe_tracking = False
 
         for signal in (
             self.base_profile_combo.currentTextChanged,
@@ -622,49 +485,15 @@ class ProfileFieldsMixin:
             self.delay_spin.valueChanged,
             self.risk_mode_combo.currentTextChanged,
             self.rate_mode_combo.currentTextChanged,
-            self.proxy_enabled_checkbox.toggled,
-            self.proxy_url_edit.textChanged,
-            self.active_validation_mode_combo.currentTextChanged,
-            self.request_replay_enabled_checkbox.toggled,
-            self.validation_budget_spin.valueChanged,
-            self.target_duration_spin.valueChanged,
-            self.revisit_enabled_checkbox.toggled,
-            self.breadth_first_checkbox.toggled,
-            self.unauthenticated_only_checkbox.toggled,
             self.endpoint_wordlist_edit.textChanged,
             self.parameter_wordlist_edit.textChanged,
             self.payload_wordlist_edit.textChanged,
             self.export_html.toggled,
             self.export_json.toggled,
         ):
-            signal.connect(self._mark_recipe_as_custom)
+            signal.connect(self._profile_settings_changed)
         for field, checkbox in zip(TOOL_FIELDS, self._tool_checkboxes(), strict=True):
             checkbox.toggled.connect(lambda checked, tool_field=field: self._tool_settings_changed(tool_field, checked))
-
-    def _build_preset_panel(self, title: str, helper: str) -> QWidget:
-        return self._profile_card(title, helper, self._build_preset_panel_body(), surface="secondary")
-
-    def _build_preset_panel_body(self) -> QWidget:
-        panel = QWidget()
-        panel.setObjectName("profilePresetPanel")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PANEL_CONTENT_PADDING)
-        chip_row = FlowButtonRow()
-        for name in PROFILE_RECIPES:
-            button = QPushButton(name)
-            button.setCheckable(True)
-            style_button(button, role="chip")
-            button.clicked.connect(lambda checked=False, preset=name: self._apply_profile_recipe(preset))
-            set_tooltip(button, f"{PROFILE_RECIPES[name]['description']} Apply this preset to quickly align tools and guardrails.")
-            self._recipe_buttons[name] = button
-            chip_row.addWidget(button)
-        self.profile_preset_summary = QLabel("Custom posture. Use a preset to quickly align tools and guardrails.")
-        self.profile_preset_summary.setObjectName("infoBanner")
-        self.profile_preset_summary.setWordWrap(True)
-        layout.addWidget(chip_row)
-        layout.addWidget(self.profile_preset_summary)
-        return panel
 
     def _build_identity_form(self) -> QWidget:
         identity_form = QWidget()
@@ -722,53 +551,6 @@ class ProfileFieldsMixin:
         performance_layout.addRow("Max Ports", self.max_ports_spin)
         performance_layout.addRow("Request Delay (ms)", self.delay_spin)
         return performance_form
-
-    def _build_proxy_form(self) -> QWidget:
-        proxy_form = QWidget()
-        proxy_layout = QFormLayout(proxy_form)
-        apply_form_layout_defaults(proxy_layout)
-        helper = QLabel(
-            "Applies to AttackCastle HTTP requests, browser screenshots, and supported web scanners. Raw network discovery remains direct."
-        )
-        helper.setObjectName("helperText")
-        helper.setWordWrap(True)
-        proxy_layout.addRow(self.proxy_enabled_checkbox)
-        proxy_layout.addRow("Proxy URL", self.proxy_url_edit)
-        proxy_layout.addRow("", helper)
-        return proxy_form
-
-    def _build_active_validation_form(self) -> QWidget:
-        active_validation_form = QWidget()
-        active_validation_layout = QVBoxLayout(active_validation_form)
-        active_validation_layout.setContentsMargins(0, 0, 0, 0)
-        active_validation_layout.setSpacing(PANEL_CONTENT_PADDING)
-
-        posture_form = QWidget()
-        posture_layout = QFormLayout(posture_form)
-        apply_form_layout_defaults(posture_layout)
-        posture_layout.addRow("Validation Mode", self.active_validation_mode_combo)
-        posture_layout.addRow(self.request_replay_enabled_checkbox)
-        posture_layout.addRow("Budget Per Target", self.validation_budget_spin)
-        posture_layout.addRow("Target Duration (Hours)", self.target_duration_spin)
-        active_validation_layout.addWidget(posture_form)
-        active_validation_layout.addWidget(
-            self._checkbox_group(
-                "Strategic Behavior",
-                "Shape how validation spends attention before deeper checks run.",
-                (
-                    self.revisit_enabled_checkbox,
-                    self.breadth_first_checkbox,
-                    self.unauthenticated_only_checkbox,
-                ),
-            )
-        )
-        helper = QLabel(
-            "Safe-active keeps replay focused on low-risk read-only checks. Aggressive enables replay-based injection probes and deeper confirmation where conditions justify them."
-        )
-        helper.setObjectName("helperText")
-        helper.setWordWrap(True)
-        active_validation_layout.addWidget(helper)
-        return active_validation_form
 
     def _checkbox_group(self, title: str, helper: str, checkboxes: tuple[QCheckBox, ...]) -> QWidget:
         group = QFrame()
@@ -959,42 +741,13 @@ class ProfileFieldsMixin:
     def _toggle_expert_tools(self, visible: bool) -> None:
         self.expert_tool_panel.setVisible(visible)
 
-    def _apply_profile_recipe(self, preset_name: str) -> None:
-        recipe = PROFILE_RECIPES.get(preset_name)
-        if recipe is None:
-            return
-        self._suspend_recipe_tracking = True
-        self._apply_recipe_values(recipe)
-        self._suspend_recipe_tracking = False
-        self._active_recipe_name = preset_name
-        self._sync_recipe_buttons()
+    def _profile_settings_changed(self, *_args: object) -> None:
         self._update_tool_family_cards()
-        self._refresh_preset_summary()
-
-    def _apply_recipe_values(self, recipe: dict[str, object]) -> None:
-        self.base_profile_combo.setCurrentText(str(recipe.get("base_profile", self.base_profile_combo.currentText())))
-        self.concurrency_spin.setValue(int(recipe.get("concurrency", self.concurrency_spin.value())))
-        self.cpu_cores_spin.setValue(int(recipe.get("cpu_cores", self.cpu_cores_spin.value())))
-        self.adaptive_execution_checkbox.setChecked(bool(recipe.get("adaptive_execution_enabled", self.adaptive_execution_checkbox.isChecked())))
-        self.max_ports_spin.setValue(int(recipe.get("max_ports", self.max_ports_spin.value())))
-        self.delay_spin.setValue(int(recipe.get("delay_ms_between_requests", self.delay_spin.value())))
-        self.risk_mode_combo.setCurrentText(str(recipe.get("risk_mode", self.risk_mode_combo.currentText())))
-        self.rate_mode_combo.setCurrentText(str(recipe.get("rate_limit_mode", self.rate_mode_combo.currentText())))
-        for field in TOOL_FIELDS:
-            checkbox = getattr(self, field)
-            checkbox.setChecked(bool(recipe.get(field, checkbox.isChecked())))
-        self._tool_coverage_overrides.clear()
-        self._profile_tool_defaults = self._current_tool_state()
-        self._profile_tool_coverage_defaults = self._current_tool_coverage_state()
-        self._manual_tool_overrides.clear()
-        self._manual_tool_coverage_overrides.clear()
-        self.export_html.setChecked(bool(recipe.get("export_html_report", self.export_html.isChecked())))
-        self.export_json.setChecked(bool(recipe.get("export_json_data", self.export_json.isChecked())))
+        refresh = getattr(self, "_refresh_launch_summary", None)
+        if callable(refresh):
+            refresh()
 
     def _recommended_tool_state(self) -> dict[str, bool]:
-        if self._active_recipe_name and self._active_recipe_name in PROFILE_RECIPES:
-            recipe = PROFILE_RECIPES[self._active_recipe_name]
-            return {field: bool(recipe.get(field, False)) for field in TOOL_FIELDS}
         base_profile = self.base_profile_combo.currentText().strip().lower()
         if base_profile == "cautious":
             return {
@@ -1051,7 +804,6 @@ class ProfileFieldsMixin:
                 else:
                     self._manual_tool_overrides[field] = checked
         self._update_tool_family_cards()
-        self._mark_recipe_as_custom()
         refresh = getattr(self, "_refresh_launch_summary", None)
         if callable(refresh):
             refresh()
@@ -1100,7 +852,6 @@ class ProfileFieldsMixin:
                 else:
                     self._manual_tool_coverage_overrides[coverage_key] = checked
         self._update_tool_family_cards()
-        self._mark_recipe_as_custom()
 
     def _current_tool_state(self) -> dict[str, bool]:
         return {field: getattr(self, field).isChecked() for field in TOOL_FIELDS if hasattr(self, field)}
@@ -1161,35 +912,6 @@ class ProfileFieldsMixin:
         finally:
             self._syncing_tool_widgets = False
 
-    def _mark_recipe_as_custom(self, *_args: object) -> None:
-        if self._suspend_recipe_tracking:
-            return
-        self._active_recipe_name = ""
-        self._sync_recipe_buttons()
-        self._update_tool_family_cards()
-        self._refresh_preset_summary()
-
-    def _sync_recipe_buttons(self) -> None:
-        for name, button in self._recipe_buttons.items():
-            button.blockSignals(True)
-            button.setChecked(name == self._active_recipe_name)
-            button.blockSignals(False)
-
-    def _refresh_preset_summary(self) -> None:
-        if not hasattr(self, "profile_preset_summary"):
-            return
-        if self._active_recipe_name and self._active_recipe_name in PROFILE_RECIPES:
-            recipe = PROFILE_RECIPES[self._active_recipe_name]
-            enabled_count = sum(1 for field in TOOL_FIELDS if bool(recipe.get(field, False)))
-            self.profile_preset_summary.setText(
-                f"{self._active_recipe_name}: {recipe['description']} | {enabled_count} tools active | Risk posture: {self.risk_mode_combo.currentText()}"
-            )
-            return
-        enabled_count = sum(1 for checked in self._current_tool_coverage_state().values() if checked)
-        self.profile_preset_summary.setText(
-            f"Custom posture. {enabled_count} tools active | Base profile: {self.base_profile_combo.currentText()} | Risk posture: {self.risk_mode_combo.currentText()}"
-        )
-
     def _browse_output_dir(self) -> None:
         selected = QFileDialog.getExistingDirectory(None, "Select output directory", self.output_dir_edit.text())
         if selected:
@@ -1236,13 +958,6 @@ class ProfileFieldsMixin:
             description=self.description_edit.text().strip(),
             base_profile=self.base_profile_combo.currentText(),
             output_directory=self.output_dir_edit.text().strip() or "./output",
-            active_validation_mode=self.active_validation_mode_combo.currentText(),
-            request_replay_enabled=self.request_replay_enabled_checkbox.isChecked(),
-            validation_budget_per_target=self.validation_budget_spin.value(),
-            target_duration_hours=self.target_duration_spin.value(),
-            revisit_enabled=self.revisit_enabled_checkbox.isChecked(),
-            breadth_first=self.breadth_first_checkbox.isChecked(),
-            unauthenticated_only=self.unauthenticated_only_checkbox.isChecked(),
             endpoint_wordlist_path=self.endpoint_wordlist_edit.text().strip(),
             parameter_wordlist_path=self.parameter_wordlist_edit.text().strip(),
             payload_wordlist_path=self.payload_wordlist_edit.text().strip(),
@@ -1255,8 +970,8 @@ class ProfileFieldsMixin:
             rate_limit_mode=self.rate_mode_combo.currentText(),
             masscan_rate=self.masscan_rate_spin.value(),
             risk_mode=self.risk_mode_combo.currentText(),
-            proxy_enabled=self.proxy_enabled_checkbox.isChecked(),
-            proxy_url=self.proxy_url_edit.text().strip(),
+            proxy_enabled=False,
+            proxy_url="",
             enable_masscan=False,
             enable_subfinder=self.enable_subfinder.isChecked(),
             enable_dnsx=self.enable_dnsx.isChecked(),
@@ -1283,13 +998,6 @@ class ProfileFieldsMixin:
         self.description_edit.setText(profile.description)
         self.base_profile_combo.setCurrentText(profile.base_profile)
         self.output_dir_edit.setText(profile.output_directory)
-        self.active_validation_mode_combo.setCurrentText(profile.active_validation_mode)
-        self.request_replay_enabled_checkbox.setChecked(profile.request_replay_enabled)
-        self.validation_budget_spin.setValue(profile.validation_budget_per_target)
-        self.target_duration_spin.setValue(profile.target_duration_hours)
-        self.revisit_enabled_checkbox.setChecked(profile.revisit_enabled)
-        self.breadth_first_checkbox.setChecked(profile.breadth_first)
-        self.unauthenticated_only_checkbox.setChecked(profile.unauthenticated_only)
         self.endpoint_wordlist_edit.setText(profile.endpoint_wordlist_path)
         self.parameter_wordlist_edit.setText(profile.parameter_wordlist_path)
         self.payload_wordlist_edit.setText(profile.payload_wordlist_path)
@@ -1300,8 +1008,6 @@ class ProfileFieldsMixin:
         self.delay_spin.setValue(profile.delay_ms_between_requests)
         self.risk_mode_combo.setCurrentText(profile.risk_mode)
         self.rate_mode_combo.setCurrentText(profile.rate_limit_mode)
-        self.proxy_enabled_checkbox.setChecked(profile.proxy_enabled)
-        self.proxy_url_edit.setText(profile.proxy_url)
         self.enable_subfinder.setChecked(profile.enable_subfinder)
         self.enable_dnsx.setChecked(profile.enable_dnsx)
         self.enable_dig_host.setChecked(profile.enable_dig_host)
@@ -1331,11 +1037,7 @@ class ProfileFieldsMixin:
         }
         self._apply_manual_tool_overrides()
         self._apply_manual_tool_coverage_overrides()
-        self._suspend_recipe_tracking = False
-        self._active_recipe_name = ""
-        self._sync_recipe_buttons()
         self._update_tool_family_cards()
-        self._refresh_preset_summary()
 
     def sync_profile_form_width(self, width: int) -> None:
         tool_columns = 1 if width < 1100 else 2

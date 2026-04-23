@@ -384,9 +384,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             self._profile_form(
                 include_identity=False,
                 collapsible_sections=True,
-                preset_header="",
                 include_posture=False,
-                include_active_validation=False,
             )
         )
         self.advanced_scroll = frame
@@ -398,8 +396,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self.output_dir_edit.textChanged.connect(self._refresh_launch_summary)
         self.rate_mode_combo.currentTextChanged.connect(self._refresh_launch_summary)
         self.risk_mode_combo.currentTextChanged.connect(self._refresh_launch_summary)
-        self.proxy_enabled_checkbox.toggled.connect(self._refresh_launch_summary)
-        self.proxy_url_edit.textChanged.connect(self._refresh_launch_summary)
         self.enable_sqlmap.toggled.connect(self._refresh_launch_summary)
         self.enable_nuclei.toggled.connect(self._refresh_launch_summary)
         self.enable_nmap.toggled.connect(self._refresh_launch_summary)
@@ -523,8 +519,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             issues.append("Add at least one target before launching.")
         if not self.scan_name_edit.text().strip():
             issues.append("Give the scan a name so it is easy to find later.")
-        if self.proxy_enabled_checkbox.isChecked() and not self.proxy_url_edit.text().strip():
-            issues.append("Add a proxy URL or disable proxy routing.")
         return issues
 
     def _enabled_tools(self) -> list[str]:
@@ -568,7 +562,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
                 profile=profile.base_profile,
                 user_config_path=str(override_path),
                 risk_mode=profile.risk_mode,
-                proxy_url=profile.proxy_url.strip() if profile.proxy_enabled else None,
+                proxy_url=None,
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -604,8 +598,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         warnings: list[str] = []
         if self.risk_mode_combo.currentText() == "aggressive":
             warnings.append("aggressive risk mode")
-        if self.active_validation_mode_combo.currentText() == "aggressive":
-            warnings.append("aggressive active validation")
         if self.rate_mode_combo.currentText() == "aggressive":
             warnings.append("aggressive rate mode")
         if self.enable_sqlmap.isChecked():
@@ -619,25 +611,14 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             )
             if value
         ]
-        proxy_text = self.proxy_url_edit.text().strip() if self.proxy_enabled_checkbox.isChecked() else "disabled"
         issues = self._validation_issues()
         tools_text = ", ".join(self._enabled_tools()[:6]) + (" ..." if len(self._enabled_tools()) > 6 else "")
-        validation_mode = self.active_validation_mode_combo.currentText()
-        validation_behavior = (
-            "Queue only"
-            if validation_mode == "passive"
-            else "Low-risk replay auto-runs"
-            if validation_mode == "safe-active"
-            else "Replay plus aggressive probes auto-run"
-        )
         selected_extensions = self._selected_extension_ids()
         self._readiness_report = self._build_readiness_report()
         self.launch_summary.setText(
             "<b>Launch Snapshot</b><br>"
             f"Targets: {len(targets)} | Profile: {self.profile_picker.currentText() or self.profile_name_edit.text().strip() or 'Custom'}<br>"
             f"Risk: {title_case_label(self.risk_mode_combo.currentText())} | Rate: {title_case_label(self.rate_mode_combo.currentText())} | Output: {self.output_dir_edit.text().strip() or './output'}<br>"
-            f"Active Validation: {title_case_label(validation_mode)} | Replay: {'enabled' if self.request_replay_enabled_checkbox.isChecked() else 'disabled'} | Budget: {self.validation_budget_spin.value()} per target | {validation_behavior}<br>"
-            f"Proxy: {proxy_text or 'disabled'}<br>"
             f"Coverage: {tools_text or 'none enabled'}<br>"
             f"Extensions: {', '.join(selected_extensions) if selected_extensions else 'none selected'}<br>"
             f"Wordlists: {', '.join(wordlists) if wordlists else 'none selected'}"
@@ -675,7 +656,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
 
     def build_request(self) -> ScanRequest:
         profile = self._profile_from_form()
-        profile.name = self.profile_picker.currentText() or self._active_recipe_name or self.profile_name_edit.text().strip() or "Custom Profile"
+        profile.name = self.profile_picker.currentText() or self.profile_name_edit.text().strip() or "Custom Profile"
         profile.output_directory = self._session_home_dir()
         return ScanRequest(
             scan_name=self.scan_name_edit.text().strip() or "Untitled Scan",
@@ -718,7 +699,6 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             return
         if (
             self.risk_mode_combo.currentText() == "aggressive"
-            or self.active_validation_mode_combo.currentText() == "aggressive"
             or self.enable_sqlmap.isChecked()
         ):
             decision = QMessageBox.question(

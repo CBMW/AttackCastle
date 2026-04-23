@@ -7,12 +7,14 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QProcess, QPoint, QRect, Qt
-from PySide6.QtGui import QShortcut
+from PySide6.QtGui import QShortcut, QTextCursor
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton, QMenu
+from PySide6.QtWidgets import QApplication, QDialog, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton, QMenu
 
 from attackcastle.gui.common import BUTTON_MIN_HEIGHT, PAGE_SECTION_SPACING, PANEL_CONTENT_PADDING, TABLE_ROW_HEIGHT
+from attackcastle.gui.extensions import REPORTS_EXTENSION_ID
 from attackcastle.gui.main_window import MainWindow
+from attackcastle.gui.output_tab import CreateFindingDialog, MANUAL_FINDING_TEXT_LIMIT, OutputTab, REPORT_TAGS, ROOT_CAUSE_TAGS
 from attackcastle.gui.extensions_store import GuiExtensionStore
 from attackcastle.gui.models import Engagement, RunRegistryEntry, RunSnapshot, Workspace
 from attackcastle.gui.profile_store import GuiProfileStore
@@ -51,7 +53,7 @@ def test_navigation_defaults_to_workspace_and_uses_workflow_sections(tmp_path: P
     try:
         sections = [window.workflow_tabs.tabText(idx) for idx in range(window.workflow_tabs.count())]
 
-        assert sections == ["Overview", "Scanner", "Assets", "Attacker", "Findings", "Profiles", "Extensions", "Settings"]
+        assert sections == ["Overview", "Scanner", "Assets", "Attacker", "Findings", "Extensions", "Settings"]
         assert window.workflow_tabs.tabText(window.workflow_tabs.currentIndex()) == "Overview"
         assert window.workflow_tabs.currentWidget() is window.workspace_page
         assert window.workflow_tabs.objectName() == "masterTabs"
@@ -60,6 +62,136 @@ def test_navigation_defaults_to_workspace_and_uses_workflow_sections(tmp_path: P
         assert window.workflow_tabs.usesScrollButtons()
         assert window.workflow_tabs.tabBar().usesScrollButtons()
         assert window.workflow_tabs.tabBar().expanding()
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_reports_extension_adds_reports_tab_when_enabled(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    extension_store.set_extension_enabled(REPORTS_EXTENSION_ID, True)
+    window = MainWindow(
+        store=GuiProfileStore(tmp_path / "profiles.json"),
+        workspace_store=WorkspaceStore(tmp_path / "workspace.json"),
+        extension_store=extension_store,
+    )
+
+    try:
+        sections = [window.workflow_tabs.tabText(idx) for idx in range(window.workflow_tabs.count())]
+
+        assert sections == ["Overview", "Scanner", "Assets", "Attacker", "Findings", "Reports", "Extensions", "Settings"]
+        assert window.reports_tab is not None
+        assert window.output_tab._report_exports_enabled is True
+        assert window._nav_order == ["workspaces", "runs", "assets", "attacker", "findings", "reports", "extensions", "settings"]
+        reports_tab = window.reports_tab
+        assert reports_tab.splitter.count() == 2
+        left_panel = reports_tab.splitter.widget(0)
+        right_panel = reports_tab.splitter.widget(1)
+        left_section_titles = [
+            label.text()
+            for label in left_panel.findChildren(QLabel)
+            if label.objectName() == "profileGroupTitle"
+        ]
+        right_section_titles = [
+            label.text()
+            for label in right_panel.findChildren(QLabel)
+            if label.objectName() == "profileGroupTitle"
+        ]
+        assert "Web Application Scope" in left_section_titles
+        assert "Web Application Scope" not in right_section_titles
+        report_section_tabs = reports_tab.report_section_tabs
+        assert [report_section_tabs.tabText(idx) for idx in range(report_section_tabs.count())] == [
+            "Cover Page",
+            "ToC",
+            "Technical Summary",
+            "Management Summary",
+            "Detailed Findings",
+            "Appendices",
+        ]
+
+        extension_store.set_extension_enabled(REPORTS_EXTENSION_ID, False)
+        window._sync_extension_tabs()
+        sections = [window.workflow_tabs.tabText(idx) for idx in range(window.workflow_tabs.count())]
+
+        assert "Reports" not in sections
+        assert window.reports_tab is None
+        assert window.output_tab._report_exports_enabled is False
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_settings_sidebar_switches_between_isolated_settings_pages(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        settings_sections = [window.settings_nav_list.item(idx).text() for idx in range(window.settings_nav_list.count())]
+
+        assert settings_sections == [
+            "Resource Limits",
+            "Profiles",
+            "Proxy",
+            "Metadata Paths",
+            "Storage & Utilities",
+            "Danger Zone",
+        ]
+        assert window.settings_page_stack.count() == len(settings_sections)
+
+        resource_row = settings_sections.index("Resource Limits")
+        window.settings_nav_list.setCurrentRow(resource_row)
+
+        assert window.settings_page_stack.currentIndex() == resource_row
+        assert window.settings_page_stack.currentWidget().findChild(QLabel, "sectionTitle").text() == "Resource Limits"
+        assert not window.settings_page_stack.currentWidget().isAncestorOf(window.configuration_tab)
+
+        profile_row = settings_sections.index("Profiles")
+        window.settings_nav_list.setCurrentRow(profile_row)
+
+        assert window.settings_page_stack.currentWidget() is window.configuration_tab
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_reports_export_uses_findings_table_rows_without_selected_run(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    extension_store.set_extension_enabled(REPORTS_EXTENSION_ID, True)
+    window = MainWindow(
+        store=GuiProfileStore(tmp_path / "profiles.json"),
+        workspace_store=WorkspaceStore(tmp_path / "workspace.json"),
+        extension_store=extension_store,
+    )
+
+    try:
+        assert window.reports_tab is not None
+        window.output_tab._manual_findings_by_run["__manual__"] = [
+            {
+                "finding_id": "manual-report-1",
+                "title": "Manual Report Finding",
+                "severity": "high",
+                "include_in_report": True,
+                "report_flag_touched": True,
+            }
+        ]
+        window.output_tab._refresh_models()
+
+        config = window.reports_tab.build_config()
+        config.add_all_findings = True
+        config.add_report_only_findings = False
+        included = window.reports_tab._included_findings(config)
+
+        assert [row["finding_id"] for row in included] == ["manual-report-1"]
+        assert included[0]["effective_severity"] == "high"
+
+        config.add_all_findings = False
+        config.add_report_only_findings = True
+        report_only = window.reports_tab._included_findings(config)
+
+        assert [row["finding_id"] for row in report_only] == ["manual-report-1"]
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -85,7 +217,7 @@ def test_keyboard_shortcuts_cover_primary_navigation_and_operator_actions(tmp_pa
     try:
         shortcuts = {shortcut.key().toString() for shortcut in window.findChildren(QShortcut)}
 
-        assert {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+6", "Ctrl+7", "Ctrl+8"}.issubset(shortcuts)
+        assert {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+6", "Ctrl+7"}.issubset(shortcuts)
         assert {"Ctrl+N", "Ctrl+F", "Ctrl+R", "Ctrl+P", "Ctrl+O"}.issubset(shortcuts)
         assert "Ctrl+K" not in shortcuts
     finally:
@@ -428,6 +560,54 @@ def test_workspace_run_models_include_active_run_after_refresh(tmp_path: Path) -
         window.close()
 
 
+def test_overview_general_panel_summarizes_workspace_assets_tasks_and_findings(tmp_path: Path) -> None:
+    window = _make_window(tmp_path)
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-general",
+            scan_name="General Overview Run",
+            run_dir=str(tmp_path / "run-general"),
+            state="running",
+            elapsed_seconds=45.0,
+            eta_seconds=90.0,
+            current_task="Nuclei",
+            total_tasks=3,
+            completed_tasks=1,
+            assets=[{"asset_id": "asset-1", "kind": "host", "name": "example.com"}],
+            services=[{"service_id": "svc-1", "asset_id": "asset-1", "port": 443, "protocol": "tcp"}],
+            endpoints=[{"endpoint_id": "ep-1", "url": "https://example.com/login"}],
+            findings=[
+                {"finding_id": "f-1", "severity": "high", "title": "High", "root_cause": "Misconfigured System"},
+                {"finding_id": "f-2", "severity": "low", "title": "Low", "root_cause": "Unsafe Practices"},
+            ],
+            tasks=[
+                {"key": "resolve", "status": "completed"},
+                {"key": "probe", "status": "running"},
+            ],
+        )
+        window._run_snapshots[snapshot.run_id] = snapshot
+
+        window._sync_run_table()
+        data = window._build_general_overview_data()
+
+        assert data.total_assets == 1
+        assert data.total_services == 1
+        assert data.total_endpoints == 1
+        assert data.total_findings == 2
+        assert data.tasks_in_progress == 1
+        assert data.tasks_completed == 1
+        assert data.severity_counts["high"] == 1
+        assert data.severity_counts["low"] == 1
+        assert data.root_cause_counts["Misconfigured System"] == 1
+        assert window.overview_general_panel.metric_values["total_findings"].text() == "2"
+        assert window.overview_general_panel.tabs.tabText(0) == "Severity Count"
+        assert window.overview_general_panel.tabs.tabText(1) == "Root Causes"
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
 def test_workspace_view_omits_removed_status_and_summary_sections(tmp_path: Path) -> None:
     window = _make_window(tmp_path)
 
@@ -471,8 +651,12 @@ def test_main_window_exposes_resizable_splitters_for_primary_sections(tmp_path: 
     window = _make_window(tmp_path)
 
     try:
-        assert window.workflow_tabs.count() == 8
+        assert window.workflow_tabs.count() == 7
         assert window.workspace_content_split.count() == 3
+        assert window.workspace_center_split.count() == 2
+        assert window.workspace_center_split.orientation() == Qt.Vertical
+        assert window.workspace_inspector_split.count() == 2
+        assert window.workspace_inspector_split.orientation() == Qt.Vertical
         assert not hasattr(window, "runs_page_split")
         assert window.runs_body_split.count() == 2
         assert window.output_tab.main_split.count() == 2
@@ -495,6 +679,7 @@ def test_overview_arranges_details_runs_and_checklist_notes_left_to_right(tmp_pa
         assert window.workspace_content_split.orientation() == Qt.Horizontal
         assert window.workspace_content_split.count() == 3
         assert window.workspace_content_split.widget(0).isAncestorOf(window.workspace_summary)
+        assert window.workspace_content_split.widget(1).isAncestorOf(window.overview_general_panel)
         assert window.workspace_content_split.widget(1).isAncestorOf(window.workspace_run_table)
         assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_checklist_panel)
         assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_notes_edit)
@@ -630,6 +815,7 @@ def test_responsive_layout_switches_to_stacked_mode_on_narrow_width(tmp_path: Pa
         assert window.workspace_content_split.orientation() == Qt.Vertical
         assert window.workspace_content_split.count() == 3
         assert window.output_tab.main_split.orientation() == Qt.Vertical
+        assert window.workspace_content_split.widget(1).isAncestorOf(window.overview_general_panel)
         assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_checklist_panel)
         assert window.workspace_content_split.widget(2).isAncestorOf(window.overview_notes_edit)
         assert not window.overview_checklist_panel.isHidden()
@@ -826,6 +1012,300 @@ def test_findings_inspector_keeps_selected_row_across_snapshot_refresh(tmp_path:
     finally:
         window._refresh_timer.stop()
         window.close()
+
+
+def test_manual_findings_persist_across_window_reopen(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    profile_store = GuiProfileStore(tmp_path / "profiles.json")
+    workspace_store = WorkspaceStore(tmp_path / "workspace.json")
+    extension_store = GuiExtensionStore(tmp_path / "extensions", tmp_path / "extensions_state.json")
+    workspace_store.save_engagement(Engagement(engagement_id="eng_alpha", name="Alpha"))
+    workspace_store.set_active_workspace("eng_alpha")
+    workspace_store.save_manual_findings(
+        "eng_alpha",
+        "run-manual",
+        [{"finding_id": "manual-1", "title": "Persisted manual finding", "severity": "high"}],
+    )
+
+    window = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-manual",
+            scan_name="Manual Run",
+            run_dir=str(tmp_path / "run-manual"),
+            state="completed",
+            elapsed_seconds=15.0,
+            eta_seconds=0.0,
+            current_task="Idle",
+            total_tasks=1,
+            completed_tasks=1,
+            workspace_id="eng_alpha",
+            workspace_name="Alpha",
+        )
+        window._run_snapshots[snapshot.run_id] = snapshot
+        window._update_output_snapshot(snapshot.run_id)
+
+        assert window.output_tab.findings_model.rowCount() == 1
+        row = window.output_tab.findings_model.index(0, 0).data(Qt.UserRole)
+        assert row["finding_id"] == "manual-1"
+        assert row["title"] == "Persisted manual finding"
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
+def test_create_finding_dialog_accepts_raw_multiline_finding_text(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    dialog = CreateFindingDialog()
+
+    try:
+        dialog.show()
+        app.processEvents()
+        visible_labels = {label.text() for label in dialog.findChildren(QLabel) if label.isVisible()}
+
+        assert dialog.windowTitle() == "Edit Finding"
+        assert "Create a manual finding for the current assessment." not in visible_labels
+        assert "Finding Details" not in visible_labels
+        assert "Reproduction Steps" not in visible_labels
+        assert "Impact Rating" in visible_labels
+        assert "Likelihood Rating" in visible_labels
+        assert "Impact" in visible_labels
+        assert "Likelihood" in visible_labels
+        assert "Ready to create. Title is optional." not in visible_labels
+
+        assert [dialog.root_cause_combo.itemText(index) for index in range(dialog.root_cause_combo.count())] == list(ROOT_CAUSE_TAGS)
+        assert [dialog.report_tag_combo.itemText(index) for index in range(dialog.report_tag_combo.count())] == list(REPORT_TAGS)
+        assert [dialog.impact_combo.itemText(index) for index in range(dialog.impact_combo.count())] == ["high", "medium", "low"]
+        assert [dialog.likelihood_combo.itemText(index) for index in range(dialog.likelihood_combo.count())] == ["high", "medium", "low"]
+        assert dialog.impact_combo.currentText() == ""
+        assert dialog.likelihood_combo.currentText() == ""
+        opened_combos: list[str] = []
+        dialog.root_cause_combo._show_options = lambda: opened_combos.append("root_cause")
+        dialog.report_tag_combo._show_options = lambda: opened_combos.append("report_tag")
+        dialog.impact_combo._show_options = lambda: opened_combos.append("impact")
+        dialog.likelihood_combo._show_options = lambda: opened_combos.append("likelihood")
+        root_cause_line_edit = dialog.root_cause_combo.lineEdit()
+        report_tag_line_edit = dialog.report_tag_combo.lineEdit()
+        impact_line_edit = dialog.impact_combo.lineEdit()
+        likelihood_line_edit = dialog.likelihood_combo.lineEdit()
+        assert root_cause_line_edit is not None
+        assert report_tag_line_edit is not None
+        assert impact_line_edit is not None
+        assert likelihood_line_edit is not None
+        QTest.mouseClick(root_cause_line_edit, Qt.LeftButton, pos=root_cause_line_edit.rect().center())
+        QTest.mouseClick(report_tag_line_edit, Qt.LeftButton, pos=report_tag_line_edit.rect().center())
+        QTest.mouseClick(impact_line_edit, Qt.LeftButton, pos=impact_line_edit.rect().center())
+        QTest.mouseClick(likelihood_line_edit, Qt.LeftButton, pos=likelihood_line_edit.rect().center())
+        assert "root_cause" in opened_combos
+        assert "report_tag" in opened_combos
+        assert "impact" in opened_combos
+        assert "likelihood" in opened_combos
+        QTest.keyClicks(root_cause_line_edit, "Misconfigured")
+        assert "Misconfigured" in dialog.root_cause_combo.currentText()
+        dialog.root_cause_combo.setCurrentText("Misconfigured System")
+        dialog.report_tag_combo.setCurrentText("Web App")
+        dialog.severity_combo.setCurrentText("info")
+        dialog.impact_combo.setCurrentText("high")
+        dialog.likelihood_combo.setCurrentText("low")
+        assert dialog.severity_combo.currentText() == "medium"
+        dialog.impact_combo.setCurrentText("low")
+        assert dialog.severity_combo.currentText() == "low"
+        text_fields = [
+            ("description", dialog.description_edit, "description", "x"),
+            ("details", dialog.details_edit, "details", "y"),
+            ("impact", dialog.impact_edit, "impact", "i"),
+            ("likelihood", dialog.likelihood_edit, "likelihood", "l"),
+            ("recommendations", dialog.recommendations_edit, "recommendation", "z"),
+            ("supporting_evidence", dialog.supporting_evidence_edit, "evidence", "q"),
+        ]
+        for _payload_key, editor, label, filler in text_fields:
+            assert editor.viewport().width() > 0
+            editor.setPlainText(f"  Leading {label}\n")
+            editor.moveCursor(QTextCursor.End)
+            QTest.mouseClick(editor.viewport(), Qt.LeftButton, pos=editor.viewport().rect().center())
+            QTest.keyClicks(editor, f"Typed {label}")
+            editor.insertPlainText(filler * (MANUAL_FINDING_TEXT_LIMIT + 20))
+
+        finding = dialog.build_finding("manual-1", "2026-04-21T00:00:00+00:00")
+
+        assert finding["title"] == "Manual finding"
+        assert finding["root_cause"] == "Misconfigured System"
+        assert finding["report_tag"] == "Web App"
+        assert finding["severity"] == "low"
+        assert finding["impact_rating"] == "low"
+        assert finding["likelihood_rating"] == "low"
+        assert finding["impact_description"] == finding["impact"]
+        assert finding["likelihood_description"] == finding["likelihood"]
+        for payload_key, _editor, label, _filler in text_fields:
+            assert finding[payload_key].startswith(f"  Leading {label}\nTyped {label}")
+            assert len(finding[payload_key]) == MANUAL_FINDING_TEXT_LIMIT
+        assert finding["reproduce_steps"] == finding["reproduction_steps"] == ""
+        assert finding["recommendation_items"][0].startswith("Leading recommendation")
+        dialog.accept()
+        assert dialog.result() == QDialog.Accepted
+    finally:
+        dialog.close()
+
+
+def test_create_finding_dialog_preserves_existing_reproduction_steps() -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    dialog = CreateFindingDialog(
+        finding={
+            "finding_id": "finding-1",
+            "title": "Existing",
+            "reproduction_steps": "Existing reproduction detail",
+        }
+    )
+
+    try:
+        finding = dialog.build_finding(
+            "finding-1",
+            "2026-04-21T00:00:00+00:00",
+            existing={
+                "finding_id": "finding-1",
+                "title": "Existing",
+                "reproduction_steps": "Existing reproduction detail",
+            },
+        )
+
+        assert finding["reproduction_steps"] == "Existing reproduction detail"
+        assert finding["reproduce_steps"] == "Existing reproduction detail"
+    finally:
+        dialog.close()
+
+
+def test_findings_context_menu_can_edit_and_overlay_existing_finding(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    saved: dict[str, list[dict[str, object]]] = {}
+    tab = OutputTab(
+        save_finding_state=lambda _run_id, _state: None,
+        open_path=lambda _path: None,
+        load_manual_findings=lambda run_id: saved.get(run_id, []),
+        save_manual_findings=lambda run_id, findings: saved.__setitem__(run_id, findings),
+    )
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-edit",
+            scan_name="Edit Run",
+            run_dir=str(tmp_path / "run-edit"),
+            state="completed",
+            elapsed_seconds=1.0,
+            eta_seconds=0.0,
+            current_task="Idle",
+            total_tasks=1,
+            completed_tasks=1,
+            findings=[{"finding_id": "finding-1", "title": "Original", "severity": "medium"}],
+        )
+        tab.set_snapshot(snapshot, {})
+        tab.show()
+        app.processEvents()
+        index = tab.findings_model.index(0, 0)
+        menu = tab._build_finding_context_menu(index.data(Qt.UserRole))
+        actions = [action.text() for action in menu.actions() if action.text()]
+
+        assert "Edit Finding" in actions
+        assert "Duplicate finding" in actions
+        assert "Remove Finding" in actions
+        assert "Include In Reports Exports" not in actions
+
+        tab.set_report_exports_enabled(True)
+        menu = tab._build_finding_context_menu(index.data(Qt.UserRole))
+        actions = [action.text() for action in menu.actions() if action.text()]
+        assert "Include In Reports Exports" in actions
+
+        saved["run-edit"] = [
+            {
+                "finding_id": "finding-1",
+                "title": "Edited",
+                "severity": "high",
+                "root_cause": "Misconfigured System",
+                "report_tag": "Web App",
+            }
+        ]
+        tab.set_snapshot(snapshot, {})
+        row = tab.findings_model.index(0, 0).data(Qt.UserRole)
+
+        assert row["title"] == "Edited"
+        assert row["root_cause"] == "Misconfigured System"
+        assert row["report_tag"] == "Web App"
+        assert tab.findings_model.rowCount() == 1
+    finally:
+        tab.close()
+
+
+def test_findings_context_menu_duplicates_and_removes_findings(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    saved: dict[str, list[dict[str, object]]] = {}
+    tab = OutputTab(
+        save_finding_state=lambda _run_id, _state: None,
+        open_path=lambda _path: None,
+        load_manual_findings=lambda run_id: saved.get(run_id, []),
+        save_manual_findings=lambda run_id, findings: saved.__setitem__(run_id, findings),
+    )
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="run-actions",
+            scan_name="Action Run",
+            run_dir=str(tmp_path / "run-actions"),
+            state="completed",
+            elapsed_seconds=1.0,
+            eta_seconds=0.0,
+            current_task="Idle",
+            total_tasks=1,
+            completed_tasks=1,
+            findings=[{"finding_id": "finding-1", "title": "Original", "severity": "medium"}],
+        )
+        tab.set_snapshot(snapshot, {})
+        original = tab.findings_model.index(0, 0).data(Qt.UserRole)
+
+        tab._duplicate_finding(original)
+
+        visible_ids = {
+            tab.findings_model.index(row_index, 0).data(Qt.UserRole)["finding_id"]
+            for row_index in range(tab.findings_model.rowCount())
+        }
+        assert "finding-1" in visible_ids
+        duplicate_rows = [row for row in saved["run-actions"] if row["finding_id"] != "finding-1"]
+        assert len(duplicate_rows) == 1
+        assert duplicate_rows[0]["title"] == "Original (Copy)"
+        assert duplicate_rows[0]["source"] == "manual"
+
+        tab._remove_finding(original)
+
+        visible_ids = {
+            tab.findings_model.index(row_index, 0).data(Qt.UserRole)["finding_id"]
+            for row_index in range(tab.findings_model.rowCount())
+        }
+        assert "finding-1" not in visible_ids
+        assert any(row.get("finding_id") == "finding-1" and row.get("_removed") for row in saved["run-actions"])
+
+        reloaded_snapshot = RunSnapshot(
+            run_id="run-actions",
+            scan_name="Action Run",
+            run_dir=str(tmp_path / "run-actions"),
+            state="completed",
+            elapsed_seconds=1.0,
+            eta_seconds=0.0,
+            current_task="Idle",
+            total_tasks=1,
+            completed_tasks=1,
+            findings=[{"finding_id": "finding-1", "title": "Original", "severity": "medium"}],
+        )
+        tab.set_snapshot(reloaded_snapshot, {})
+        visible_ids = {
+            tab.findings_model.index(row_index, 0).data(Qt.UserRole)["finding_id"]
+            for row_index in range(tab.findings_model.rowCount())
+        }
+        assert "finding-1" not in visible_ids
+    finally:
+        tab.close()
 
 
 def test_open_health_selects_scanner_health_tab(tmp_path: Path) -> None:
@@ -1254,7 +1734,7 @@ def test_main_window_surfaces_tooltips_on_primary_controls(tmp_path: Path) -> No
         assert "active project" in window.start_scan_button.toolTip().lower()
         assert "double-click" in window.workspace_run_table.toolTip().lower()
         assert "right-click for controls" in window.run_table.toolTip().lower()
-        assert "active for this gui session" in window.settings_workspace_combo.toolTip().lower()
+        assert "cpu and memory limits" in window.performance_guard_enabled_checkbox.toolTip().lower()
     finally:
         window._refresh_timer.stop()
         window.close()
@@ -1282,7 +1762,7 @@ def test_resource_limit_unmet_alert_is_cooled_down(tmp_path: Path, monkeypatch: 
         window.close()
 
 
-def test_settings_page_can_switch_active_workspace(tmp_path: Path) -> None:
+def test_settings_page_omits_session_and_project_controls(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app
     profile_store = GuiProfileStore(tmp_path / "profiles.json")
@@ -1294,16 +1774,12 @@ def test_settings_page_can_switch_active_workspace(tmp_path: Path) -> None:
     window = MainWindow(store=profile_store, workspace_store=workspace_store, extension_store=extension_store)
 
     try:
-        target_index = window.settings_workspace_combo.findData("eng_beta")
-        assert target_index >= 0
+        settings_sections = [window.settings_nav_list.item(idx).text() for idx in range(window.settings_nav_list.count())]
 
-        window.settings_workspace_combo.setCurrentIndex(target_index)
-        window.apply_workspace_button.click()
-
-        assert window._active_workspace_id == "eng_beta"
-        assert window.workspace_list.count() == 1
-        assert "Beta" in window.workspace_list.item(0).text()
-        assert "eng_beta" == workspace_store.get_active_workspace_id()
+        assert "Session" not in settings_sections
+        assert "Project Controls" not in settings_sections
+        assert not hasattr(window, "settings_workspace_combo")
+        assert not hasattr(window, "apply_workspace_button")
     finally:
         window._refresh_timer.stop()
         window.close()

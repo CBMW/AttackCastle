@@ -875,7 +875,9 @@ class MappingTableModel(QAbstractTableModel):
         if role == Qt.ForegroundRole:
             colors = None
             normalized_column = column_name.strip().lower()
-            if normalized_column == "severity" and "effective_severity" in row:
+            if normalized_column == "report" and row.get("report_flag_touched") and row.get("include_in_report"):
+                colors = semantic_colors("confirmed", WORKFLOW_COLORS)
+            elif normalized_column == "severity" and "effective_severity" in row:
                 colors = semantic_colors(str(row.get("effective_severity") or ""), SEVERITY_COLORS)
             elif normalized_column == "workflow" and "workflow_status" in row:
                 colors = semantic_colors(str(row.get("workflow_status") or ""), WORKFLOW_COLORS)

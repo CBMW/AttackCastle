@@ -783,13 +783,6 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
         name="Wordlist Profile",
         adaptive_execution_enabled=False,
         cpu_cores=3,
-        active_validation_mode="aggressive",
-        request_replay_enabled=False,
-        validation_budget_per_target=11,
-        target_duration_hours=48,
-        revisit_enabled=True,
-        breadth_first=False,
-        unauthenticated_only=True,
         endpoint_wordlist_path="/tmp/endpoints.txt",
         parameter_wordlist_path="/tmp/params.txt",
         payload_wordlist_path="/tmp/payloads.txt",
@@ -802,16 +795,9 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
     assert overrides["web_discovery"]["payload_wordlist_path"] == "/tmp/payloads.txt"
     assert overrides["sqlmap"]["parameter_wordlist_path"] == "/tmp/params.txt"
     assert overrides["nuclei"]["payload_wordlist_path"] == "/tmp/payloads.txt"
-    assert overrides["active_validation"]["mode"] == "aggressive"
-    assert overrides["active_validation"]["request_replay_enabled"] is False
-    assert overrides["active_validation"]["per_target_budget"] == 11
-    assert overrides["coverage_engine"]["mode"] == "aggressive"
-    assert overrides["coverage_engine"]["target_duration_hours"] == 48
-    assert overrides["coverage_engine"]["breadth_first"] is False
-    assert overrides["coverage_engine"]["unauthenticated_only"] is True
-    assert "groups" not in overrides["coverage_engine"]
-    assert "playbooks" not in overrides["coverage_engine"]
-    assert "families" not in overrides["coverage_engine"]
+    assert overrides["active_validation"] == {"enabled": False}
+    assert overrides["coverage_engine"] == {"enabled": False}
+    assert overrides["request_capture"] == {"enabled": False}
     assert overrides["adaptive_execution"]["enabled"] is False
     assert overrides["adaptive_execution"]["cpu_core_cap"] == 3
     assert overrides["profile"]["cpu_cores"] == 3

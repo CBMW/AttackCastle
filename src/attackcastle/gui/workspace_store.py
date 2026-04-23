@@ -5,17 +5,20 @@ from pathlib import Path
 from typing import Any
 
 from attackcastle.gui.models import (
+    AttackWorkspace,
     AuditEntry,
     EntityNote,
     FindingState,
+    GuiProxySettings,
     MigrationState,
+    ReportsConfig,
     RunRegistryEntry,
     Workspace,
     WorkspaceOverviewState,
     now_iso,
 )
 
-WORKSPACE_STORE_VERSION = 5
+WORKSPACE_STORE_VERSION = 8
 LEGACY_WORKSPACE_STORE_VERSION = 2
 NO_WORKSPACE_SCOPE_ID = "__no_workspace__"
 
@@ -49,7 +52,16 @@ def _workspace_has_meaningful_data(workspace: Workspace, payload: dict[str, Any]
         )
     ):
         return True
-    for section_name in ("run_registry", "finding_states", "entity_notes", "audit", "overview_state"):
+    for section_name in (
+        "run_registry",
+        "finding_states",
+        "entity_notes",
+        "manual_findings",
+        "attack_workspaces",
+        "reports_config",
+        "audit",
+        "overview_state",
+    ):
         section = payload.get(section_name, {})
         if not isinstance(section, dict):
             continue
@@ -81,8 +93,12 @@ def _default_payload() -> dict[str, Any]:
         "run_registry": {NO_WORKSPACE_SCOPE_ID: []},
         "finding_states": {NO_WORKSPACE_SCOPE_ID: {}},
         "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}},
+        "manual_findings": {NO_WORKSPACE_SCOPE_ID: {}},
+        "attack_workspaces": {NO_WORKSPACE_SCOPE_ID: []},
+        "reports_config": {NO_WORKSPACE_SCOPE_ID: {}},
         "audit": {NO_WORKSPACE_SCOPE_ID: []},
         "overview_state": {},
+        "proxy_settings": {},
         "ui_layout": {},
         "migration_state": MigrationState(completed=True).to_dict(),
     }
@@ -165,8 +181,14 @@ class WorkspaceStore:
         payload["run_registry"] = self._normalized_run_registry(payload.get("run_registry"), workspaces)
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), workspaces)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
+        payload["manual_findings"] = self._normalized_manual_findings(payload.get("manual_findings"), workspaces)
+        payload["attack_workspaces"] = self._normalized_attack_workspaces(payload.get("attack_workspaces"), workspaces)
+        payload["reports_config"] = self._normalized_reports_config(payload.get("reports_config"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
+        payload["proxy_settings"] = GuiProxySettings.from_dict(
+            payload.get("proxy_settings") if isinstance(payload.get("proxy_settings"), dict) else {}
+        ).to_dict()
         payload["ui_layout"] = self._normalized_ui_layout(payload.get("ui_layout"))
         migration_state = MigrationState.from_dict(payload.get("migration_state", {}))
         if version < WORKSPACE_STORE_VERSION:
@@ -269,6 +291,67 @@ class WorkspaceStore:
             }
         return result
 
+    def _normalized_manual_findings(self, raw: Any, workspaces: list[Workspace]) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        valid_ids = {workspace.workspace_id for workspace in workspaces}
+        result: dict[str, dict[str, list[dict[str, Any]]]] = {NO_WORKSPACE_SCOPE_ID: {}}
+        result.update({workspace.workspace_id: {} for workspace in workspaces})
+        if not isinstance(raw, dict):
+            return result
+        for workspace_id, items in raw.items():
+            if workspace_id not in valid_ids and workspace_id != NO_WORKSPACE_SCOPE_ID:
+                continue
+            if not isinstance(items, dict):
+                continue
+            workspace_findings: dict[str, list[dict[str, Any]]] = {}
+            for run_id, rows in items.items():
+                if not isinstance(run_id, str) or not isinstance(rows, list):
+                    continue
+                normalized_rows = [
+                    dict(row)
+                    for row in rows
+                    if isinstance(row, dict) and str(row.get("finding_id") or "").strip()
+                ]
+                if normalized_rows:
+                    workspace_findings[run_id] = normalized_rows
+            result[workspace_id] = workspace_findings
+        return result
+
+    def _normalized_attack_workspaces(self, raw: Any, workspaces: list[Workspace]) -> dict[str, list[dict[str, Any]]]:
+        valid_ids = {workspace.workspace_id for workspace in workspaces}
+        result: dict[str, list[dict[str, Any]]] = {NO_WORKSPACE_SCOPE_ID: []}
+        result.update({workspace.workspace_id: [] for workspace in workspaces})
+        if not isinstance(raw, dict):
+            return result
+        for workspace_id, rows in raw.items():
+            if workspace_id not in valid_ids and workspace_id != NO_WORKSPACE_SCOPE_ID:
+                continue
+            if not isinstance(rows, list):
+                continue
+            workspaces_for_scope: list[dict[str, Any]] = []
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                attack_workspace = AttackWorkspace.from_dict(item)
+                if not attack_workspace.attack_workspace_id:
+                    continue
+                workspaces_for_scope.append(attack_workspace.to_dict())
+            result[workspace_id] = workspaces_for_scope
+        return result
+
+    def _normalized_reports_config(self, raw: Any, workspaces: list[Workspace]) -> dict[str, dict[str, Any]]:
+        valid_ids = {workspace.workspace_id for workspace in workspaces}
+        result: dict[str, dict[str, Any]] = {NO_WORKSPACE_SCOPE_ID: {}}
+        result.update({workspace.workspace_id: {} for workspace in workspaces})
+        if not isinstance(raw, dict):
+            return result
+        for workspace_id, payload in raw.items():
+            if workspace_id not in valid_ids and workspace_id != NO_WORKSPACE_SCOPE_ID:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            result[workspace_id] = ReportsConfig.from_dict(payload).to_dict() if payload else {}
+        return result
+
     def _normalized_audit(self, raw: Any, workspaces: list[Workspace]) -> dict[str, list[dict[str, Any]]]:
         valid_ids = {workspace.workspace_id for workspace in workspaces}
         result: dict[str, list[dict[str, Any]]] = {NO_WORKSPACE_SCOPE_ID: []}
@@ -342,6 +425,9 @@ class WorkspaceStore:
         payload["run_registry"] = self._normalized_run_registry(payload.get("run_registry"), remaining)
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), remaining)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), remaining)
+        payload["manual_findings"] = self._normalized_manual_findings(payload.get("manual_findings"), remaining)
+        payload["attack_workspaces"] = self._normalized_attack_workspaces(payload.get("attack_workspaces"), remaining)
+        payload["reports_config"] = self._normalized_reports_config(payload.get("reports_config"), remaining)
         payload["audit"] = self._normalized_audit(payload.get("audit"), remaining)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), remaining)
         if not str(payload.get("active_workspace_id") or ""):
@@ -358,6 +444,9 @@ class WorkspaceStore:
         payload["run_registry"] = self._normalized_run_registry(payload.get("run_registry"), workspaces)
         payload["finding_states"] = self._normalized_finding_states(payload.get("finding_states"), workspaces)
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
+        payload["manual_findings"] = self._normalized_manual_findings(payload.get("manual_findings"), workspaces)
+        payload["attack_workspaces"] = self._normalized_attack_workspaces(payload.get("attack_workspaces"), workspaces)
+        payload["reports_config"] = self._normalized_reports_config(payload.get("reports_config"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
         if str(payload.get("active_workspace_id") or "") in target_ids:
@@ -553,6 +642,111 @@ class WorkspaceStore:
         workspace_notes[signature] = note.to_dict()
         return self._write_payload(payload)
 
+    def load_attack_workspaces(self, workspace_id: str | None = None) -> list[AttackWorkspace]:
+        normalized = self._normalized_payload()
+        raw = normalized.get("attack_workspaces", {})
+        if not isinstance(raw, dict):
+            return []
+        if workspace_id is None:
+            workspace_id = self.get_active_workspace_id()
+        rows = raw.get(self.scope_key(workspace_id), [])
+        if not isinstance(rows, list):
+            return []
+        return [
+            AttackWorkspace.from_dict(item)
+            for item in rows
+            if isinstance(item, dict)
+        ]
+
+    def load_manual_findings(self, workspace_id: str | None = None, run_id: str | None = None) -> dict[str, list[dict[str, Any]]] | list[dict[str, Any]]:
+        normalized = self._normalized_payload()
+        raw = normalized.get("manual_findings", {})
+        if not isinstance(raw, dict):
+            return [] if run_id is not None else {}
+        if workspace_id is None:
+            workspace_id = self.get_active_workspace_id()
+        items = raw.get(self.scope_key(workspace_id), {})
+        if not isinstance(items, dict):
+            return [] if run_id is not None else {}
+        result = {
+            stored_run_id: [dict(row) for row in rows if isinstance(row, dict)]
+            for stored_run_id, rows in items.items()
+            if isinstance(stored_run_id, str) and isinstance(rows, list)
+        }
+        if run_id is not None:
+            return result.get(str(run_id or ""), [])
+        return result
+
+    def save_manual_findings(self, workspace_id: str | None, run_id: str, findings: list[dict[str, Any]]) -> Path:
+        payload = self._normalized_payload()
+        raw = payload.setdefault("manual_findings", {})
+        if not isinstance(raw, dict):
+            raw = {}
+            payload["manual_findings"] = raw
+        scope_id = self.scope_key(workspace_id)
+        workspace_findings = raw.setdefault(scope_id, {})
+        if not isinstance(workspace_findings, dict):
+            workspace_findings = {}
+            raw[scope_id] = workspace_findings
+        normalized_rows = [
+            dict(row)
+            for row in findings
+            if isinstance(row, dict) and str(row.get("finding_id") or "").strip()
+        ]
+        run_key = str(run_id or "").strip() or "__manual__"
+        if normalized_rows:
+            workspace_findings[run_key] = normalized_rows
+        else:
+            workspace_findings.pop(run_key, None)
+        return self._write_payload(payload)
+
+    def save_attack_workspaces(self, workspace_id: str | None, workspaces: list[AttackWorkspace]) -> Path:
+        payload = self._normalized_payload()
+        raw = payload.setdefault("attack_workspaces", {})
+        if not isinstance(raw, dict):
+            raw = {}
+            payload["attack_workspaces"] = raw
+        scope_id = self.scope_key(workspace_id)
+        raw[scope_id] = [
+            workspace.to_dict()
+            for workspace in workspaces
+            if isinstance(workspace, AttackWorkspace) and workspace.attack_workspace_id
+        ]
+        return self._write_payload(payload)
+
+    def load_reports_config(self, workspace_id: str | None = None) -> ReportsConfig:
+        normalized = self._normalized_payload()
+        raw = normalized.get("reports_config", {})
+        if not isinstance(raw, dict):
+            return ReportsConfig()
+        if workspace_id is None:
+            workspace_id = self.get_active_workspace_id()
+        payload = raw.get(self.scope_key(workspace_id), {})
+        return ReportsConfig.from_dict(payload if isinstance(payload, dict) else {})
+
+    def save_reports_config(self, workspace_id: str | None, config: ReportsConfig) -> Path:
+        if not isinstance(config, ReportsConfig):
+            raise TypeError("config must be a ReportsConfig")
+        payload = self._normalized_payload()
+        raw = payload.setdefault("reports_config", {})
+        if not isinstance(raw, dict):
+            raw = {}
+            payload["reports_config"] = raw
+        raw[self.scope_key(workspace_id)] = config.to_dict()
+        return self._write_payload(payload)
+
+    def load_proxy_settings(self) -> GuiProxySettings:
+        normalized = self._normalized_payload()
+        payload = normalized.get("proxy_settings", {})
+        return GuiProxySettings.from_dict(payload if isinstance(payload, dict) else {})
+
+    def save_proxy_settings(self, settings: GuiProxySettings) -> Path:
+        if not isinstance(settings, GuiProxySettings):
+            raise TypeError("settings must be a GuiProxySettings")
+        payload = self._normalized_payload()
+        payload["proxy_settings"] = settings.to_dict()
+        return self._write_payload(payload)
+
     def load_audit(self, workspace_id: str | None = None) -> list[AuditEntry]:
         payload = self._read_payload()
         version = int(payload.get("version", 1) or 1)
@@ -681,6 +875,9 @@ class WorkspaceStore:
                 for workspace_id, workspace_states in finding_states.items()
             },
             "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}},
+            "manual_findings": {NO_WORKSPACE_SCOPE_ID: {}},
+            "attack_workspaces": {NO_WORKSPACE_SCOPE_ID: []},
+            "reports_config": {NO_WORKSPACE_SCOPE_ID: {}},
             "audit": {
                 workspace_id: [entry.to_dict() for entry in rows[-500:]]
                 for workspace_id, rows in audit.items()

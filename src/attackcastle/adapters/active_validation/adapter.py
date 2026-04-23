@@ -341,6 +341,20 @@ class ActiveValidationAdapter:
         execution_id = new_id("exec")
         result = AdapterResult()
         config = _coverage_config(context.config)
+        if config.get("enabled") is False:
+            result.tool_executions.append(
+                build_tool_execution(
+                    tool_name=self.name,
+                    command="active validation (disabled)",
+                    started_at=started_at,
+                    ended_at=now_utc(),
+                    status="skipped",
+                    execution_id=execution_id,
+                    capability=self.capability,
+                    exit_code=0,
+                )
+            )
+            return result
         mode = str(config.get("mode", "safe-active")).strip().lower() or "safe-active"
         replay_enabled = bool(config.get("request_replay_enabled", True))
         if not replay_enabled:

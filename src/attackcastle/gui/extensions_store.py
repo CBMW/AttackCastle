@@ -12,6 +12,7 @@ from attackcastle.gui.extensions import (
     ExtensionValidationError,
     LEGACY_DEFAULT_THEME_EXTENSION_ID,
     build_default_theme_manifest,
+    build_reports_extension_manifest,
     build_starter_command_hook_manifest,
     build_starter_theme_manifest,
     default_extensions_root,
@@ -77,11 +78,24 @@ class GuiExtensionStore:
         default_manifest = build_default_theme_manifest()
         if not self._manifest_directories_by_id(default_manifest.extension_id):
             self.save_manifest(default_manifest)
+        reports_manifest = build_reports_extension_manifest()
+        reports_created = False
+        if not self._manifest_directories_by_id(reports_manifest.extension_id):
+            self.save_manifest(reports_manifest)
+            reports_created = True
         state = self.load_state()
         state.enabled_extensions.setdefault(DEFAULT_THEME_EXTENSION_ID, True)
+        if reports_created:
+            state.enabled_extensions[reports_manifest.extension_id] = False
+        else:
+            state.enabled_extensions.setdefault(reports_manifest.extension_id, False)
         if not state.active_theme_id or state.active_theme_id == LEGACY_DEFAULT_THEME_EXTENSION_ID:
             state.active_theme_id = DEFAULT_THEME_EXTENSION_ID
-        if not state.last_opened_extension_id or state.last_opened_extension_id == LEGACY_DEFAULT_THEME_EXTENSION_ID:
+        if (
+            not state.last_opened_extension_id
+            or state.last_opened_extension_id == LEGACY_DEFAULT_THEME_EXTENSION_ID
+            or (reports_created and state.last_opened_extension_id == reports_manifest.extension_id)
+        ):
             state.last_opened_extension_id = DEFAULT_THEME_EXTENSION_ID
         self.save_state(state)
 

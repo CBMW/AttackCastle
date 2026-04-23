@@ -12,6 +12,28 @@ def test_gui_profile_store_returns_builtins_when_missing(tmp_path: Path) -> None
     store = GuiProfileStore(tmp_path / "profiles.json")
     loaded = store.load()
     assert [item.name for item in loaded] == [item.name for item in built_in_profiles()]
+    assert [item.name for item in loaded] == ["Recon Only", "Basic", "Prototype", "Active Exploitation"]
+
+
+def test_gui_profile_store_migrates_legacy_builtin_names(tmp_path: Path) -> None:
+    store_path = tmp_path / "profiles.json"
+    store_path.write_text(
+        """
+        {
+          "version": 1,
+          "profiles": [
+            {"name": "Cautious", "base_profile": "cautious"},
+            {"name": "Standard", "base_profile": "standard"},
+            {"name": "Aggressive", "base_profile": "aggressive"}
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    loaded = GuiProfileStore(store_path).load()
+
+    assert [item.name for item in loaded] == ["Recon Only", "Basic", "Active Exploitation"]
 
 
 def test_gui_profile_store_round_trip(tmp_path: Path) -> None:

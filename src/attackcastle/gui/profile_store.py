@@ -7,6 +7,11 @@ from typing import Any
 from attackcastle.gui.models import GuiProfile
 
 PROFILE_STORE_VERSION = 1
+BUILT_IN_PROFILE_RENAMES = {
+    ("Cautious", "cautious"): "Recon Only",
+    ("Standard", "standard"): "Basic",
+    ("Aggressive", "aggressive"): "Active Exploitation",
+}
 
 
 def default_profile_store_path() -> Path:
@@ -16,7 +21,7 @@ def default_profile_store_path() -> Path:
 def built_in_profiles() -> list[GuiProfile]:
     return [
         GuiProfile(
-            name="Cautious",
+            name="Recon Only",
             description="Low-noise profile for careful external validation.",
             base_profile="cautious",
             concurrency=2,
@@ -31,7 +36,7 @@ def built_in_profiles() -> list[GuiProfile]:
             enable_sqlmap=False,
         ),
         GuiProfile(
-            name="Standard",
+            name="Basic",
             description="Balanced coverage for routine external assessments.",
             base_profile="standard",
             concurrency=4,
@@ -57,7 +62,7 @@ def built_in_profiles() -> list[GuiProfile]:
             enable_sqlmap=False,
         ),
         GuiProfile(
-            name="Aggressive",
+            name="Active Exploitation",
             description="High-intensity coverage for explicitly authorized deeper engagements.",
             base_profile="aggressive",
             concurrency=8,
@@ -76,6 +81,20 @@ def _normalized_profile_name(name: str) -> str:
     return name.strip().casefold()
 
 
+def _migrate_builtin_profile_names(profiles: list[GuiProfile]) -> list[GuiProfile]:
+    existing_names = {_normalized_profile_name(profile.name) for profile in profiles}
+    for profile in profiles:
+        replacement = BUILT_IN_PROFILE_RENAMES.get((profile.name, profile.base_profile))
+        if replacement is None:
+            continue
+        if _normalized_profile_name(replacement) in existing_names:
+            continue
+        existing_names.discard(_normalized_profile_name(profile.name))
+        profile.name = replacement
+        existing_names.add(_normalized_profile_name(profile.name))
+    return profiles
+
+
 class GuiProfileStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or default_profile_store_path()
@@ -90,7 +109,7 @@ class GuiProfileStore:
         rows = payload.get("profiles", [])
         if not isinstance(rows, list):
             raise ValueError("Profile store payload must include a 'profiles' list.")
-        loaded = [GuiProfile.from_dict(item) for item in rows if isinstance(item, dict)]
+        loaded = _migrate_builtin_profile_names([GuiProfile.from_dict(item) for item in rows if isinstance(item, dict)])
         return self._validated_profiles(loaded)
 
     def _validated_profiles(self, profiles: list[GuiProfile]) -> list[GuiProfile]:

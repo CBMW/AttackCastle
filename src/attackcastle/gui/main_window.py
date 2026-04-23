@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTableView,
     QTextEdit,
@@ -52,6 +54,7 @@ from attackcastle.gui.common import (
     SURFACE_FLAT,
     SURFACE_PRIMARY,
     SURFACE_SECONDARY,
+    apply_form_layout_defaults,
     apply_responsive_splitter,
     build_flat_container,
     build_inspector_panel,
@@ -73,6 +76,7 @@ from attackcastle.gui.common import (
     title_case_label,
 )
 from attackcastle.gui.asset_inventory import build_workspace_inventory_snapshot
+from attackcastle.gui.attacker_tab import AttackerTab, WORKSPACE_TYPES
 from attackcastle.gui.assets_tab import AssetsTab
 from attackcastle.gui.configuration_tab import ConfigurationTab
 from attackcastle.gui.dialogs import (
@@ -82,15 +86,19 @@ from attackcastle.gui.dialogs import (
     WorkspaceDialog,
     WorkspaceMigrationDialog,
 )
+from attackcastle.gui.extensions import REPORTS_EXTENSION_ID
 from attackcastle.gui.extensions_store import GuiExtensionStore
 from attackcastle.gui.extensions_tab import ExtensionsTab
 from attackcastle.gui.models import (
+    AttackWorkspace,
     AuditEntry,
     EntityNote,
     FindingState,
     GuiProfile,
+    GuiProxySettings,
     MigrationState,
     OverviewChecklistItem,
+    ReportsConfig,
     RunRegistryEntry,
     RunSnapshot,
     ScanRequest,
@@ -98,6 +106,7 @@ from attackcastle.gui.models import (
     WorkspaceOverviewState,
     now_iso,
 )
+from attackcastle.gui.overview_general import GeneralOverviewData, OverviewGeneralPanel
 from attackcastle.gui.overview_checklist import OverviewChecklistPanel
 from attackcastle.gui.output_tab import OutputTab
 from attackcastle.gui.performance import (
@@ -107,6 +116,7 @@ from attackcastle.gui.performance import (
     save_performance_guard_settings,
 )
 from attackcastle.gui.profile_store import GuiProfileStore
+from attackcastle.gui.reports_tab import ReportsTab
 from attackcastle.gui.runtime import build_run_debug_bundle, load_run_snapshot
 from attackcastle.gui.scanner_panel import ScannerPanel
 from attackcastle.core.execution_issues import build_execution_issues, summarize_execution_issues
@@ -150,11 +160,14 @@ class MainWindow(QMainWindow):
         self._overview_state = WorkspaceOverviewState()
         self._applying_overview_state = False
         self._geometry_synced_to_screen = False
-        self._nav_order = ["workspaces", "runs", "assets", "attacker", "findings", "profiles", "extensions", "settings"]
+        self._nav_order = ["workspaces", "runs", "assets", "attacker", "findings", "extensions", "settings"]
         self._page_indices: dict[str, int] = {}
+        self.reports_tab: ReportsTab | None = None
         self._splitter_controllers: dict[str, PersistentSplitterController] = {}
         self._switch_in_progress = False
         self.performance_guard_settings = load_performance_guard_settings()
+        self.proxy_settings = self.workspace_store.load_proxy_settings()
+        self._applying_proxy_settings = False
         self._system_usage_sampler = ProcessTreeUsageSampler()
         self._resource_pressure_active = False
         self._last_resource_action = "No resource action yet."
@@ -218,6 +231,18 @@ class MainWindow(QMainWindow):
                 "workspace_overview_split",
                 [max(int(width * 0.25), 260), max(int(width * 0.50), 520), max(int(width * 0.25), 280)],
             )
+        if hasattr(self, "workspace_center_split"):
+            self.workspace_center_split.setOrientation(Qt.Vertical)
+            self._apply_splitter_layout(
+                "workspace_center_split",
+                [max(int(self.height() * 0.34), 240), max(int(self.height() * 0.34), 240)],
+            )
+        if hasattr(self, "workspace_inspector_split"):
+            self.workspace_inspector_split.setOrientation(Qt.Vertical)
+            self._apply_splitter_layout(
+                "workspace_inspector_split",
+                [max(int(self.height() * 0.34), 240), max(int(self.height() * 0.34), 240)],
+            )
         self._arrange_run_filters(width)
         if hasattr(self, "runs_body_split"):
             if width >= 1240:
@@ -247,6 +272,9 @@ class MainWindow(QMainWindow):
                     [max(int(self.height() * 0.24), 180), max(int(self.height() * 0.76), 520)],
                 )
         self.output_tab.sync_responsive_mode(width)
+        if self.reports_tab is not None:
+            self.reports_tab.sync_responsive_mode(width)
+        self.attacker_tab.sync_responsive_mode(width)
         self.scanner_panel.sync_responsive_mode(width)
         self.configuration_tab.sync_profile_form_width(width)
 
@@ -320,6 +348,8 @@ class MainWindow(QMainWindow):
             self._start_scan_for_target,
             self._load_entity_notes,
             self._save_entity_note,
+            send_to_attacker=self._send_asset_to_attacker,
+            attacker_action_types=self._attacker_action_types,
             layout_loader=self._load_ui_layout,
             layout_saver=self._save_ui_layout,
         )
@@ -331,6 +361,9 @@ class MainWindow(QMainWindow):
             self._open_local_path,
             layout_loader=self._load_ui_layout,
             layout_saver=self._save_ui_layout,
+            load_manual_findings=self._load_manual_findings,
+            save_manual_findings=self._save_manual_findings,
+            report_exports_enabled=self._reports_extension_enabled(),
         )
         self.output_tab.setMinimumHeight(0)
         self.configuration_tab = ConfigurationTab(
@@ -344,6 +377,7 @@ class MainWindow(QMainWindow):
             self.extension_store,
             self._apply_theme_manifest,
             self._open_local_path,
+            on_extensions_changed=self._sync_extension_tabs,
             layout_loader=self._load_ui_layout,
             layout_saver=self._save_ui_layout,
         )
@@ -355,11 +389,11 @@ class MainWindow(QMainWindow):
             ("assets", self.assets_tab),
             ("attacker", self.attacker_page),
             ("findings", self.output_tab),
-            ("profiles", self.configuration_tab),
             ("extensions", self.extensions_tab),
             ("settings", self.settings_page),
         ):
             self._page_indices[key] = self.workflow_tabs.addTab(page, self._workflow_label_for_key(key))
+        self._sync_extension_tabs()
         root.addWidget(self.workflow_tabs, 1)
         self.setCentralWidget(central)
 
@@ -440,6 +474,14 @@ class MainWindow(QMainWindow):
         center_layout = QVBoxLayout(center_panel)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(PAGE_SECTION_SPACING)
+        self.workspace_center_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (1, 1))
+        self._register_splitter(self.workspace_center_split, "workspace_center_split")
+        self.overview_general_panel = OverviewGeneralPanel()
+        general_panel, _general_title, _general_summary = build_inspector_panel(
+            "General",
+            self.overview_general_panel,
+            surface=SURFACE_PRIMARY,
+        )
         workspace_runs = QWidget()
         workspace_runs_layout = QVBoxLayout(workspace_runs)
         workspace_runs_layout.setContentsMargins(0, 0, 0, 0)
@@ -473,20 +515,16 @@ class MainWindow(QMainWindow):
             workspace_runs,
             surface=SURFACE_PRIMARY,
         )
-        center_layout.addWidget(runs_panel, 1)
+        self.workspace_center_split.addWidget(general_panel)
+        self.workspace_center_split.addWidget(runs_panel)
+        center_layout.addWidget(self.workspace_center_split, 1)
         content_split.addWidget(center_panel)
-
-        inspector_body = QWidget()
-        inspector_layout = QVBoxLayout(inspector_body)
-        inspector_layout.setContentsMargins(0, 0, 0, 0)
-        inspector_layout.setSpacing(PAGE_SECTION_SPACING)
 
         self.overview_checklist_panel = OverviewChecklistPanel()
         self.overview_checklist_panel.add_requested.connect(self._add_overview_checklist_item)
         self.overview_checklist_panel.toggled.connect(self._toggle_overview_checklist_item)
         self.overview_checklist_panel.delete_requested.connect(self._delete_overview_checklist_item)
 
-        # The right rail is already a primary panel, so keep inner sections lighter and let spacing do the grouping.
         notes_panel, notes_layout = build_surface_frame(
             object_name="sectionPanel",
             surface=SURFACE_SECONDARY,
@@ -502,16 +540,12 @@ class MainWindow(QMainWindow):
         notes_layout.addWidget(notes_header)
         notes_layout.addWidget(self.overview_notes_edit, 1)
 
-        inspector_layout.addWidget(self.overview_checklist_panel, 1)
-        inspector_layout.addWidget(notes_panel, 1)
-        inspector_panel, inspector_panel_layout = build_surface_frame(
-            object_name="inspectorPanel",
-            surface=SURFACE_PRIMARY,
-            spacing=PAGE_SECTION_SPACING,
-        )
-        inspector_panel_layout.addWidget(inspector_body, 1)
+        self.workspace_inspector_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (1, 1))
+        self._register_splitter(self.workspace_inspector_split, "workspace_inspector_split")
+        self.workspace_inspector_split.addWidget(self.overview_checklist_panel)
+        self.workspace_inspector_split.addWidget(notes_panel)
 
-        content_split.addWidget(inspector_panel)
+        content_split.addWidget(self.workspace_inspector_split)
         layout.addWidget(content_split, 1)
         return page
 
@@ -618,13 +652,14 @@ class MainWindow(QMainWindow):
         return page
 
     def _build_attacker_page(self) -> QWidget:
-        page = build_flat_container()
-        page.setObjectName("attackerCanvas")
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addStretch(1)
-        return page
+        self.attacker_tab = AttackerTab(
+            self._load_attack_workspaces,
+            self._save_attack_workspaces,
+            layout_loader=self._load_ui_layout,
+            layout_saver=self._save_ui_layout,
+        )
+        self.attacker_tab.set_proxy_url(self.proxy_settings.effective_attacker_proxy_url())
+        return self.attacker_tab
 
     def _build_performance_slider_row(
         self,
@@ -684,29 +719,48 @@ class MainWindow(QMainWindow):
         divider.setFrameShadow(QFrame.Plain)
         return divider
 
-    def _scroll_to_settings_section(self, row: int) -> None:
+    def _show_settings_row(self, row: int) -> None:
         if row < 0:
             return
-        sections = getattr(self, "_settings_section_widgets", [])
-        if row >= len(sections):
+        if not hasattr(self, "settings_page_stack"):
             return
-        self.settings_scroll_area.ensureWidgetVisible(sections[row], 0, 14)
+        if row >= self.settings_page_stack.count():
+            return
+        self.settings_page_stack.setCurrentIndex(row)
 
-    def _sync_settings_nav_to_scroll(self, value: int) -> None:
-        sections = getattr(self, "_settings_section_widgets", [])
-        if not sections or not hasattr(self, "settings_nav_list"):
+    def _show_settings_section(self, key: str) -> None:
+        if not hasattr(self, "settings_nav_list"):
             return
-        active_row = 0
-        for index, section in enumerate(sections):
-            if section.pos().y() <= value + 40:
-                active_row = index
-            else:
-                break
-        if self.settings_nav_list.currentRow() == active_row:
+        row = getattr(self, "_settings_page_indices", {}).get(key, -1)
+        if row < 0:
+            return
+        if self.settings_nav_list.currentRow() == row:
+            self._show_settings_row(row)
             return
         self.settings_nav_list.blockSignals(True)
-        self.settings_nav_list.setCurrentRow(active_row)
+        self.settings_nav_list.setCurrentRow(row)
         self.settings_nav_list.blockSignals(False)
+        self._show_settings_row(row)
+
+    def _build_settings_content_page(self, *widgets: QWidget) -> QScrollArea:
+        scroll = configure_scroll_surface(QScrollArea())
+        scroll.setObjectName("settingsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        content.setObjectName("settingsContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, PAGE_CARD_SPACING, 0)
+        content_layout.setSpacing(18)
+        for widget in widgets:
+            content_layout.addWidget(widget)
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        return scroll
+
+    def _add_settings_page(self, key: str, title: str, page: QWidget) -> None:
+        self.settings_nav_list.addItem(QListWidgetItem(title))
+        self._settings_page_indices[key] = self.settings_page_stack.addWidget(page)
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
@@ -726,16 +780,7 @@ class MainWindow(QMainWindow):
         rail_title.setObjectName("sectionTitle")
         self.settings_nav_list = QListWidget()
         self.settings_nav_list.setObjectName("sidebarList")
-        self.settings_nav_list.currentRowChanged.connect(self._scroll_to_settings_section)
-        for section_title in (
-            "Session",
-            "Project Controls",
-            "Resource Limits",
-            "Metadata Paths",
-            "Storage & Utilities",
-            "Danger Zone",
-        ):
-            self.settings_nav_list.addItem(QListWidgetItem(section_title))
+        self.settings_nav_list.currentRowChanged.connect(self._show_settings_row)
         rail_layout.addWidget(rail_title)
         rail_layout.addWidget(self.settings_nav_list, 1)
         self.settings_split.addWidget(rail)
@@ -744,59 +789,11 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
-        self.settings_scroll_area = configure_scroll_surface(QScrollArea())
-        self.settings_scroll_area.setObjectName("settingsScroll")
-        self.settings_scroll_area.setWidgetResizable(True)
-        self.settings_scroll_area.setFrameShape(QFrame.NoFrame)
-        self.settings_scroll_area.verticalScrollBar().valueChanged.connect(self._sync_settings_nav_to_scroll)
-        content = QWidget()
-        content.setObjectName("settingsContent")
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, PAGE_CARD_SPACING, 0)
-        content_layout.setSpacing(18)
+        self.settings_page_stack = QStackedWidget()
+        self.settings_page_stack.setObjectName("settingsPageStack")
+        self._settings_page_indices: dict[str, int] = {}
 
-        session_panel, session_layout = self._build_settings_card(
-            "Session",
-            summary="Current runtime scope for this GUI session.",
-        )
-        self._settings_section_widgets = [session_panel]
-        self.active_workspace_status_label = QLabel("Session project: Ad-Hoc")
-        self.active_workspace_status_label.setObjectName("infoBanner")
-        self.active_workspace_status_label.setWordWrap(True)
-        set_tooltip(self.active_workspace_status_label, "Shows the project currently bound to this GUI session.")
-        session_layout.addWidget(self.active_workspace_status_label)
-        content_layout.addWidget(session_panel)
-
-        workspace_panel, workspace_layout = self._build_settings_card(
-            "Project Controls",
-            summary="Switch between saved project state and ad-hoc operation.",
-        )
-        self._settings_section_widgets.append(workspace_panel)
-        self.settings_workspace_combo = QComboBox()
-        self.settings_workspace_combo.setObjectName("workspaceSwitchCombo")
-        self.settings_workspace_combo.currentIndexChanged.connect(lambda _index: self._update_settings_workspace_switch_actions())
-        session_actions = FlowButtonRow()
-        self.apply_workspace_button = QPushButton("Apply Project")
-        self.apply_workspace_button.clicked.connect(self._apply_settings_workspace_selection)
-        self.settings_ad_hoc_button = QPushButton("Use Ad-Hoc Session")
-        self.settings_ad_hoc_button.clicked.connect(self._switch_to_no_workspace)
-        style_button(self.apply_workspace_button)
-        style_button(self.settings_ad_hoc_button, role="secondary")
-        set_tooltips(
-            (
-                (self.settings_workspace_combo, "Choose which project should be active for this GUI session."),
-                (self.apply_workspace_button, "Switch the current GUI session to the selected project."),
-                (self.settings_ad_hoc_button, "Leave project-scoped mode and continue in ad-hoc session mode."),
-            )
-        )
-        session_actions.addWidget(self.apply_workspace_button)
-        session_actions.addWidget(self.settings_ad_hoc_button)
-        workspace_label = QLabel("Active project")
-        workspace_label.setObjectName("settingsFieldLabel")
-        workspace_layout.addWidget(workspace_label)
-        workspace_layout.addWidget(self.settings_workspace_combo)
-        workspace_layout.addWidget(session_actions)
-        content_layout.addWidget(workspace_panel)
+        self._settings_section_widgets: list[QWidget] = []
 
         performance_panel, performance_layout = self._build_settings_card(
             "Resource Limits",
@@ -858,7 +855,65 @@ class MainWindow(QMainWindow):
         )
         performance_layout.addWidget(self._build_settings_divider())
         performance_layout.addWidget(self.performance_test_throttle_button)
-        content_layout.addWidget(performance_panel)
+        self._add_settings_page("resources", "Resource Limits", self._build_settings_content_page(performance_panel))
+        self._add_settings_page("profiles", "Profiles", self.configuration_tab)
+
+        proxy_panel, proxy_layout = self._build_settings_card(
+            "Proxy",
+            summary="Route Scanner and Attacker HTTP traffic through a shared or function-specific proxy.",
+        )
+        self._settings_section_widgets.append(proxy_panel)
+        self.proxy_all_traffic_checkbox = QCheckBox("Proxy All AttackCastle Traffic")
+        self.proxy_global_url_edit = QLineEdit()
+        self.proxy_global_url_edit.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy_scanner_enabled_checkbox = QCheckBox("Use scanner-specific proxy")
+        self.proxy_scanner_url_edit = QLineEdit()
+        self.proxy_scanner_url_edit.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy_attacker_enabled_checkbox = QCheckBox("Use attacker-specific proxy")
+        self.proxy_attacker_url_edit = QLineEdit()
+        self.proxy_attacker_url_edit.setPlaceholderText("http://127.0.0.1:8080")
+        self.proxy_settings_status_label = QLabel("")
+        self.proxy_settings_status_label.setObjectName("helperText")
+        self.proxy_settings_status_label.setWordWrap(True)
+        for edit in (
+            self.proxy_global_url_edit,
+            self.proxy_scanner_url_edit,
+            self.proxy_attacker_url_edit,
+        ):
+            edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        set_tooltips(
+            (
+                (self.proxy_all_traffic_checkbox, "Use the global proxy URL for both Scanner launches and Attacker HTTP replay."),
+                (self.proxy_global_url_edit, "Shared HTTP(S) proxy URL, for example a Burp listener."),
+                (self.proxy_scanner_enabled_checkbox, "Use a Scanner-specific proxy when the global all-traffic proxy is off."),
+                (self.proxy_scanner_url_edit, "Proxy URL applied to newly launched, resumed, and retried Scanner work."),
+                (self.proxy_attacker_enabled_checkbox, "Use an Attacker-specific proxy when the global all-traffic proxy is off."),
+                (self.proxy_attacker_url_edit, "Proxy URL applied to Attacker HTTP replay requests."),
+            )
+        )
+        proxy_form = QWidget()
+        proxy_form_layout = QFormLayout(proxy_form)
+        apply_form_layout_defaults(proxy_form_layout)
+        proxy_form_layout.addRow(self.proxy_all_traffic_checkbox)
+        proxy_form_layout.addRow("Global proxy URL", self.proxy_global_url_edit)
+        proxy_form_layout.addRow(self._build_settings_divider())
+        proxy_form_layout.addRow(self.proxy_scanner_enabled_checkbox)
+        proxy_form_layout.addRow("Scanner proxy URL", self.proxy_scanner_url_edit)
+        proxy_form_layout.addRow(self._build_settings_divider())
+        proxy_form_layout.addRow(self.proxy_attacker_enabled_checkbox)
+        proxy_form_layout.addRow("Attacker proxy URL", self.proxy_attacker_url_edit)
+        proxy_layout.addWidget(proxy_form)
+        proxy_layout.addWidget(self.proxy_settings_status_label)
+        for signal in (
+            self.proxy_all_traffic_checkbox.toggled,
+            self.proxy_global_url_edit.textChanged,
+            self.proxy_scanner_enabled_checkbox.toggled,
+            self.proxy_scanner_url_edit.textChanged,
+            self.proxy_attacker_enabled_checkbox.toggled,
+            self.proxy_attacker_url_edit.textChanged,
+        ):
+            signal.connect(lambda *_args: self._persist_proxy_settings())
+        self._add_settings_page("proxy", "Proxy", self._build_settings_content_page(proxy_panel))
 
         paths_panel, paths_layout = self._build_settings_card(
             "Metadata Paths",
@@ -900,7 +955,7 @@ class MainWindow(QMainWindow):
         paths_layout.addWidget(workspace_store_label)
         paths_layout.addWidget(self.workspace_store_path_label)
         paths_layout.addWidget(open_workspace)
-        content_layout.addWidget(paths_panel)
+        self._add_settings_page("paths", "Metadata Paths", self._build_settings_content_page(paths_panel))
 
         store_panel, store_layout = self._build_settings_card(
             "Storage & Utilities",
@@ -908,13 +963,13 @@ class MainWindow(QMainWindow):
         )
         self._settings_section_widgets.append(store_panel)
         self.shortcut_summary_label = QLabel(
-            "Shortcuts: Ctrl+1..8 navigate sections, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder."
+            "Shortcuts: Ctrl+1..7 navigate workflow areas, Ctrl+N new scan, / focus search, Ctrl+F findings search, Ctrl+P pause/resume, Ctrl+R retry, Ctrl+O open artifact or run folder."
         )
         self.shortcut_summary_label.setObjectName("infoBanner")
         self.shortcut_summary_label.setWordWrap(True)
         store_layout.addWidget(self.shortcut_summary_label)
         store_layout.addWidget(about_button)
-        content_layout.addWidget(store_panel)
+        self._add_settings_page("storage", "Storage & Utilities", self._build_settings_content_page(store_panel))
 
         danger_panel, danger_layout = self._build_settings_card(
             "Danger Zone",
@@ -949,11 +1004,9 @@ class MainWindow(QMainWindow):
         danger_actions.addWidget(self.delete_all_workspaces_data_button)
         danger_layout.addWidget(self.danger_zone_status_label)
         danger_layout.addWidget(danger_actions)
-        content_layout.addWidget(danger_panel)
-        content_layout.addStretch(1)
+        self._add_settings_page("danger", "Danger Zone", self._build_settings_content_page(danger_panel))
 
-        self.settings_scroll_area.setWidget(content)
-        right_layout.addWidget(self.settings_scroll_area, 1)
+        right_layout.addWidget(self.settings_page_stack, 1)
         self.settings_split.addWidget(right)
         self.settings_nav_list.setCurrentRow(0)
         layout.addWidget(self.settings_split, 1)
@@ -977,6 +1030,7 @@ class MainWindow(QMainWindow):
             "assets": "Assets",
             "attacker": "Attacker",
             "findings": "Findings",
+            "reports": "Reports",
             "profiles": "Profiles",
             "extensions": "Extensions",
             "settings": "Settings",
@@ -988,9 +1042,66 @@ class MainWindow(QMainWindow):
             return
 
     def _navigate_to(self, key: str) -> None:
+        if key == "profiles":
+            key = "settings"
+            self._show_settings_section("profiles")
         if key not in self._page_indices:
             return
         self.workflow_tabs.setCurrentIndex(self._page_indices[key])
+
+    def _sync_page_indices(self) -> None:
+        self._page_indices = {}
+        ordered: list[str] = []
+        for index in range(self.workflow_tabs.count()):
+            widget = self.workflow_tabs.widget(index)
+            for key, page in (
+                ("workspaces", self.workspace_page),
+                ("runs", self.runs_page),
+                ("assets", self.assets_tab),
+                ("attacker", self.attacker_page),
+                ("findings", self.output_tab),
+                ("reports", self.reports_tab),
+                ("extensions", self.extensions_tab),
+                ("settings", self.settings_page),
+            ):
+                if page is not None and widget is page:
+                    self._page_indices[key] = index
+                    ordered.append(key)
+                    break
+        self._nav_order = ordered
+
+    def _reports_extension_enabled(self) -> bool:
+        record = self.extension_store.get_record(REPORTS_EXTENSION_ID)
+        return bool(record is not None and record.is_valid and record.enabled and record.manifest is not None and "report" in record.capabilities)
+
+    def _sync_extension_tabs(self) -> None:
+        enabled = self._reports_extension_enabled()
+        self.output_tab.set_report_exports_enabled(enabled)
+        if enabled and self.reports_tab is None:
+            self.reports_tab = ReportsTab(
+                load_config=self._load_reports_config,
+                save_config=self._save_reports_config,
+                current_workspace_home=self._current_workspace_home,
+                current_client_name=self._current_client_name,
+                finding_states=self._current_finding_states,
+                manual_findings=self._load_manual_findings,
+                open_path=self._open_local_path,
+                current_findings=self.output_tab.report_findings,
+                layout_loader=self._load_ui_layout,
+                layout_saver=self._save_ui_layout,
+            )
+            self.reports_tab.setMinimumHeight(0)
+            insert_at = self._page_indices.get("extensions", self.workflow_tabs.count())
+            self.workflow_tabs.insertTab(insert_at, self.reports_tab, self._workflow_label_for_key("reports"))
+        elif not enabled and self.reports_tab is not None:
+            index = self.workflow_tabs.indexOf(self.reports_tab)
+            if index >= 0:
+                self.workflow_tabs.removeTab(index)
+            self.reports_tab.deleteLater()
+            self.reports_tab = None
+        self._sync_page_indices()
+        if self.reports_tab is not None:
+            self.reports_tab.set_snapshot(self._selected_snapshot())
 
     def _workspace_run_selected(self, index: QModelIndex) -> None:
         self._run_selected(index)
@@ -1008,6 +1119,107 @@ class MainWindow(QMainWindow):
             }
             rows.append(row)
         self.workspace_run_model.set_rows(rows)
+
+    def _sync_general_overview(self) -> None:
+        if not hasattr(self, "overview_general_panel"):
+            return
+        self.overview_general_panel.set_data(self._build_general_overview_data())
+
+    def _build_general_overview_data(self) -> GeneralOverviewData:
+        inventory_snapshot = self._workspace_inventory_snapshot(preferred_run_id=self._selected_run_id)
+        findings = self._workspace_overview_findings()
+        severity_counts = {severity: 0 for severity in ("critical", "high", "medium", "low", "info")}
+        root_cause_counts: dict[str, int] = {}
+        for row in findings:
+            severity = str(row.get("effective_severity") or row.get("severity") or "info").strip().lower()
+            if severity not in severity_counts:
+                severity = "info"
+            severity_counts[severity] += 1
+
+            root_cause = str(row.get("root_cause") or row.get("category") or "Uncategorized").strip()
+            root_cause = root_cause or "Uncategorized"
+            root_cause_counts[root_cause] = root_cause_counts.get(root_cause, 0) + 1
+
+        task_totals = self._workspace_task_counts()
+        return GeneralOverviewData(
+            total_assets=len(inventory_snapshot.assets) if inventory_snapshot is not None else 0,
+            total_services=len(inventory_snapshot.services) if inventory_snapshot is not None else 0,
+            total_endpoints=len(inventory_snapshot.endpoints) if inventory_snapshot is not None else 0,
+            total_findings=len(findings),
+            tasks_in_progress=task_totals[0],
+            tasks_completed=task_totals[1],
+            severity_counts=severity_counts,
+            root_cause_counts=root_cause_counts,
+        )
+
+    def _workspace_overview_findings(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        raw_manual_findings = self.workspace_store.load_manual_findings(self._active_workspace_id)
+        manual_findings_by_run = raw_manual_findings if isinstance(raw_manual_findings, dict) else {}
+        seen_run_ids: set[str] = set()
+        for snapshot in self._run_snapshots.values():
+            seen_run_ids.add(snapshot.run_id)
+            merged_by_id: dict[str, dict[str, Any]] = {}
+            anonymous_index = 0
+            for finding in snapshot.findings:
+                if not isinstance(finding, dict):
+                    continue
+                finding_id = str(finding.get("finding_id") or "").strip()
+                key = finding_id or f"__snapshot_{snapshot.run_id}_{anonymous_index}"
+                anonymous_index += 1
+                merged_by_id[key] = dict(finding)
+            for finding in manual_findings_by_run.get(snapshot.run_id, []):
+                if not isinstance(finding, dict):
+                    continue
+                finding_id = str(finding.get("finding_id") or "").strip()
+                if finding_id and finding.get("_removed"):
+                    merged_by_id.pop(finding_id, None)
+                elif finding_id:
+                    merged_by_id[finding_id] = dict(finding)
+            states = self._finding_states_by_run.get(snapshot.run_id, {})
+            for finding in merged_by_id.values():
+                row = dict(finding)
+                finding_id = str(row.get("finding_id") or "").strip()
+                state = states.get(finding_id)
+                base_severity = str(row.get("severity") or "info").lower()
+                row["effective_severity"] = (state.severity_override if state else "") or base_severity
+                rows.append(row)
+        for run_id, manual_findings in manual_findings_by_run.items():
+            if run_id in seen_run_ids or not isinstance(manual_findings, list):
+                continue
+            states = self._finding_states_by_run.get(str(run_id), {})
+            for finding in manual_findings:
+                if not isinstance(finding, dict):
+                    continue
+                if finding.get("_removed"):
+                    continue
+                row = dict(finding)
+                finding_id = str(row.get("finding_id") or "").strip()
+                state = states.get(finding_id)
+                base_severity = str(row.get("severity") or "info").lower()
+                row["effective_severity"] = (state.severity_override if state else "") or base_severity
+                rows.append(row)
+        return rows
+
+    def _workspace_task_counts(self) -> tuple[int, int]:
+        in_progress_statuses = {"running", "in_progress", "started", "active"}
+        completed_statuses = {"completed", "complete", "succeeded", "success", "done"}
+        in_progress = 0
+        completed = 0
+        for snapshot in self._run_snapshots.values():
+            task_rows = [row for row in snapshot.tasks if isinstance(row, dict)]
+            if task_rows:
+                for row in task_rows:
+                    status = str(row.get("status") or row.get("state") or "").strip().lower()
+                    if status in in_progress_statuses:
+                        in_progress += 1
+                    elif status in completed_statuses:
+                        completed += 1
+                continue
+            completed += max(int(snapshot.completed_tasks or 0), 0)
+            if str(snapshot.state or "").lower() == "running":
+                in_progress += 1
+        return in_progress, completed
 
     def _focus_active_search(self) -> None:
         current_index = self.workflow_tabs.currentIndex()
@@ -1128,8 +1340,65 @@ class MainWindow(QMainWindow):
         self.profile_store_path_label.setText(str(self.store.path))
         self.workspace_store_path_label.setText(str(self.workspace_store.path))
         self._sync_performance_guard_controls()
-        self._sync_settings_workspace_switcher()
+        self._sync_proxy_settings_controls()
         self._update_danger_zone_state()
+
+    def _sync_proxy_settings_controls(self) -> None:
+        if not hasattr(self, "proxy_all_traffic_checkbox"):
+            return
+        self._applying_proxy_settings = True
+        try:
+            self.proxy_all_traffic_checkbox.setChecked(self.proxy_settings.proxy_all_traffic)
+            self.proxy_global_url_edit.setText(self.proxy_settings.global_proxy_url)
+            self.proxy_scanner_enabled_checkbox.setChecked(self.proxy_settings.scanner_proxy_enabled)
+            self.proxy_scanner_url_edit.setText(self.proxy_settings.scanner_proxy_url)
+            self.proxy_attacker_enabled_checkbox.setChecked(self.proxy_settings.attacker_proxy_enabled)
+            self.proxy_attacker_url_edit.setText(self.proxy_settings.attacker_proxy_url)
+        finally:
+            self._applying_proxy_settings = False
+        self._sync_proxy_settings_state()
+
+    def _proxy_settings_from_controls(self) -> GuiProxySettings:
+        if not hasattr(self, "proxy_all_traffic_checkbox"):
+            return self.proxy_settings
+        return GuiProxySettings(
+            proxy_all_traffic=self.proxy_all_traffic_checkbox.isChecked(),
+            global_proxy_url=self.proxy_global_url_edit.text().strip(),
+            scanner_proxy_enabled=self.proxy_scanner_enabled_checkbox.isChecked(),
+            scanner_proxy_url=self.proxy_scanner_url_edit.text().strip(),
+            attacker_proxy_enabled=self.proxy_attacker_enabled_checkbox.isChecked(),
+            attacker_proxy_url=self.proxy_attacker_url_edit.text().strip(),
+        )
+
+    def _sync_proxy_settings_state(self) -> None:
+        if not hasattr(self, "proxy_all_traffic_checkbox"):
+            return
+        proxy_all = self.proxy_all_traffic_checkbox.isChecked()
+        self.proxy_scanner_enabled_checkbox.setEnabled(not proxy_all)
+        self.proxy_scanner_url_edit.setEnabled(not proxy_all and self.proxy_scanner_enabled_checkbox.isChecked())
+        self.proxy_attacker_enabled_checkbox.setEnabled(not proxy_all)
+        self.proxy_attacker_url_edit.setEnabled(not proxy_all and self.proxy_attacker_enabled_checkbox.isChecked())
+        scanner_proxy = self.proxy_settings.effective_scanner_proxy_url()
+        attacker_proxy = self.proxy_settings.effective_attacker_proxy_url()
+        scanner_text = scanner_proxy or "direct"
+        attacker_text = attacker_proxy or "direct"
+        self.proxy_settings_status_label.setText(
+            f"Scanner traffic: {scanner_text} | Attacker traffic: {attacker_text}"
+        )
+
+    def _persist_proxy_settings(self) -> None:
+        if self._applying_proxy_settings or not hasattr(self, "proxy_all_traffic_checkbox"):
+            return
+        self.proxy_settings = self._proxy_settings_from_controls()
+        self.workspace_store.save_proxy_settings(self.proxy_settings)
+        self._sync_proxy_settings_state()
+        if hasattr(self, "attacker_tab"):
+            self.attacker_tab.set_proxy_url(self.proxy_settings.effective_attacker_proxy_url())
+
+    def _apply_proxy_settings_to_request(self, request: ScanRequest) -> None:
+        proxy_url = self.proxy_settings.effective_scanner_proxy_url()
+        request.profile.proxy_enabled = bool(proxy_url)
+        request.profile.proxy_url = proxy_url
 
     def _performance_guard_from_controls(self) -> PerformanceGuardSettings:
         if not hasattr(self, "performance_guard_enabled_checkbox"):
@@ -1357,40 +1626,6 @@ class MainWindow(QMainWindow):
             ),
         )
 
-    def _sync_settings_workspace_switcher(self) -> None:
-        if not hasattr(self, "settings_workspace_combo"):
-            return
-        active_workspace = self._active_workspace()
-        self.settings_workspace_combo.blockSignals(True)
-        self.settings_workspace_combo.clear()
-        self.settings_workspace_combo.addItem("No Project (Ad-Hoc Session)", "")
-        for workspace in self._workspaces:
-            label = workspace.name
-            if workspace.client_name:
-                label += f" | {workspace.client_name}"
-            self.settings_workspace_combo.addItem(label, workspace.workspace_id)
-        current_index = self.settings_workspace_combo.findData(self._active_workspace_id)
-        self.settings_workspace_combo.setCurrentIndex(current_index if current_index >= 0 else 0)
-        self.settings_workspace_combo.blockSignals(False)
-        if active_workspace is None:
-            self.active_workspace_status_label.setText("Session project: Ad-Hoc")
-        else:
-            self.active_workspace_status_label.setText(
-                f"Session project: {active_workspace.name} | Client: {active_workspace.client_name or 'Unassigned'}"
-            )
-        self._update_settings_workspace_switch_actions()
-
-    def _update_settings_workspace_switch_actions(self) -> None:
-        if not hasattr(self, "settings_workspace_combo"):
-            return
-        target_workspace_id = str(self.settings_workspace_combo.currentData() or "")
-        self.apply_workspace_button.setEnabled(
-            not self._switch_in_progress and target_workspace_id != self._active_workspace_id
-        )
-        self.settings_ad_hoc_button.setEnabled(
-            not self._switch_in_progress and bool(self._active_workspace_id)
-        )
-
     def _update_danger_zone_state(self) -> None:
         if not hasattr(self, "danger_zone_status_label"):
             return
@@ -1410,10 +1645,6 @@ class MainWindow(QMainWindow):
         self.delete_all_workspaces_data_button.setEnabled(
             not self._switch_in_progress and bool(self._workspaces)
         )
-
-    def _apply_settings_workspace_selection(self) -> None:
-        workspace_id = str(self.settings_workspace_combo.currentData() or "")
-        self._switch_workspace(workspace_id)
 
     def _focus_health_panel(self, *_args: Any) -> None:
         self._navigate_to("runs")
@@ -1447,6 +1678,7 @@ class MainWindow(QMainWindow):
 
     def _launch_request(self, request: ScanRequest) -> None:
         request.performance_guard = self.performance_guard_settings.to_dict()
+        self._apply_proxy_settings_to_request(request)
         job_handle = tempfile.NamedTemporaryFile(prefix="attackcastle-gui-job-", suffix=".json", delete=False)
         job_file = Path(job_handle.name)
         job_handle.close()
@@ -1929,6 +2161,7 @@ class MainWindow(QMainWindow):
         self.run_model.set_rows(filtered_rows)
         self.run_results_label.setText(f"Showing {len(filtered_rows)}/{len(rows)} runs")
         self._sync_workspace_run_table()
+        self._sync_general_overview()
         self._update_run_action_state()
 
     def _run_selected(self, index: QModelIndex) -> None:
@@ -1943,13 +2176,20 @@ class MainWindow(QMainWindow):
         self.output_tab.focus_findings()
 
     def _update_output_snapshot(self, run_id: str | None) -> None:
-        self.assets_tab.set_snapshot(self._workspace_inventory_snapshot(preferred_run_id=run_id))
+        inventory_snapshot = self._workspace_inventory_snapshot(preferred_run_id=run_id)
+        self.assets_tab.set_snapshot(inventory_snapshot)
+        if hasattr(self, "attacker_tab"):
+            self.attacker_tab.set_snapshot(inventory_snapshot)
         if not run_id or run_id not in self._run_snapshots:
             self.output_tab.set_snapshot(None)
+            if self.reports_tab is not None:
+                self.reports_tab.set_snapshot(None)
             self.scanner_panel.set_snapshot(None)
             return
         snapshot = self._run_snapshots[run_id]
         self.output_tab.set_snapshot(snapshot, self._finding_states_by_run.get(run_id, {}))
+        if self.reports_tab is not None:
+            self.reports_tab.set_snapshot(snapshot)
         self.scanner_panel.set_snapshot(snapshot)
 
     def _resolve_snapshot(self, run_id: str) -> RunSnapshot | None:
@@ -2421,6 +2661,44 @@ class MainWindow(QMainWindow):
         self.workspace_store.save_finding_state(self._active_workspace_id, run_id, state)
         self._append_audit("finding.updated", f"Updated triage for {state.finding_id}", run_id=run_id, details=state.to_dict())
         self._refresh_dashboard()
+        if self.reports_tab is not None:
+            self.reports_tab.set_snapshot(self._selected_snapshot())
+
+    def _current_finding_states(self) -> dict[str, FindingState]:
+        if not self._selected_run_id:
+            return {}
+        return self._finding_states_by_run.get(self._selected_run_id, {})
+
+    def _current_workspace_home(self) -> str:
+        workspace = self._active_workspace()
+        if workspace is not None and workspace.home_dir:
+            return workspace.home_dir
+        return ad_hoc_output_home()
+
+    def _current_client_name(self) -> str:
+        workspace = self._active_workspace()
+        return workspace.client_name if workspace is not None else ""
+
+    def _load_reports_config(self) -> ReportsConfig:
+        return self.workspace_store.load_reports_config(self._active_workspace_id)
+
+    def _save_reports_config(self, config: ReportsConfig) -> None:
+        self.workspace_store.save_reports_config(self._active_workspace_id, config)
+        self._append_audit("reports.config.saved", "Saved report export settings.", details=config.to_dict())
+
+    def _load_manual_findings(self, run_id: str) -> list[dict[str, Any]]:
+        rows = self.workspace_store.load_manual_findings(self._active_workspace_id, run_id)
+        return rows if isinstance(rows, list) else []
+
+    def _save_manual_findings(self, run_id: str, findings: list[dict[str, Any]]) -> None:
+        self.workspace_store.save_manual_findings(self._active_workspace_id, run_id, findings)
+        self._append_audit(
+            "finding.manual.saved",
+            f"Saved manual finding set for {run_id}",
+            run_id=run_id,
+            details={"finding_count": len(findings)},
+        )
+        self._refresh_dashboard()
 
     def _load_entity_notes(self, workspace_id: str) -> dict[str, EntityNote]:
         return self.workspace_store.load_entity_notes(workspace_id)
@@ -2433,6 +2711,19 @@ class MainWindow(QMainWindow):
             workspace_id=workspace_id,
             details=note.to_dict(),
         )
+
+    def _load_attack_workspaces(self, workspace_id: str) -> list[AttackWorkspace]:
+        return self.workspace_store.load_attack_workspaces(workspace_id)
+
+    def _save_attack_workspaces(self, workspace_id: str, workspaces: list[AttackWorkspace]) -> None:
+        self.workspace_store.save_attack_workspaces(workspace_id, workspaces)
+
+    def _attacker_action_types(self, entity_kind: str) -> list[tuple[str, str]]:
+        compatible = self.attacker_tab.compatible_workspace_types(entity_kind) if hasattr(self, "attacker_tab") else []
+        return [
+            (workspace_type, str(WORKSPACE_TYPES.get(workspace_type, {}).get("label") or title_case_label(workspace_type)))
+            for workspace_type in compatible
+        ]
 
     def _load_current_overview_state(self, workspace_id: str) -> None:
         self._overview_notes_timer.stop()
@@ -2505,6 +2796,32 @@ class MainWindow(QMainWindow):
             return
         self.workspace_store.save_overview_state(self._active_workspace_id, self._overview_state)
 
+    def _send_asset_to_attacker(
+        self,
+        entity_kind: str,
+        row: dict[str, Any],
+        snapshot: RunSnapshot,
+        workspace_type: str,
+    ) -> None:
+        if not hasattr(self, "attacker_tab"):
+            return
+        if not self._active_workspace_id and snapshot is not None and snapshot.workspace_id:
+            self.attacker_tab.set_workspace(snapshot.workspace_id)
+        workspace = self.attacker_tab.add_workspace_from_asset(entity_kind, row, snapshot, workspace_type)
+        self._navigate_to("attacker")
+        self.general_status.setText(f"Created attacker workspace: {workspace.name}")
+        self._append_audit(
+            "attacker.workspace.created",
+            f"Sent {row.get('__label') or title_case_label(entity_kind)} to Attacker",
+            run_id=snapshot.run_id if snapshot is not None else "",
+            workspace_id=snapshot.workspace_id if snapshot is not None else self._active_workspace_id,
+            details={
+                "attack_workspace_id": workspace.attack_workspace_id,
+                "workspace_type": workspace.workspace_type,
+                "entity_kind": entity_kind,
+            },
+        )
+
     def _start_scan_for_target(self, target_input: str, label: str = "") -> None:
         if self._switch_in_progress:
             return
@@ -2545,6 +2862,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self) -> None:
         self._refresh_context_panels()
+        self._sync_general_overview()
 
     def _refresh_audit_table(self) -> None:
         self.scanner_panel.set_audit_rows([entry.to_dict() for entry in reversed(self._audit_entries[-100:])])
@@ -2619,8 +2937,6 @@ class MainWindow(QMainWindow):
         ):
             button.setEnabled(False)
         self.start_scan_button.setEnabled(not self._switch_in_progress)
-        if hasattr(self, "settings_workspace_combo"):
-            self._sync_settings_workspace_switcher()
 
     def _new_workspace(self) -> None:
         dialog = WorkspaceDialog(parent=self)
@@ -2917,9 +3233,14 @@ class MainWindow(QMainWindow):
         self._refresh_audit_table()
         self._sync_run_table()
         self._refresh_context_panels()
+        if hasattr(self, "attacker_tab"):
+            self.attacker_tab.set_workspace(workspace_id)
         self._refresh_dashboard()
         self._refresh_health_panel()
         self._refresh_settings_page()
+        if self.reports_tab is not None:
+            self.reports_tab.reload_config()
+            self.reports_tab.set_snapshot(self._selected_snapshot())
 
     def _apply_registry_overrides(self, snapshot: RunSnapshot, entry: RunRegistryEntry) -> None:
         snapshot.workspace_id = entry.workspace_id or snapshot.workspace_id
