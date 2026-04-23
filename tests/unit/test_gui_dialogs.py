@@ -7,6 +7,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QToolButton
 
 from attackcastle.gui.dialogs import StartScanDialog, WorkspaceChooserDialog, WorkspaceDialog
@@ -219,6 +220,24 @@ def test_launch_dialog_sizes_within_available_screen_bounds() -> None:
         assert dialog.height() <= geometry.height()
         buttons = dialog.findChildren(QDialogButtonBox)
         assert buttons
+    finally:
+        dialog.close()
+
+
+def test_workspace_dialog_accepts_typed_scope_text() -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    dialog = WorkspaceDialog()
+
+    try:
+        dialog.name_edit.setText("Alpha")
+        dialog.scope_edit.setFocus(Qt.FocusReason.MouseFocusReason)
+        QTest.keyClicks(dialog.scope_edit, "example.com")
+
+        workspace = dialog.build_workspace()
+
+        assert dialog.scope_edit.toPlainText() == "example.com"
+        assert workspace.scope_summary == "example.com"
     finally:
         dialog.close()
 

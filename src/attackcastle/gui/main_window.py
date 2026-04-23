@@ -30,11 +30,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
-    QScrollArea,
     QSizePolicy,
     QSlider,
     QSplitter,
-    QStackedWidget,
     QTabWidget,
     QTableView,
     QTextEdit,
@@ -257,19 +255,6 @@ class MainWindow(QMainWindow):
                 self._apply_splitter_layout(
                     "runs_body_split",
                     [max(int(self.height() * 0.42), 300), max(int(self.height() * 0.42), 320)],
-                )
-        if hasattr(self, "settings_split"):
-            if width >= 1040:
-                self.settings_split.setOrientation(Qt.Horizontal)
-                self._apply_splitter_layout(
-                    "settings_split",
-                    [max(int(width * 0.22), 260), max(int(width * 0.78), 780)],
-                )
-            else:
-                self.settings_split.setOrientation(Qt.Vertical)
-                self._apply_splitter_layout(
-                    "settings_split",
-                    [max(int(self.height() * 0.24), 180), max(int(self.height() * 0.76), 520)],
                 )
         self.output_tab.sync_responsive_mode(width)
         if self.reports_tab is not None:
@@ -722,45 +707,33 @@ class MainWindow(QMainWindow):
     def _show_settings_row(self, row: int) -> None:
         if row < 0:
             return
-        if not hasattr(self, "settings_page_stack"):
+        if not hasattr(self, "settings_tabs"):
             return
-        if row >= self.settings_page_stack.count():
+        if row >= self.settings_tabs.count():
             return
-        self.settings_page_stack.setCurrentIndex(row)
+        self.settings_tabs.setCurrentIndex(row)
 
     def _show_settings_section(self, key: str) -> None:
-        if not hasattr(self, "settings_nav_list"):
+        if not hasattr(self, "settings_tabs"):
             return
         row = getattr(self, "_settings_page_indices", {}).get(key, -1)
         if row < 0:
             return
-        if self.settings_nav_list.currentRow() == row:
-            self._show_settings_row(row)
-            return
-        self.settings_nav_list.blockSignals(True)
-        self.settings_nav_list.setCurrentRow(row)
-        self.settings_nav_list.blockSignals(False)
         self._show_settings_row(row)
 
-    def _build_settings_content_page(self, *widgets: QWidget) -> QScrollArea:
-        scroll = configure_scroll_surface(QScrollArea())
-        scroll.setObjectName("settingsScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        content = QWidget()
+    def _build_settings_content_page(self, *widgets: QWidget) -> QWidget:
+        content = build_flat_container()
         content.setObjectName("settingsContent")
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, PAGE_CARD_SPACING, 0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(18)
         for widget in widgets:
             content_layout.addWidget(widget)
         content_layout.addStretch(1)
-        scroll.setWidget(content)
-        return scroll
+        return content
 
     def _add_settings_page(self, key: str, title: str, page: QWidget) -> None:
-        self.settings_nav_list.addItem(QListWidgetItem(title))
-        self._settings_page_indices[key] = self.settings_page_stack.addWidget(page)
+        self._settings_page_indices[key] = self.settings_tabs.addTab(page, title)
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
@@ -768,29 +741,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.settings_split = apply_responsive_splitter(QSplitter(Qt.Horizontal), (1, 4))
-        self._register_splitter(self.settings_split, "settings_split")
-
-        rail = QFrame()
-        rail.setObjectName("sidebarPanel")
-        rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
-        rail_layout.setSpacing(PAGE_SECTION_SPACING)
-        rail_title = QLabel("Settings")
-        rail_title.setObjectName("sectionTitle")
-        self.settings_nav_list = QListWidget()
-        self.settings_nav_list.setObjectName("sidebarList")
-        self.settings_nav_list.currentRowChanged.connect(self._show_settings_row)
-        rail_layout.addWidget(rail_title)
-        rail_layout.addWidget(self.settings_nav_list, 1)
-        self.settings_split.addWidget(rail)
-
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-        self.settings_page_stack = QStackedWidget()
-        self.settings_page_stack.setObjectName("settingsPageStack")
+        self.settings_tabs = QTabWidget()
+        configure_tab_widget(self.settings_tabs, role="group")
+        self.settings_tabs.setObjectName("settingsTabs")
         self._settings_page_indices: dict[str, int] = {}
 
         self._settings_section_widgets: list[QWidget] = []
@@ -1006,10 +959,8 @@ class MainWindow(QMainWindow):
         danger_layout.addWidget(danger_actions)
         self._add_settings_page("danger", "Danger Zone", self._build_settings_content_page(danger_panel))
 
-        right_layout.addWidget(self.settings_page_stack, 1)
-        self.settings_split.addWidget(right)
-        self.settings_nav_list.setCurrentRow(0)
-        layout.addWidget(self.settings_split, 1)
+        self.settings_tabs.setCurrentIndex(0)
+        layout.addWidget(self.settings_tabs, 1)
         return page
 
     def _setup_shortcuts(self) -> None:

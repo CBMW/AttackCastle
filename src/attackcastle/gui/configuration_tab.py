@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QStyle,
     QVBoxLayout,
@@ -27,7 +26,6 @@ from attackcastle.gui.common import (
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
-    configure_scroll_surface,
     set_tooltips,
     style_button,
 )
@@ -126,16 +124,7 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
-        scroll = configure_scroll_surface(QScrollArea())
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll_area = scroll
-        scroll_container = QWidget()
-        scroll_layout = QVBoxLayout(scroll_container)
-        scroll_layout.setContentsMargins(0, 0, PAGE_CARD_SPACING, 0)
-        scroll_layout.setSpacing(PAGE_SECTION_SPACING)
-
-        scroll_layout.addWidget(
+        self.profile_form = (
             self._profile_form(
                 include_identity=True,
                 collapsible_sections=False,
@@ -151,9 +140,7 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
                 (self.delete_button, "Delete the currently loaded profile from the profile library."),
             )
         )
-        scroll_layout.addStretch(1)
-        scroll.setWidget(scroll_container)
-        right_layout.addWidget(scroll, 1)
+        right_layout.addWidget(self.profile_form, 1)
         self.splitter.addWidget(right)
 
         self.reload_profiles()

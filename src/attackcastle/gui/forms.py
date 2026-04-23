@@ -16,13 +16,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from attackcastle.gui.common import Card, FlowButtonRow, PAGE_CARD_SPACING, PANEL_CONTENT_PADDING, set_tooltip, set_tooltips
-from attackcastle.gui.common import apply_form_layout_defaults, style_button
+from attackcastle.gui.common import apply_form_layout_defaults, configure_tab_widget, style_button
 from attackcastle.gui.models import GuiProfile
 
 TOOL_FIELDS = (
@@ -359,13 +360,18 @@ class ProfileFieldsMixin:
             ]
         )
 
-        for title, description, widget, expanded in sections:
-            if collapsible_sections:
-                layout.addWidget(CollapsibleSection(title, description, widget, expanded=expanded))
-            else:
-                layout.addWidget(self._profile_card(title, description, widget))
+        tabs = QTabWidget()
+        configure_tab_widget(tabs, role="group")
+        tabs.setObjectName("profileSectionTabs")
+        for title, description, widget, _expanded in sections:
+            tab = QWidget()
+            tab_layout = QVBoxLayout(tab)
+            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setSpacing(0)
+            tab_layout.addWidget(self._profile_card(title, description, widget), 1)
+            tabs.addTab(tab, title)
+        layout.addWidget(tabs, 1)
 
-        layout.addStretch(1)
         self._update_tool_family_cards()
         return container
 
@@ -592,19 +598,24 @@ class ProfileFieldsMixin:
         header_layout.addWidget(self.hide_windows_only_checkbox, 0, Qt.AlignRight)
         layout.addWidget(header)
 
-        self.tool_family_grid = QGridLayout()
-        self.tool_family_grid.setHorizontalSpacing(PANEL_CONTENT_PADDING)
-        self.tool_family_grid.setVerticalSpacing(PANEL_CONTENT_PADDING)
+        self.tool_family_tabs = QTabWidget()
+        configure_tab_widget(self.tool_family_tabs, role="inspector")
+        self.tool_family_tabs.setObjectName("toolCoverageTabs")
         self._tool_category_cards = []
         self._tool_rows = []
         self._tool_rows_by_card = {}
         self._tool_rows_by_field = {}
         self._tool_rows_by_key = {}
-        for idx, category in enumerate(TOOL_COVERAGE_CATEGORIES):
+        for category in TOOL_COVERAGE_CATEGORIES:
             card = self._build_tool_category_card(category)
             self._tool_category_cards.append(card)
-            self.tool_family_grid.addWidget(card, idx // 2, idx % 2)
-        layout.addLayout(self.tool_family_grid)
+            tab = QWidget()
+            tab_layout = QVBoxLayout(tab)
+            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setSpacing(0)
+            tab_layout.addWidget(card, 1)
+            self.tool_family_tabs.addTab(tab, str(category.get("title", "Tools")))
+        layout.addWidget(self.tool_family_tabs, 1)
 
         # Kept as a hidden compatibility surface for callers/tests that still
         # probe the old expert-toggle API; the category rows are now the editor.
@@ -1040,8 +1051,8 @@ class ProfileFieldsMixin:
         self._update_tool_family_cards()
 
     def sync_profile_form_width(self, width: int) -> None:
-        tool_columns = 1 if width < 1100 else 2
-        self._reflow_grid(self.tool_family_grid, self._tool_category_cards, tool_columns)
+        if hasattr(self, "tool_family_tabs"):
+            self.tool_family_tabs.setUsesScrollButtons(True)
 
     def _reflow_grid(self, layout: QGridLayout, widgets: list[QWidget], columns: int) -> None:
         while layout.count():

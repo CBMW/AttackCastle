@@ -60,15 +60,11 @@ class WorkspaceDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
-        content_scroll = configure_scroll_surface(QScrollArea())
-        content_scroll.setWidgetResizable(True)
-        content_scroll.setFrameShape(QFrame.NoFrame)
-        layout.addWidget(content_scroll, 1)
-        content = QWidget()
+        content = build_flat_container()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 6, 0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(14)
-        content_scroll.setWidget(content)
+        layout.addWidget(content, 1)
 
         helper = QLabel("Create a project with a name, path, client, and scope.")
         helper.setObjectName("helperText")
@@ -264,19 +260,23 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
-        content_scroll = configure_scroll_surface(QScrollArea())
-        content_scroll.setObjectName("launchDialogScroll")
-        content_scroll.setWidgetResizable(True)
-        content_scroll.setFrameShape(QFrame.NoFrame)
-        layout.addWidget(content_scroll, 1)
-        content = QWidget()
+
+        self.launch_tabs = QTabWidget()
+        configure_tab_widget(self.launch_tabs, role="group")
+        self.launch_tabs.setObjectName("launchDialogTabs")
+        layout.addWidget(self.launch_tabs, 1)
+        self.advanced_toggle = QPushButton("Overrides")
+        self.advanced_toggle.setVisible(False)
+        set_tooltip(self.advanced_toggle, "Open the advanced profile override tab for this launch.")
+
+        content = build_flat_container()
         content.setObjectName("launchDialogContent")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 4, 0)
         content_layout.setSpacing(10)
-        content_scroll.setWidget(content)
+        self.launch_tabs.addTab(content, "Essentials")
 
-        helper = QLabel("Start with the essentials, then open advanced overrides only when the session needs extra tuning.")
+        helper = QLabel("Start with the essentials, then use the tabs for extensions and per-run overrides when the session needs extra tuning.")
         helper.setWordWrap(True)
         helper.setObjectName("helperText")
         content_layout.addWidget(helper)
@@ -364,18 +364,15 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         extension_layout.addWidget(extension_helper)
         extension_layout.addWidget(self.extension_list)
         extension_layout.addWidget(self.extension_empty_label)
-        content_layout.addWidget(extension_group)
+        extension_tab = build_flat_container()
+        extension_tab_layout = QVBoxLayout(extension_tab)
+        extension_tab_layout.setContentsMargins(0, 0, 0, 0)
+        extension_tab_layout.setSpacing(0)
+        extension_tab_layout.addWidget(extension_group, 1)
+        self.launch_tabs.addTab(extension_tab, "Extensions")
         self._populate_extensions()
 
-        self.advanced_toggle = QPushButton("Show Advanced Overrides")
-        self.advanced_toggle.setObjectName("launchAdvancedToggle")
-        self.advanced_toggle.setCheckable(True)
-        style_button(self.advanced_toggle, role="secondary")
-        self.advanced_toggle.toggled.connect(self._toggle_advanced_options)
-        set_tooltip(self.advanced_toggle, "Show or hide the full advanced profile override form for this launch.")
-        content_layout.addWidget(self.advanced_toggle, 0, Qt.AlignLeft)
-
-        frame = QFrame()
+        frame = build_flat_container()
         frame.setObjectName("launchAdvancedPanel")
         frame_layout = QVBoxLayout(frame)
         frame_layout.setContentsMargins(0, 0, 0, 0)
@@ -388,9 +385,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             )
         )
         self.advanced_scroll = frame
-        self.advanced_scroll.setVisible(False)
-        self.advanced_scroll.setMinimumHeight(0)
-        content_layout.addWidget(self.advanced_scroll)
+        self.launch_tabs.addTab(self.advanced_scroll, "Overrides")
 
         self.target_input_edit.textChanged.connect(self._refresh_launch_summary)
         self.output_dir_edit.textChanged.connect(self._refresh_launch_summary)
@@ -510,8 +505,8 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
 
     def _toggle_advanced_options(self, visible: bool) -> None:
         self._advanced_visible = visible
-        self.advanced_scroll.setVisible(visible)
-        self.advanced_toggle.setText("Hide Advanced Overrides" if visible else "Show Advanced Overrides")
+        if visible and hasattr(self, "launch_tabs"):
+            self.launch_tabs.setCurrentWidget(self.advanced_scroll)
 
     def _validation_issues(self) -> list[str]:
         issues: list[str] = []

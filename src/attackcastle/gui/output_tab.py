@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTabWidget,
@@ -133,22 +132,10 @@ class CreateFindingDialog(QDialog):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        content_scroll = configure_scroll_surface(QScrollArea())
-        content_scroll.setWidgetResizable(True)
-        content_scroll.setFrameShape(QFrame.NoFrame)
-        layout.addWidget(content_scroll, 1)
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 4, 0)
-        content_layout.setSpacing(10)
-        content_scroll.setWidget(content)
-
-        essentials = QFrame()
-        essentials.setObjectName("launchPanelGroup")
-        form = QFormLayout(essentials)
-        form.setContentsMargins(12, 14, 12, 12)
-        apply_form_layout_defaults(form)
+        self.finding_tabs = QTabWidget()
+        configure_tab_widget(self.finding_tabs, role="group")
+        self.finding_tabs.setObjectName("findingEditorTabs")
+        layout.addWidget(self.finding_tabs, 1)
 
         self.title_edit = QLineEdit()
         self.severity_combo = QComboBox()
@@ -169,21 +156,31 @@ class CreateFindingDialog(QDialog):
         self.impact_combo.currentTextChanged.connect(self._sync_severity_from_ratings)
         self.likelihood_combo.currentTextChanged.connect(self._sync_severity_from_ratings)
 
-        form.addRow("Title", self.title_edit)
-        form.addRow("Severity", self.severity_combo)
-        form.addRow("Root Cause", self.root_cause_combo)
-        form.addRow("Report Tag", self.report_tag_combo)
-        form.addRow("CVE", self.cve_edit)
-        form.addRow("Affected Assets", self.affected_assets_edit)
-        form.addRow("Description", self.description_edit)
-        form.addRow("Details", self.details_edit)
-        form.addRow("Impact Rating", self.impact_combo)
-        form.addRow("Likelihood Rating", self.likelihood_combo)
-        form.addRow("Impact", self.impact_edit)
-        form.addRow("Likelihood", self.likelihood_edit)
-        form.addRow("Recommendations", self.recommendations_edit)
-        form.addRow("Supporting Evidence", self.supporting_evidence_edit)
-        content_layout.addWidget(essentials)
+        summary_tab, summary_form = self._form_tab()
+        summary_form.addRow("Title", self.title_edit)
+        summary_form.addRow("Severity", self.severity_combo)
+        summary_form.addRow("Root Cause", self.root_cause_combo)
+        summary_form.addRow("Report Tag", self.report_tag_combo)
+        summary_form.addRow("CVE", self.cve_edit)
+        summary_form.addRow("Affected Assets", self.affected_assets_edit)
+        summary_form.addRow("Description", self.description_edit)
+        self.finding_tabs.addTab(summary_tab, "Summary")
+
+        risk_tab, risk_form = self._form_tab()
+        risk_form.addRow("Impact Rating", self.impact_combo)
+        risk_form.addRow("Likelihood Rating", self.likelihood_combo)
+        risk_form.addRow("Impact", self.impact_edit)
+        risk_form.addRow("Likelihood", self.likelihood_edit)
+        self.finding_tabs.addTab(risk_tab, "Risk")
+
+        guidance_tab, guidance_form = self._form_tab()
+        guidance_form.addRow("Details", self.details_edit)
+        guidance_form.addRow("Recommendations", self.recommendations_edit)
+        self.finding_tabs.addTab(guidance_tab, "Guidance")
+
+        evidence_tab, evidence_form = self._form_tab()
+        evidence_form.addRow("Supporting Evidence", self.supporting_evidence_edit)
+        self.finding_tabs.addTab(evidence_tab, "Evidence")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         ok_button = buttons.button(QDialogButtonBox.Ok)
@@ -198,6 +195,18 @@ class CreateFindingDialog(QDialog):
         layout.addWidget(buttons)
         if finding is not None:
             self._load_finding(finding)
+
+    def _form_tab(self) -> tuple[QWidget, QFormLayout]:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        panel = QFrame()
+        panel.setObjectName("launchPanelGroup")
+        form = QFormLayout(panel)
+        form.setContentsMargins(12, 14, 12, 12)
+        apply_form_layout_defaults(form)
+        layout.addWidget(panel, 1)
+        return tab, form
 
     def _searchable_combo(self, options: tuple[str, ...], placeholder: str) -> QComboBox:
         combo = SearchableDropDownComboBox()

@@ -1,8 +1,13 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyd
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Virtual environments
 .venv/
@@ -14,15 +19,37 @@ env/
 .idea/
 
 # Runtime / outputs
-.attackcastle-runtime/
-output/
-artifacts/
-screenshots/
-logs/
+/.attackcastle-runtime/
+/output/
+/reports/
+/artifacts/
+/screenshots/
+/logs/
+*.log
+
+# Local workspace / project-specific state
+/tmp_workspace.json
+/tmp_workspace_ui.json
+/tmp_exts_state.json
+/tmp_*/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Build / package artifacts
+build/
+dist/
+*.egg-info/
 
 # Archives / temp
 *.zip
-tmp_workspace.json
+*.tar
+*.tar.gz
+*.tgz
+*.tmp
+*.bak
 
 # Env / secrets
 .env

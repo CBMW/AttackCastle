@@ -330,17 +330,12 @@ class ReportsTab(QWidget):
         title = QLabel("Web Application Scope")
         title.setObjectName("profileGroupTitle")
         scope_section_layout.addWidget(title)
-        scroll = configure_scroll_surface(QScrollArea())
-        scroll.setObjectName("reportsScopeScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setMinimumHeight(160)
-        content = build_flat_container()
-        self.scope_layout = QVBoxLayout(content)
-        self.scope_layout.setContentsMargins(0, 0, 2, 0)
-        self.scope_layout.setSpacing(PANEL_COMPACT_PADDING)
+        self.scope_tabs = QTabWidget()
+        configure_tab_widget(self.scope_tabs, role="inspector")
+        self.scope_tabs.setObjectName("reportsScopeTabs")
         self.scope_sections: dict[str, QWidget] = {}
         self.scope_row_layouts: dict[str, QVBoxLayout] = {}
+        self.scope_tab_indices: dict[str, int] = {}
         for key, label in REPORT_TYPE_LABELS.items():
             section, section_layout = build_surface_frame(
                 object_name="reportsScopeSection",
@@ -394,10 +389,13 @@ class ReportsTab(QWidget):
             section_layout.addWidget(rows_host)
             self.scope_sections[key] = section
             self.scope_row_layouts[key] = row_layout
-            self.scope_layout.addWidget(section)
-        self.scope_layout.addStretch(1)
-        scroll.setWidget(content)
-        scope_section_layout.addWidget(scroll, 1)
+            tab = build_flat_container()
+            tab_layout = QVBoxLayout(tab)
+            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setSpacing(0)
+            tab_layout.addWidget(section, 1)
+            self.scope_tab_indices[key] = self.scope_tabs.addTab(tab, label)
+        scope_section_layout.addWidget(self.scope_tabs, 1)
         return scope_section
 
     def _build_report_sections_panel(self) -> None:
@@ -551,7 +549,10 @@ class ReportsTab(QWidget):
 
     def _sync_scope_sections(self) -> None:
         for key, section in self.scope_sections.items():
-            section.setVisible(self.type_checkboxes[key].isChecked())
+            checked = self.type_checkboxes[key].isChecked()
+            section.setVisible(checked)
+            if hasattr(self, "scope_tabs"):
+                self.scope_tabs.setTabVisible(self.scope_tab_indices[key], checked)
 
     def _selected_report_types(self) -> list[str]:
         return [key for key, checkbox in self.type_checkboxes.items() if checkbox.isChecked()]

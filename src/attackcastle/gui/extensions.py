@@ -314,7 +314,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QWidget#settingsContent {{
         background: transparent;
     }}
-    QScrollArea#settingsScroll {{
+    QTabWidget#settingsTabs {{
         background: transparent;
         border: 0;
     }}
@@ -527,7 +527,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QWidget#reportsCheckGrid,
     QWidget#scopeRowsHost,
     QWidget#scopeColumnHeaderRow,
-    QScrollArea#reportsScopeScroll {{
+    QTabWidget#reportsScopeTabs {{
         background: transparent;
         border: 0;
     }}
@@ -612,7 +612,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QLabel#toolCoverageName[available="false"] {{
         color: {severity['critical'][1]};
     }}
-    QDialog#launchScanDialog QScrollArea#launchDialogScroll,
+    QDialog#launchScanDialog QTabWidget#launchDialogTabs,
     QDialog#launchScanDialog QWidget#launchDialogContent {{
         background: transparent;
         border: 0;
@@ -994,7 +994,7 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QMenu::item {{ padding: 4px 10px; border-radius: {radii['section']}; }}
     QMenu::item:selected {{ background: {palette['chip_hover']}; }}
     QTableView, QListWidget, QTextEdit, QPlainTextEdit, QLineEdit, QComboBox, QSpinBox {{
-        background: {palette['input_bg']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; padding: 3px; alternate-background-color: {palette['chip_bg']}; selection-background-color: {palette['selection_bg']}; selection-color: {palette['selection_fg']}; gridline-color: {palette['border_soft']};
+        background: {palette['input_bg']}; color: {palette['text_primary']}; placeholder-text-color: {palette['text_soft']}; border: 1px solid {palette['border_soft']}; border-radius: {radii['input']}; padding: 3px; alternate-background-color: {palette['chip_bg']}; selection-background-color: {palette['selection_bg']}; selection-color: {palette['selection_fg']}; gridline-color: {palette['border_soft']};
     }}
     QTableView#dataGrid, QTextEdit#consoleText, QLabel#monoLabel, QPlainTextEdit#extensionEditor {{
         font-family: {typography['mono_family']};
