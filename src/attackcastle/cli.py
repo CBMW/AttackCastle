@@ -30,6 +30,7 @@ from attackcastle.adapters import (
     ServiceExposureAdapter,
     SQLMapAdapter,
     SubdomainEnumAdapter,
+    TargetReachabilityAdapter,
     TLSAdapter,
     WebDiscoveryAdapter,
     WebProbeAdapter,
@@ -504,6 +505,7 @@ def _capability_tool(capability: str) -> tuple[str, str]:
 
 def _adapter_command(adapter_name: str) -> str:
     mapping = {
+        "ping": "ping",
         "nmap": "nmap",
         "whatweb": "whatweb",
         "nikto": "nikto",
@@ -1008,6 +1010,7 @@ def _load_dashboard_control(run_store: RunStore) -> tuple[dict[str, Any], str | 
 
 def _profile_module_map(config: dict[str, Any]) -> dict[str, bool]:
     modules = {
+        "target_reachability": bool(config.get("target_reachability", {}).get("enabled", True)),
         "subdomain_enum": bool(config.get("subdomain_enum", {}).get("enabled", True)),
         "dns_resolution": True,
         "nmap": bool(config.get("nmap", {}).get("enabled", True)),
@@ -1028,6 +1031,7 @@ def _profile_module_map(config: dict[str, Any]) -> dict[str, bool]:
         if str(item).strip()
     }
     capability_to_module = {
+        "target_reachability": "target_reachability",
         "subdomain_enumeration": "subdomain_enum",
         "network_port_scan": "nmap",
         "web_vuln_scan": "nikto",
@@ -3364,6 +3368,7 @@ def plugins_list(
     output_format = _normalize_output_format(output_format)
     console = _console(ctx, output_format)
     adapters = [
+        TargetReachabilityAdapter(),
         CVEEnricherAdapter(),
         SubdomainEnumAdapter(),
         DNSAdapter(),
@@ -3429,6 +3434,7 @@ def plugins_doctor(
     output_format = _normalize_output_format(output_format)
     console = _console(ctx, output_format)
     adapters = [
+        TargetReachabilityAdapter(),
         CVEEnricherAdapter(),
         SubdomainEnumAdapter(),
         DNSAdapter(),
@@ -3447,6 +3453,7 @@ def plugins_doctor(
     template_dir = Path(__file__).resolve().parent / "findings" / "templates"
     template_names = [path.name.lower() for path in template_dir.glob("*.json")]
     dependent_hints = {
+        "target_reachability": [name for name in template_names if "exposure" in name],
         "subdomain_enumeration": [name for name in template_names if "dns" in name or "exposure" in name],
         "dns_resolution": [name for name in template_names if "dns" in name],
         "network_port_scan": [name for name in template_names if "tls" in name or "http" in name],

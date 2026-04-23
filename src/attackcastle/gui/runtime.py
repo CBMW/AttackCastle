@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from attackcastle.core.models import parse_datetime, run_data_from_dict, to_serializable
 from attackcastle.core.migrations import migrate_payload
 from attackcastle.core.execution_issues import build_execution_issues, summarize_execution_issues
@@ -195,8 +197,6 @@ def read_json_file(path: Path) -> dict[str, Any] | list[Any] | None:
 
 
 def write_yaml_like_json(path: Path, payload: dict[str, Any]) -> Path:
-    import yaml
-
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=True), encoding="utf-8")
     return path

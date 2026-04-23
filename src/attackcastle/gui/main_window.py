@@ -1804,7 +1804,7 @@ class MainWindow(QMainWindow):
                 result = payload.get("result", {})
                 if isinstance(result, dict):
                     self._append_unique(snapshot.task_results, result, "task_id")
-            elif event.event == "tool_execution.recorded":
+            elif event.event in {"tool_execution.started", "tool_execution.recorded"}:
                 execution = payload.get("execution", {})
                 if isinstance(execution, dict):
                     self._append_unique(snapshot.tool_executions, execution, "execution_id")

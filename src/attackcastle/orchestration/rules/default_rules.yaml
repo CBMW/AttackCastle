@@ -1,4 +1,23 @@
 tasks:
+  - key: check-target-reachability
+    label: Checking target reachability
+    capability: target_reachability
+    approval_class: safe_auto
+    adapter_key: target_reachability
+    condition: has_pingable_targets
+    dependencies: []
+    input_entity_types: [Domain, Hostname, IPAddress]
+    produced_entity_types: [Reachability]
+    can_run_many: true
+    profile_sensitivity: cautious
+    network_intensity: low
+    noise_score: 1
+    cost_score: 1
+    stage: recon
+    retryable: false
+    max_retries: 0
+    backoff_seconds: 0.0
+
   - key: run-subdomain-enum
     label: Enumerating subdomains
     capability: subdomain_enumeration
@@ -47,6 +66,7 @@ tasks:
     config_enabled_key: port_discovery_enabled
     condition: has_service_scan_targets
     dependencies:
+      - check-target-reachability
       - resolve-hosts
     input_entity_types: [IPAddress, PortService]
     produced_entity_types: [PortService]
@@ -91,6 +111,7 @@ tasks:
     adapter_key: web_probe
     condition: has_web_targets
     dependencies:
+      - check-target-reachability
       - resolve-hosts
     input_entity_types: [Hostname, ResolvedHost, PortService]
     produced_entity_types: [WebService]

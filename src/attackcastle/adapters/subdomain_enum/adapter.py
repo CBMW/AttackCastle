@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
 from attackcastle.core.enums import TargetType
@@ -20,7 +21,12 @@ class SubdomainEnumAdapter:
     noise_score = 2
     cost_score = 3
 
-    def _build_enumeration_plan(self, run_data: RunData) -> list[dict[str, Any]]:
+    def _build_enumeration_plan(
+        self,
+        run_data: RunData,
+        roots_filter: set[str] | None = None,
+        source_filter: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
         roots: dict[str, dict[str, Any]] = {}
         for target in run_data.scope:
             host = canonical_hostname(target.host)
@@ -30,6 +36,19 @@ class SubdomainEnumAdapter:
             elif target.target_type in {TargetType.URL, TargetType.HOST_PORT} and host and not is_ip_literal(host):
                 root = registrable_domain(host) or host
             if not root:
+                continue
+            source_values = {
+                str(target.value or "").strip().lower().rstrip("."),
+                str(target.raw or "").strip().lower().rstrip("."),
+                str(target.host or "").strip().lower().rstrip("."),
+                str(target.target_id or "").strip().lower().rstrip("."),
+            }
+            source_values.discard("")
+            matched_source = bool(source_filter and source_values.intersection(source_filter))
+            if source_filter is not None and not matched_source:
+                if roots_filter is None or root not in roots_filter:
+                    continue
+            elif source_filter is None and roots_filter is not None and root not in roots_filter:
                 continue
             entry = roots.setdefault(
                 root,
@@ -70,7 +89,20 @@ class SubdomainEnumAdapter:
         max_candidates = int(config.get("max_candidates", 500))
         proxy_url = str(context.config.get("proxy", {}).get("url", "") or "").strip() or None
 
-        plan = self._build_enumeration_plan(run_data)
+        task_inputs = [str(item or "").strip() for item in getattr(context, "task_inputs", []) if str(item or "").strip()]
+        source_filter = {item.lower().rstrip(".") for item in task_inputs}
+        roots_filter: set[str] = set()
+        for item in task_inputs:
+            parsed_host = urlsplit(item).hostname if "://" in item else None
+            host = canonical_hostname(parsed_host or item)
+            root = registrable_domain(host) if host and not is_ip_literal(host) else host
+            if root:
+                roots_filter.add(root)
+        plan = self._build_enumeration_plan(
+            run_data,
+            roots_filter=roots_filter or None,
+            source_filter=source_filter or None,
+        )
         discovered: set[str] = set()
         source_counts: dict[str, int] = {}
         discovered_by_root: dict[str, list[str]] = {}

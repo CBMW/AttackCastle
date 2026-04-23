@@ -63,7 +63,6 @@ def _run_dig_short(hostname: str) -> subprocess.CompletedProcess[str]:
         ["dig", hostname, "+short"],
         capture_output=True,
         text=True,
-        timeout=5,
         check=False,
     )
 

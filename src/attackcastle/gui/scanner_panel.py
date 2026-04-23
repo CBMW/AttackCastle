@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QTimer, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,6 +29,7 @@ from attackcastle.gui.common import (
     configure_scroll_surface,
     ensure_table_defaults,
     format_duration,
+    format_elapsed_duration,
     summarize_target_input,
     title_case_label,
 )
@@ -49,6 +50,7 @@ class ScannerPanel(QWidget):
         self._active_detail_kind = ""
         self._active_detail_identity = ""
         self._active_command_text = ""
+        self._tools_elapsed_column = 2
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -82,9 +84,9 @@ class ScannerPanel(QWidget):
             [
                 ("Tool", "tool_name"),
                 ("Status", "status"),
+                ("Elapsed", format_elapsed_duration),
                 ("Exit", lambda row: row.get("exit_code") if row.get("exit_code") is not None else ""),
                 ("Started", "started_at"),
-                ("Stdout", lambda row: row.get("stdout_path") or ""),
             ]
         )
         self.issues_model = MappingTableModel(
@@ -153,6 +155,9 @@ class ScannerPanel(QWidget):
         self.inspector_tabs.addTab(self._command_tab_surface(), "Command")
         self.inspector_tabs.addTab(self._tab_surface(self.raw_text), "Raw")
         self.main_split.addWidget(self.inspector_tabs)
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._refresh_elapsed_cells)
         self.sync_responsive_mode(self.width())
 
     def _tab_surface(self, widget: QWidget) -> QWidget:
@@ -231,6 +236,7 @@ class ScannerPanel(QWidget):
             self.detail_text.clear()
             self.raw_text.clear()
             self._set_command_rows([])
+            self._update_elapsed_timer()
             return
         if run_changed:
             self._clear_active_detail()
@@ -253,6 +259,7 @@ class ScannerPanel(QWidget):
         self.tools_model.set_rows(snapshot.tool_executions)
         self.issues_model.set_rows(execution_issues)
         self.health_text.setPlainText(self._build_health_text(snapshot, execution_issues, issue_summary))
+        self._update_elapsed_timer()
         if self._active_detail_kind in {"task", "tool", "issue"}:
             self._restore_active_detail()
         elif not self._active_detail_kind:
@@ -260,6 +267,28 @@ class ScannerPanel(QWidget):
             self.detail_text.setPlainText("Select a task, tool run, issue, or audit entry for details.")
             self.raw_text.clear()
             self._set_command_rows([])
+
+    def _update_elapsed_timer(self) -> None:
+        rows = self._snapshot.tool_executions if self._snapshot is not None else []
+        should_run = any(
+            str(row.get("status") or "").strip().lower() in {"running", "in_progress", "started"}
+            and bool(row.get("started_at"))
+            and not row.get("ended_at")
+            for row in rows
+        )
+        if should_run and not self._elapsed_timer.isActive():
+            self._elapsed_timer.start()
+        elif not should_run and self._elapsed_timer.isActive():
+            self._elapsed_timer.stop()
+
+    def _refresh_elapsed_cells(self) -> None:
+        if self._snapshot is None or not self._snapshot.tool_executions:
+            self._update_elapsed_timer()
+            return
+        first = self.tools_model.index(0, self._tools_elapsed_column)
+        last = self.tools_model.index(self.tools_model.rowCount() - 1, self._tools_elapsed_column)
+        self.tools_model.dataChanged.emit(first, last, [Qt.DisplayRole])
+        self._update_elapsed_timer()
 
     def set_audit_rows(self, rows: list[dict[str, Any]]) -> None:
         self.audit_model.set_rows(rows)
@@ -329,7 +358,7 @@ class ScannerPanel(QWidget):
         if snapshot.tool_executions:
             for execution in snapshot.tool_executions[-10:]:
                 lines.append(
-                    f"- {execution.get('tool_name')} | {execution.get('status')} | exit={execution.get('exit_code')} | stdout={execution.get('stdout_path') or '-'}"
+                    f"- {execution.get('tool_name')} | {execution.get('status')} | elapsed={format_elapsed_duration(execution) or '-'} | exit={execution.get('exit_code')} | stdout={execution.get('stdout_path') or '-'}"
                 )
         else:
             lines.append("- no tool executions recorded yet")

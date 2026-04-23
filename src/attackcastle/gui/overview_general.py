@@ -32,6 +32,9 @@ SEVERITY_DONUT_COLORS = {
     "info": REPORT_DONUT_COLORS[4],
 }
 SEVERITY_LABELS = ("critical", "high", "medium", "low", "info")
+DONUT_HOLE_RATIO = 0.75
+DONUT_CENTER_FILL = QColor("#101010")
+DONUT_CENTER_BORDER = QColor("#343434")
 
 
 @dataclass(slots=True)
@@ -75,15 +78,16 @@ class DonutChartWidget(QWidget):
         if side <= 0:
             return
         rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
-        inner = rect.adjusted(side * 0.125, side * 0.125, -side * 0.125, -side * 0.125)
+        hole_inset = side * (1.0 - DONUT_HOLE_RATIO) / 2.0
+        inner = rect.adjusted(hole_inset, hole_inset, -hole_inset, -hole_inset)
 
         total = sum(value for _label, value, _color in self._segments)
         if total <= 0:
             painter.setPen(QPen(QColor("#E7E0D5"), 2))
             painter.setBrush(QColor("#F6F0E6"))
             painter.drawEllipse(rect)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(self.palette().window())
+            painter.setPen(QPen(DONUT_CENTER_BORDER, 1))
+            painter.setBrush(DONUT_CENTER_FILL)
             painter.drawEllipse(inner)
         else:
             start_angle = 0.0
@@ -99,8 +103,8 @@ class DonutChartWidget(QWidget):
                 painter.drawPath(path)
                 start_angle += span_angle
 
-            painter.setPen(QPen(QColor("#FFFFFF"), 1))
-            painter.setBrush(self.palette().window())
+            painter.setPen(QPen(DONUT_CENTER_BORDER, 1))
+            painter.setBrush(DONUT_CENTER_FILL)
             painter.drawEllipse(inner)
 
         center = rect.center()

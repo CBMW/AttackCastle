@@ -5,6 +5,7 @@ from attackcastle.adapters.framework_checks.adapter import FrameworkChecksAdapte
 from attackcastle.adapters.nuclei.adapter import NucleiAdapter
 from attackcastle.adapters.nmap.adapter import NmapAdapter
 from attackcastle.adapters.nikto.adapter import NiktoAdapter
+from attackcastle.adapters.reachability.adapter import TargetReachabilityAdapter
 from attackcastle.adapters.request_capture.adapter import RequestCaptureAdapter
 from attackcastle.adapters.resolve_hosts.adapter import ResolveHostsAdapter
 from attackcastle.adapters.service_exposure.adapter import ServiceExposureAdapter
@@ -25,6 +26,7 @@ __all__ = [
     "CVEEnricherAdapter",
     "ServiceExposureAdapter",
     "NmapAdapter",
+    "TargetReachabilityAdapter",
     "ResolveHostsAdapter",
     "WebProbeAdapter",
     "VHostDiscoveryAdapter",

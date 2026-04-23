@@ -5,7 +5,7 @@ import shlex
 from hashlib import sha1
 from pathlib import Path
 
-from attackcastle.adapters.base import build_tool_execution, stream_command
+from attackcastle.adapters.base import build_tool_execution, emit_tool_execution_started, stream_command
 from attackcastle.adapters.nuclei.parser import parse_nuclei_jsonl
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, Observation, RunData, WebApplication, new_id, now_utc
@@ -193,6 +193,27 @@ class FrameworkChecksAdapter:
             exit_code: int | None = None
             error_message: str | None = None
             tool_started_at = now_utc()
+            raw_command = " ".join(shlex.quote(str(item)) for item in command)
+            rendered_command = (
+                context.secret_resolver.redact_text(format_command_text(command, proxy_url or None))
+                if context.secret_resolver is not None
+                else format_command_text(command, proxy_url or None)
+            )
+            emit_tool_execution_started(
+                context,
+                execution_id=execution_id,
+                tool_name=self.name,
+                command=rendered_command,
+                started_at=tool_started_at,
+                capability=self.capability,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                transcript_path=transcript_path,
+                raw_artifact_paths=[str(output_path)],
+                raw_command=raw_command,
+                task_instance_key=getattr(context, "task_instance_key", None),
+                task_inputs=list(getattr(context, "task_inputs", []) or []),
+            )
             stream_result = stream_command(
                 command,
                 stdout_path=stdout_path,
@@ -269,11 +290,7 @@ class FrameworkChecksAdapter:
             result.tool_executions.append(
                 build_tool_execution(
                     tool_name=self.name,
-                    command=(
-                        context.secret_resolver.redact_text(format_command_text(command, proxy_url or None))
-                        if context.secret_resolver is not None
-                        else format_command_text(command, proxy_url or None)
-                    ),
+                    command=rendered_command,
                     started_at=tool_started_at,
                     ended_at=tool_ended_at,
                     status=status,
@@ -288,7 +305,7 @@ class FrameworkChecksAdapter:
                     termination_reason=stream_result.termination_reason,
                     termination_detail=stream_result.termination_detail,
                     timed_out=stream_result.timed_out,
-                    raw_command=" ".join(shlex.quote(str(item)) for item in command),
+                    raw_command=raw_command,
                 )
             )
 

@@ -6,7 +6,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from attackcastle.adapters.base import build_tool_execution, current_tool_budget, stream_command
+from attackcastle.adapters.base import build_tool_execution, current_tool_budget, emit_tool_execution_started, stream_command
 from attackcastle.adapters.nmap.parser import parse_nmap_xml
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import RunData, new_id, now_utc
@@ -328,6 +328,22 @@ class NmapAdapter:
             exit_code: int | None = None
             error_message: str | None = None
             tool_started_at = now_utc()
+            raw_command = " ".join(shlex.quote(item) for item in command)
+            emit_tool_execution_started(
+                context,
+                execution_id=execution_id,
+                tool_name=self.name,
+                command=raw_command,
+                started_at=tool_started_at,
+                capability=self.capability,
+                stdout_path=job["stdout_path"],
+                stderr_path=job["stderr_path"],
+                transcript_path=job["transcript_path"],
+                raw_artifact_paths=[str(job["xml_path"])],
+                raw_command=raw_command,
+                task_instance_key=getattr(context, "task_instance_key", None),
+                task_inputs=list(getattr(context, "task_inputs", []) or []),
+            )
             emit_runtime_event(
                 context,
                 "task.progress",
@@ -416,7 +432,7 @@ class NmapAdapter:
             result.tool_executions.append(
                 build_tool_execution(
                     tool_name=self.name,
-                    command=" ".join(shlex.quote(item) for item in command),
+                    command=raw_command,
                     started_at=tool_started_at,
                     ended_at=tool_ended_at,
                     status=status,
@@ -427,6 +443,7 @@ class NmapAdapter:
                     stderr_path=str(job["stderr_path"]),
                     transcript_path=str(job["transcript_path"]),
                     raw_artifact_paths=[str(job["xml_path"])],
+                    raw_command=raw_command,
                     error_message=error_message,
                     termination_reason=stream_result.termination_reason,
                     termination_detail=stream_result.termination_detail,

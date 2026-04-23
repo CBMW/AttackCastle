@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -214,6 +215,63 @@ class DebugLogDialog(QDialog):
         return container
 
 
+class _ReadinessThread(QThread):
+    readiness_finished = Signal(int, object)
+
+    def __init__(
+        self,
+        request_id: int,
+        target_input: str,
+        profile: GuiProfile,
+        session_home_dir: str,
+        dependency_rows: list[dict[str, object]] | None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._request_id = request_id
+        self._target_input = target_input
+        self._profile = profile
+        self._session_home_dir = session_home_dir
+        self._dependency_rows = dependency_rows
+
+    def run(self) -> None:
+        self._profile.output_directory = self._session_home_dir
+        temp_dir = Path(tempfile.mkdtemp(prefix="attackcastle-gui-readiness-"))
+        try:
+            override_path = write_yaml_like_json(
+                temp_dir / "gui_profile_override.yaml",
+                profile_to_engine_overrides(self._profile),
+            )
+            report = assess_readiness(
+                target_input=self._target_input,
+                profile=self._profile.base_profile,
+                user_config_path=str(override_path),
+                risk_mode=self._profile.risk_mode,
+                proxy_url=None,
+                dependency_rows=self._dependency_rows,
+                no_report=not self._profile.export_html_report,
+            )
+        except Exception as exc:  # noqa: BLE001
+            report = ReadinessReport(
+                status="blocked",
+                can_launch=False,
+                partial_run=False,
+                risk_mode=self._profile.risk_mode or "unknown",
+                missing_tools=[],
+                tool_impact=[],
+                blocked_capabilities=[],
+                recommended_actions=[
+                    "Review the target input, profile, and override config before launching again.",
+                    str(exc),
+                ],
+                assessment_mode="targeted",
+                error=str(exc),
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        self.readiness_finished.emit(self._request_id, report)
+
+
 class StartScanDialog(QDialog, ProfileFieldsMixin):
     def __init__(
         self,
@@ -256,6 +314,17 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self._scope_appended = False
         self._available_extensions = [item for item in (available_extensions or []) if item.manifest is not None]
         self._readiness_report: ReadinessReport | None = None
+        self._readiness_signature: str = ""
+        self._readiness_request_id = 0
+        self._active_readiness_requests: dict[int, str] = {}
+        self._readiness_threads: set[_ReadinessThread] = set()
+        self._dependency_rows_cache: list[dict[str, object]] | None = None
+        self._launch_report_checkbox_touched = False
+        self._syncing_launch_report_checkbox = False
+        self._readiness_timer = QTimer(self)
+        self._readiness_timer.setSingleShot(True)
+        self._readiness_timer.setInterval(450)
+        self._readiness_timer.timeout.connect(self._start_readiness_check)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -384,20 +453,21 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
                 include_posture=False,
             )
         )
+        self.export_html.toggled.connect(self._launch_report_toggled)
         self.advanced_scroll = frame
         self.launch_tabs.addTab(self.advanced_scroll, "Overrides")
 
-        self.target_input_edit.textChanged.connect(self._refresh_launch_summary)
-        self.output_dir_edit.textChanged.connect(self._refresh_launch_summary)
-        self.rate_mode_combo.currentTextChanged.connect(self._refresh_launch_summary)
-        self.risk_mode_combo.currentTextChanged.connect(self._refresh_launch_summary)
-        self.enable_sqlmap.toggled.connect(self._refresh_launch_summary)
-        self.enable_nuclei.toggled.connect(self._refresh_launch_summary)
-        self.enable_nmap.toggled.connect(self._refresh_launch_summary)
-        self.enable_wpscan.toggled.connect(self._refresh_launch_summary)
-        self.endpoint_wordlist_edit.textChanged.connect(self._refresh_launch_summary)
-        self.parameter_wordlist_edit.textChanged.connect(self._refresh_launch_summary)
-        self.payload_wordlist_edit.textChanged.connect(self._refresh_launch_summary)
+        self.target_input_edit.textChanged.connect(self._launch_inputs_changed)
+        self.output_dir_edit.textChanged.connect(self._launch_inputs_changed)
+        self.rate_mode_combo.currentTextChanged.connect(self._launch_inputs_changed)
+        self.risk_mode_combo.currentTextChanged.connect(self._launch_inputs_changed)
+        self.enable_sqlmap.toggled.connect(self._launch_inputs_changed)
+        self.enable_nuclei.toggled.connect(self._launch_inputs_changed)
+        self.enable_nmap.toggled.connect(self._launch_inputs_changed)
+        self.enable_wpscan.toggled.connect(self._launch_inputs_changed)
+        self.endpoint_wordlist_edit.textChanged.connect(self._launch_inputs_changed)
+        self.parameter_wordlist_edit.textChanged.connect(self._launch_inputs_changed)
+        self.payload_wordlist_edit.textChanged.connect(self._launch_inputs_changed)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         if buttons.button(QDialogButtonBox.Ok) is not None:
@@ -410,9 +480,11 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
 
         if profiles:
             self._apply_profile_to_form(profiles[0])
+            self._apply_launch_report_default()
             self.scan_name_edit.setText(f"{profiles[0].name} Scan")
         else:
             self.profile_name_edit.setText("Custom Profile")
+            self._apply_launch_report_default()
         self.output_dir_edit.setText(self._session_home_dir())
         self.output_dir_edit.setReadOnly(True)
         set_tooltip(self.output_dir_edit, "This run writes into the active project home directory or the ad-hoc session directory.")
@@ -430,7 +502,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         if prefill_target_input.strip():
             self.target_input_edit.setPlainText(prefill_target_input.strip())
         self._refresh_profile_description()
-        self._refresh_launch_summary()
+        self._launch_inputs_changed()
         self.sync_profile_form_width(self.width())
 
     def _populate_extensions(self) -> None:
@@ -448,18 +520,19 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             if record.manifest is not None:
                 item.setToolTip(record.manifest.description or record.extension_id)
             self.extension_list.addItem(item)
-        self.extension_list.itemChanged.connect(lambda _item: self._refresh_launch_summary())
+        self.extension_list.itemChanged.connect(lambda _item: self._launch_inputs_changed())
 
     def _profile_changed(self, index: int) -> None:
         if 0 <= index < len(self._profiles):
             profile = self._profiles[index]
             self._apply_profile_to_form(profile, preserve_manual_overrides=True)
+            self._apply_launch_report_default()
             self.profile_name_edit.setText(profile.name)
             self.description_edit.setText(profile.description)
             if not self.scan_name_edit.text().strip():
                 self.scan_name_edit.setText(f"{profile.name} Scan")
         self._refresh_profile_description()
-        self._refresh_launch_summary()
+        self._launch_inputs_changed()
 
     def _session_home_dir(self) -> str:
         return self._workspace.home_dir if self._workspace is not None else ad_hoc_output_home()
@@ -487,7 +560,7 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self.target_input_edit.setPlainText("\n\n".join(pieces))
         self._scope_appended = True
         self.scope_status_label.setText("Project scope appended to Target Input.")
-        self._refresh_launch_summary()
+        self._launch_inputs_changed()
 
     def _refresh_profile_description(self) -> None:
         if not self._profiles:
@@ -508,6 +581,20 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         if visible and hasattr(self, "launch_tabs"):
             self.launch_tabs.setCurrentWidget(self.advanced_scroll)
 
+    def _launch_report_toggled(self, _checked: bool) -> None:
+        if self._syncing_launch_report_checkbox or self._loading_profile_tools:
+            return
+        self._launch_report_checkbox_touched = True
+
+    def _apply_launch_report_default(self) -> None:
+        if self._launch_report_checkbox_touched:
+            return
+        self._syncing_launch_report_checkbox = True
+        try:
+            self.export_html.setChecked(False)
+        finally:
+            self._syncing_launch_report_checkbox = False
+
     def _validation_issues(self) -> list[str]:
         issues: list[str] = []
         if not self.target_input_edit.toPlainText().strip():
@@ -515,6 +602,13 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         if not self.scan_name_edit.text().strip():
             issues.append("Give the scan a name so it is easy to find later.")
         return issues
+
+    def _launch_inputs_changed(self, *_args: object) -> None:
+        current_signature = self._current_readiness_signature()
+        if current_signature != self._readiness_signature:
+            self._readiness_report = None
+        self._refresh_launch_summary()
+        self._schedule_readiness_check()
 
     def _enabled_tools(self) -> list[str]:
         if hasattr(self, "_enabled_tool_coverage_labels"):
@@ -539,33 +633,95 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             if checkbox.isChecked()
         ]
 
-    def _build_readiness_report(self) -> ReadinessReport | None:
+    def _current_readiness_signature(self) -> str:
         target_input = self.target_input_edit.toPlainText().strip()
         if not target_input:
-            return None
+            return ""
         profile = self._profile_from_form()
         profile.name = self.profile_picker.currentText() or profile.name
         profile.output_directory = self._session_home_dir()
-        temp_dir = Path(tempfile.mkdtemp(prefix="attackcastle-gui-readiness-"))
-        try:
-            override_path = write_yaml_like_json(
-                temp_dir / "gui_profile_override.yaml",
-                profile_to_engine_overrides(profile),
-            )
-            return assess_readiness(
-                target_input=target_input,
-                profile=profile.base_profile,
-                user_config_path=str(override_path),
-                risk_mode=profile.risk_mode,
-                proxy_url=None,
-            )
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        return json.dumps(
+            {
+                "target_input": target_input,
+                "profile": profile.to_dict(),
+                "session_home_dir": self._session_home_dir(),
+            },
+            sort_keys=True,
+        )
+
+    def _readiness_check_active_for(self, signature: str) -> bool:
+        return signature in self._active_readiness_requests.values()
+
+    def _readiness_result_is_current(self) -> bool:
+        signature = self._current_readiness_signature()
+        return bool(signature and self._readiness_report is not None and self._readiness_signature == signature)
+
+    def _schedule_readiness_check(self) -> None:
+        signature = self._current_readiness_signature()
+        if not signature:
+            self._readiness_timer.stop()
+            self._readiness_signature = ""
+            self._readiness_report = None
+            self._refresh_readiness_banner()
+            return
+        if self._readiness_result_is_current() or self._readiness_check_active_for(signature):
+            return
+        self._readiness_timer.start()
+
+    def _start_readiness_check(self) -> None:
+        signature = self._current_readiness_signature()
+        target_input = self.target_input_edit.toPlainText().strip()
+        if not signature or not target_input:
+            self._refresh_readiness_banner()
+            return
+        if self._readiness_result_is_current() or self._readiness_check_active_for(signature):
+            return
+
+        profile = self._profile_from_form()
+        profile.name = self.profile_picker.currentText() or profile.name
+        profile.output_directory = self._session_home_dir()
+        self._readiness_request_id += 1
+        request_id = self._readiness_request_id
+        self._active_readiness_requests[request_id] = signature
+        self._refresh_readiness_banner()
+
+        thread = _ReadinessThread(
+            request_id,
+            target_input,
+            profile,
+            self._session_home_dir(),
+            self._dependency_rows_cache,
+            self,
+        )
+        thread.readiness_finished.connect(self._readiness_finished)
+        thread.finished.connect(lambda current_thread=thread: self._readiness_threads.discard(current_thread))
+        thread.finished.connect(thread.deleteLater)
+        self._readiness_threads.add(thread)
+        thread.start()
+
+    def _readiness_finished(self, request_id: int, report: object) -> None:
+        signature = self._active_readiness_requests.pop(request_id, "")
+        current_signature = self._current_readiness_signature()
+        if signature and signature == current_signature and isinstance(report, ReadinessReport):
+            self._readiness_signature = signature
+            self._readiness_report = report
+        if current_signature and not self._readiness_result_is_current() and not self._readiness_check_active_for(current_signature):
+            self._readiness_timer.start()
+        self._refresh_launch_summary()
 
     def _refresh_readiness_banner(self) -> None:
-        report = self._readiness_report
+        signature = self._current_readiness_signature()
+        report = self._readiness_report if self._readiness_result_is_current() else None
         if report is None:
-            self.readiness_label.setText("Readiness will appear here once target input is present.")
+            if not signature:
+                text = "Readiness will appear here once target input is present."
+            elif self._readiness_timer.isActive():
+                text = "Readiness check is waiting for input to settle."
+            elif self._readiness_check_active_for(signature):
+                text = "Readiness check is running in the background."
+            else:
+                text = "Readiness check will run before launch."
+            self.readiness_label.setText(text)
             self.readiness_label.setProperty("tone", "neutral")
             refresh_widget_style(self.readiness_label)
             return
@@ -607,9 +763,10 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             if value
         ]
         issues = self._validation_issues()
-        tools_text = ", ".join(self._enabled_tools()[:6]) + (" ..." if len(self._enabled_tools()) > 6 else "")
+        enabled_tools = self._enabled_tools()
+        tools_text = ", ".join(enabled_tools[:6]) + (" ..." if len(enabled_tools) > 6 else "")
         selected_extensions = self._selected_extension_ids()
-        self._readiness_report = self._build_readiness_report()
+        readiness_report = self._readiness_report if self._readiness_result_is_current() else None
         self.launch_summary.setText(
             "<b>Launch Snapshot</b><br>"
             f"Targets: {len(targets)} | Profile: {self.profile_picker.currentText() or self.profile_name_edit.text().strip() or 'Custom'}<br>"
@@ -619,12 +776,12 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             f"Wordlists: {', '.join(wordlists) if wordlists else 'none selected'}"
         )
         tone = "alert" if warnings else "neutral"
-        if self._readiness_report is not None:
+        if readiness_report is not None:
             tone = {
                 "ready": tone,
                 "partial": "warning",
                 "blocked": "alert",
-            }.get(self._readiness_report.status, tone)
+            }.get(readiness_report.status, tone)
         if issues:
             tone = "warning"
         self.launch_summary.setProperty("tone", tone)
@@ -632,20 +789,22 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         self._refresh_readiness_banner()
         if issues:
             self.launch_validation_label.setText("Before launch: " + " ".join(issues))
-        elif self._readiness_report is not None and not self._readiness_report.can_launch:
+        elif readiness_report is not None and not readiness_report.can_launch:
             self.launch_validation_label.setText(
-                self._readiness_report.recommended_actions[0]
-                if self._readiness_report.recommended_actions
+                readiness_report.recommended_actions[0]
+                if readiness_report.recommended_actions
                 else "Readiness checks blocked this launch."
             )
-        elif self._readiness_report is not None and self._readiness_report.partial_run:
+        elif readiness_report is not None and readiness_report.partial_run:
             self.launch_validation_label.setText(
-                self._readiness_report.recommended_actions[0]
-                if self._readiness_report.recommended_actions
+                readiness_report.recommended_actions[0]
+                if readiness_report.recommended_actions
                 else "Launch will proceed with reduced tool coverage."
             )
         elif warnings:
             self.launch_validation_label.setText("Elevated options selected. AttackCastle will ask for confirmation before launch.")
+        elif self._current_readiness_signature():
+            self.launch_validation_label.setText("Readiness checks run in the background after editing settles.")
         else:
             self.launch_validation_label.setText("Ready to launch. Advanced overrides stay available for experienced operators, but the essentials are already complete.")
 
@@ -682,12 +841,19 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
             elif not self.target_input_edit.toPlainText().strip():
                 self.target_input_edit.setFocus()
             return
-        if self._readiness_report is not None and not self._readiness_report.can_launch:
+        readiness_report = self._readiness_report if self._readiness_result_is_current() else None
+        if readiness_report is None:
+            self._schedule_readiness_check()
+            self.launch_validation_label.setText("Readiness checks are still running. Launch will be available as soon as they finish.")
+            self._refresh_readiness_banner()
+            self.target_input_edit.setFocus()
+            return
+        if not readiness_report.can_launch:
             self.launch_summary.setProperty("tone", "alert")
             refresh_widget_style(self.launch_summary)
             self.launch_validation_label.setText(
-                self._readiness_report.recommended_actions[0]
-                if self._readiness_report.recommended_actions
+                readiness_report.recommended_actions[0]
+                if readiness_report.recommended_actions
                 else "Readiness checks blocked this launch."
             )
             self.target_input_edit.setFocus()

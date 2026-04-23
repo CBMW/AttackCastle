@@ -6,7 +6,7 @@ from hashlib import sha1
 from pathlib import Path
 from typing import Any
 
-from attackcastle.adapters.base import build_tool_execution, stream_command
+from attackcastle.adapters.base import build_tool_execution, emit_tool_execution_started, stream_command
 from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs
 from attackcastle.adapters.wpscan.parser import parse_wpscan_json
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -209,6 +209,25 @@ class WPScanAdapter:
             exit_code: int | None = None
             error_message: str | None = None
             tool_started_at = now_utc()
+            raw_command = " ".join(shlex.quote(str(item)) for item in command)
+            rendered_command = format_command_text(command, proxy_url or None)
+            if context.secret_resolver is not None:
+                rendered_command = context.secret_resolver.redact_text(rendered_command)
+            emit_tool_execution_started(
+                context,
+                execution_id=execution_id,
+                tool_name=self.name,
+                command=rendered_command,
+                started_at=tool_started_at,
+                capability=self.capability,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                transcript_path=transcript_path,
+                raw_artifact_paths=[str(json_path)],
+                raw_command=raw_command,
+                task_instance_key=getattr(context, "task_instance_key", None),
+                task_inputs=list(getattr(context, "task_inputs", []) or []),
+            )
             stream_result = stream_command(
                 command,
                 stdout_path=stdout_path,
@@ -345,9 +364,6 @@ class WPScanAdapter:
             )
 
             tool_ended_at = now_utc()
-            rendered_command = format_command_text(command, proxy_url or None)
-            if context.secret_resolver is not None:
-                rendered_command = context.secret_resolver.redact_text(rendered_command)
             result.tool_executions.append(
                 build_tool_execution(
                     tool_name=self.name,
@@ -366,7 +382,7 @@ class WPScanAdapter:
                     termination_reason=stream_result.termination_reason,
                     termination_detail=stream_result.termination_detail,
                     timed_out=stream_result.timed_out,
-                    raw_command=" ".join(shlex.quote(str(item)) for item in command),
+                    raw_command=raw_command,
                 )
             )
             if status == "completed":

@@ -421,6 +421,52 @@ def test_scheduler_resource_pressure_cancels_one_running_task(tmp_path: Path):
     assert "worker.resource_pressure" in {event for event, _payload in emitted}
 
 
+def test_scheduler_stop_control_cancels_running_task_token(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-stop-control")
+    emitted: list[tuple[str, dict[str, object]]] = []
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-stop-control"),
+        audit=_AuditStub(),
+        event_emitter=lambda event, payload: emitted.append((event, payload)),
+    )
+    token_was_set = {"value": False}
+
+    def _runner(task_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        run_store.write_control("stop", {"reason": "operator_requested_stop"})
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            token = task_context.cancellation_token
+            if token is not None and token.is_set():
+                token_was_set["value"] = True
+                break
+            time.sleep(0.01)
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-nmap",
+                label="Running Nmap",
+                capability="network_port_scan",
+                stage="recon",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert token_was_set["value"] is True
+    assert states[0].status == "cancelled"
+    assert states[0].error == "orchestration_cancelled"
+    assert "task.waiting" in {event for event, _payload in emitted}
+
+
 def test_scheduler_requeues_repeatable_task_when_new_frontier_appears(tmp_path: Path):
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-repeatable-frontier")
     context = AdapterContext(
@@ -580,3 +626,63 @@ def test_scheduler_fans_out_can_run_many_task_instances(tmp_path: Path) -> None:
     ]
     assert dependent_seen == [3]
     assert dependent_states[0].status == "completed"
+
+
+def test_scheduler_fanout_failure_does_not_block_sibling_instances(tmp_path: Path) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-fanout-isolation")
+    context = AdapterContext(
+        profile_name="standard",
+        config={
+            "orchestration": {
+                "task_start_delay_seconds": 0.0,
+                "circuit_breaker_failures": 1,
+            }
+        },
+        profile_config={"concurrency": 2},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-fanout-isolation"),
+        audit=_AuditStub(),
+    )
+    scanned_inputs: list[str] = []
+
+    def _scan_runner(scan_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        target = scan_context.task_inputs[0]
+        scanned_inputs.append(target)
+        if target == "broken.example.com":
+            return AdapterResult(errors=[f"subdomain enumeration failed for {target}"])
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-subdomain-enum",
+                label="Enumerating subdomains",
+                capability="subdomain_enumeration",
+                stage="recon",
+                runner=_scan_runner,
+                should_run=lambda _run_data: (True, "domain-like targets detected"),
+                can_run_many=True,
+                input_items=lambda _run_data: [
+                    "alpha.example.com",
+                    "broken.example.com",
+                    "beta.example.com",
+                    "gamma.example.com",
+                    "delta.example.com",
+                ],
+                retryable=False,
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert sorted(scanned_inputs) == [
+        "alpha.example.com",
+        "beta.example.com",
+        "broken.example.com",
+        "delta.example.com",
+        "gamma.example.com",
+    ]
+    assert len(states) == 5
+    assert len([state for state in states if state.status == "failed"]) == 1
+    assert len([state for state in states if state.status == "completed"]) == 4

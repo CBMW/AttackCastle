@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,9 @@ EXTERNAL_DEPENDENCY_SPECS = (
     },
 )
 
+_DEPENDENCY_ROWS_CACHE_TTL_SECONDS = 30.0
+_dependency_rows_cache: tuple[float, str, int, list[dict[str, Any]]] | None = None
+
 TOOL_VALIDATION_ARGS: dict[str, list[list[str]]] = {
     "subfinder": [["-version"], ["--version"]],
     "dig": [["-v"], ["-h"]],
@@ -123,6 +127,7 @@ TOOL_EXPECTED_MARKERS: dict[str, tuple[str, ...]] = {
 }
 
 CAPABILITY_TOOL_MAPPING: dict[str, tuple[str, str, str]] = {
+    "target_reachability": ("ping", "ping", "Checking target reachability"),
     "subdomain_enumeration": ("subfinder", "subfinder", "Enumerating subdomains"),
     "network_port_scan": ("nmap", "nmap", "Running Nmap"),
     "service_detection": ("nmap", "nmap", "Detecting services with Nmap"),
@@ -195,6 +200,19 @@ def capability_label(capability: str) -> str:
 
 
 def external_dependency_rows() -> list[dict[str, Any]]:
+    global _dependency_rows_cache
+    path_key = os.environ.get("PATH", "")
+    which_identity = id(shutil.which)
+    now = time.monotonic()
+    if _dependency_rows_cache is not None:
+        cached_at, cached_path_key, cached_which_identity, cached_rows = _dependency_rows_cache
+        if (
+            cached_path_key == path_key
+            and cached_which_identity == which_identity
+            and now - cached_at <= _DEPENDENCY_ROWS_CACHE_TTL_SECONDS
+        ):
+            return [dict(row) for row in cached_rows]
+
     rows: list[dict[str, Any]] = []
     for spec in EXTERNAL_DEPENDENCY_SPECS:
         command_name = str(spec["command"])
@@ -213,6 +231,7 @@ def external_dependency_rows() -> list[dict[str, Any]]:
                 "validation_error": validation.get("error"),
             }
         )
+    _dependency_rows_cache = (now, path_key, which_identity, [dict(row) for row in rows])
     return rows
 
 
@@ -356,6 +375,7 @@ def assess_readiness(
     proxy_url: str | None = None,
     disable_proxy: bool = False,
     dependency_rows: list[dict[str, Any]] | None = None,
+    no_report: bool = False,
 ) -> ReadinessReport:
     rows = dependency_rows or external_dependency_rows()
     install_support = dependency_install_support()
@@ -410,6 +430,7 @@ def assess_readiness(
             risk_mode=risk_mode,
             proxy_url=proxy_url,
             disable_proxy=disable_proxy,
+            no_report=no_report,
         )
         plan_bundle, _run_store = build_scan_plan(options, console=silent_console)
     except Exception as exc:  # noqa: BLE001

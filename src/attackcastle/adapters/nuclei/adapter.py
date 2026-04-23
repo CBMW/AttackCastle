@@ -11,6 +11,7 @@ from attackcastle.adapters.base import (
     batched,
     build_tool_execution,
     current_worker_budget,
+    emit_tool_execution_started,
     ordered_parallel_map,
     record_execution_telemetry,
     stream_command,
@@ -187,6 +188,27 @@ class NucleiAdapter:
             exit_code: int | None = None
             error_message: str | None = None
             tool_started_at = now_utc()
+            raw_command = " ".join(shlex.quote(str(item)) for item in command)
+            rendered_command = (
+                context.secret_resolver.redact_text(format_command_text(command, proxy_url or None))
+                if context.secret_resolver is not None
+                else format_command_text(command, proxy_url or None)
+            )
+            emit_tool_execution_started(
+                context,
+                execution_id=execution_id,
+                tool_name=self.name,
+                command=rendered_command,
+                started_at=tool_started_at,
+                capability=self.capability,
+                stdout_path=stdout_path,
+                stderr_path=stderr_path,
+                transcript_path=transcript_path,
+                raw_artifact_paths=[str(jsonl_path)],
+                raw_command=raw_command,
+                task_instance_key=getattr(context, "task_instance_key", None),
+                task_inputs=list(getattr(context, "task_inputs", []) or []),
+            )
             emit_runtime_event(context, "task.progress", {"adapter": self.name, "phase": "url_started", "url": url})
             stream_result = stream_command(
                 command,
@@ -310,11 +332,7 @@ class NucleiAdapter:
             partial.tool_executions.append(
                 build_tool_execution(
                     tool_name=self.name,
-                    command=(
-                        context.secret_resolver.redact_text(format_command_text(command, proxy_url or None))
-                        if context.secret_resolver is not None
-                        else format_command_text(command, proxy_url or None)
-                    ),
+                    command=rendered_command,
                     started_at=tool_started_at,
                     ended_at=tool_ended_at,
                     status=status,
@@ -329,7 +347,7 @@ class NucleiAdapter:
                     termination_reason=stream_result.termination_reason,
                     termination_detail=stream_result.termination_detail,
                     timed_out=stream_result.timed_out,
-                    raw_command=" ".join(shlex.quote(str(item)) for item in command),
+                    raw_command=raw_command,
                 )
             )
             return {"url": url, "issues": issues, "partial": partial}

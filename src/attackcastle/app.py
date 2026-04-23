@@ -26,6 +26,7 @@ from attackcastle.adapters import (
     SQLMapAdapter,
     SubdomainEnumAdapter,
     SurfaceIntelAdapter,
+    TargetReachabilityAdapter,
     TLSAdapter,
     RequestCaptureAdapter,
     VHostDiscoveryAdapter,
@@ -589,6 +590,7 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
         execution_controller=execution_controller,
     )
     adapters: dict[str, Any] = {
+        "target_reachability": TargetReachabilityAdapter(),
         "subdomain_enum": SubdomainEnumAdapter(),
         "resolve_hosts": ResolveHostsAdapter(),
         "dns": DNSAdapter(),

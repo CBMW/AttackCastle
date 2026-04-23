@@ -437,6 +437,149 @@ def test_workspace_inventory_snapshot_merges_all_runs_and_deduplicates_relations
     assert example_web_app.get("service_id") == example_service.get("service_id")
 
 
+def test_workspace_inventory_snapshot_merges_assets_with_same_resolved_ip(tmp_path: Path) -> None:
+    first = RunSnapshot(
+        run_id="run-resolved-1",
+        scan_name="Resolved Domain",
+        run_dir=str(tmp_path / "run-resolved-1"),
+        state="completed",
+        elapsed_seconds=1.0,
+        eta_seconds=0.0,
+        current_task="Idle",
+        total_tasks=1,
+        completed_tasks=1,
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+        assets=[
+            {"asset_id": "domain-1", "kind": "domain", "name": "app.example.com", "resolved_ips": ["203.0.113.40"]},
+        ],
+    )
+    second = RunSnapshot(
+        run_id="run-resolved-2",
+        scan_name="IP Scan",
+        run_dir=str(tmp_path / "run-resolved-2"),
+        state="completed",
+        elapsed_seconds=1.0,
+        eta_seconds=0.0,
+        current_task="Idle",
+        total_tasks=1,
+        completed_tasks=1,
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+        assets=[
+            {"asset_id": "host-1", "kind": "host", "name": "203.0.113.40", "ip": "203.0.113.40"},
+        ],
+        services=[
+            {
+                "service_id": "svc-1",
+                "asset_id": "host-1",
+                "port": 443,
+                "protocol": "tcp",
+                "state": "open",
+                "name": "https",
+            },
+        ],
+    )
+
+    aggregate = build_workspace_inventory_snapshot(
+        [first, second],
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+    )
+
+    assert aggregate is not None
+    assert len(aggregate.assets) == 1
+    asset = aggregate.assets[0]
+    assert asset["asset_id"] == "asset|ip|203.0.113.40"
+    assert asset["name"] == "app.example.com"
+    assert asset["ip"] == "203.0.113.40"
+    assert asset["resolved_ips"] == ["203.0.113.40"]
+    assert aggregate.services[0]["asset_id"] == asset["asset_id"]
+
+
+def test_workspace_inventory_snapshot_merges_parent_domain_and_resolved_ip_child(tmp_path: Path) -> None:
+    snapshot = RunSnapshot(
+        run_id="run-dns",
+        scan_name="DNS Scan",
+        run_dir=str(tmp_path / "run-dns"),
+        state="completed",
+        elapsed_seconds=1.0,
+        eta_seconds=0.0,
+        current_task="Idle",
+        total_tasks=1,
+        completed_tasks=1,
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+        assets=[
+            {"asset_id": "domain-1", "kind": "domain", "name": "www.example.com"},
+            {
+                "asset_id": "host-1",
+                "kind": "host",
+                "name": "203.0.113.50",
+                "ip": "203.0.113.50",
+                "parent_asset_id": "domain-1",
+            },
+        ],
+    )
+
+    aggregate = build_workspace_inventory_snapshot(
+        [snapshot],
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+    )
+
+    assert aggregate is not None
+    assert len(aggregate.assets) == 1
+    asset = aggregate.assets[0]
+    assert asset["asset_id"] == "asset|ip|203.0.113.50"
+    assert asset.get("parent_asset_id") == ""
+    assert asset["name"] == "www.example.com"
+    assert asset["ip"] == "203.0.113.50"
+
+
+def test_workspace_inventory_snapshot_merges_equivalent_urls(tmp_path: Path) -> None:
+    snapshot = RunSnapshot(
+        run_id="run-url",
+        scan_name="URL Scan",
+        run_dir=str(tmp_path / "run-url"),
+        state="completed",
+        elapsed_seconds=1.0,
+        eta_seconds=0.0,
+        current_task="Idle",
+        total_tasks=1,
+        completed_tasks=1,
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+        assets=[{"asset_id": "asset-1", "kind": "host", "name": "example.com"}],
+        web_apps=[
+            {
+                "webapp_id": "web-1",
+                "asset_id": "asset-1",
+                "url": "HTTPS://EXAMPLE.COM:443/search?b=2&a=1",
+                "title": "First",
+            },
+            {
+                "webapp_id": "web-2",
+                "asset_id": "asset-1",
+                "url": "https://example.com/search?a=1&b=2",
+                "status_code": 200,
+            },
+        ],
+    )
+
+    aggregate = build_workspace_inventory_snapshot(
+        [snapshot],
+        workspace_id="eng_1",
+        workspace_name="Client Alpha",
+    )
+
+    assert aggregate is not None
+    assert len(aggregate.web_apps) == 1
+    assert aggregate.web_apps[0]["webapp_id"] == "web_app|https://example.com/search?a=1&b=2"
+    assert aggregate.web_apps[0]["title"] == "First"
+    assert aggregate.web_apps[0]["status_code"] == 200
+
+
 def test_asset_graph_builder_creates_workspace_topology_and_finding_edges(tmp_path: Path) -> None:
     snapshot = _make_snapshot(tmp_path)
     snapshot.findings = [

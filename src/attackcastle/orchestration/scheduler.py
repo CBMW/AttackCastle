@@ -227,6 +227,7 @@ class WorkflowScheduler:
         paused = False
         pause_notice_emitted = False
         pause_event_emitted = False
+        cancel_notice_emitted = False
         last_control_signature = ""
         execution_controller = getattr(context, "execution_controller", None)
         if execution_controller is not None and getattr(execution_controller, "is_enabled", lambda: False)():
@@ -265,6 +266,7 @@ class WorkflowScheduler:
         resource_last_unmet_monotonic = 0.0
         resource_cancelled_instances: set[str] = set()
         deadline_cancelled_instances: set[str] = set()
+        orchestration_cancelled_instances: set[str] = set()
         executor = ThreadPoolExecutor(max_workers=max(1, hard_concurrency))
 
         progress = (
@@ -444,46 +446,8 @@ class WorkflowScheduler:
                         if logger is not None:
                             logger.debug("Unable to write partial scan_data snapshot after %s: %s", reason, exc)
 
-                def task_deadline_seconds(task: TaskDefinition) -> float | None:
-                    values: list[float] = []
-                    capability_budget = capability_budgets.get(task.capability, {})
-                    max_runtime_seconds = capability_budget.get("max_runtime_seconds")
-                    if isinstance(max_runtime_seconds, (int, float)) and float(max_runtime_seconds) > 0:
-                        values.append(float(max_runtime_seconds))
-                    stage_budget_limit = stage_budget.get(task.stage)
-                    if isinstance(stage_budget_limit, (int, float)) and float(stage_budget_limit) > 0:
-                        values.append(float(stage_budget_limit))
-                    task_timeout = context.config.get("orchestration", {}).get("task_timeout_seconds")
-                    if isinstance(task_timeout, (int, float)) and float(task_timeout) > 0:
-                        values.append(float(task_timeout))
-                    return min(values) if values else None
-
                 def cancel_running_deadline_tasks() -> None:
-                    now = time.monotonic()
-                    for _future, (running_item, _started_at, _reason, token, deadline) in list(running.items()):
-                        if deadline is None or now < deadline or running_item.instance_key in deadline_cancelled_instances:
-                            continue
-                        deadline_cancelled_instances.add(running_item.instance_key)
-                        token.set()
-                        warning = f"Task {running_item.definition.key} exceeded its configured time budget and was cancelled."
-                        run_data.warnings.append(warning)
-                        context.audit.write(
-                            "task.deadline_exceeded",
-                            {
-                                "task": running_item.definition.key,
-                                "instance_key": running_item.instance_key,
-                                "deadline_monotonic": deadline,
-                            },
-                        )
-                        emit_runtime_event(
-                            context,
-                            "task.deadline_exceeded",
-                            {
-                                "task": running_item.definition.key,
-                                "label": running_item.definition.label,
-                                "instance_key": running_item.instance_key,
-                            },
-                        )
+                    return
 
                 def select_resource_cancel_candidate() -> tuple[Future, ScheduledTask, Event] | None:
                     candidates: list[tuple[int, float, Future, ScheduledTask, Event]] = []
@@ -761,6 +725,13 @@ class WorkflowScheduler:
                         status = TaskStatus.COMPLETED.value
                         cancelled_for_resource = item.instance_key in resource_cancelled_instances
                         cancelled_for_deadline = item.instance_key in deadline_cancelled_instances
+                        cancelled_for_orchestration = (
+                            item.instance_key in orchestration_cancelled_instances
+                            or (
+                                self._cancel_event.is_set()
+                                and getattr(cancellation_token, "is_set", lambda: False)()
+                            )
+                        )
                         duration_seconds = max((ended_at - started_at).total_seconds(), 0.001)
                         try:
                             if future.cancelled():
@@ -785,24 +756,30 @@ class WorkflowScheduler:
                                 if failure_message:
                                     error_message = failure_message
                                     status = TaskStatus.FAILED.value
-                                    circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
+                                    if not item.task_inputs:
+                                        circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
                         except CancelledError:
-                            error_message = "cancelled_for_resource_limit"
+                            error_message = "orchestration_cancelled" if cancelled_for_orchestration else "cancelled_for_resource_limit"
                             status = TaskStatus.CANCELLED.value
                         except Exception as exc:  # noqa: BLE001
                             context.logger.exception("Task failed: %s", task.key)
                             error_message = str(exc)
                             run_data.errors.append(f"{task.key}: {exc}")
                             status = TaskStatus.FAILED.value
-                            circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
+                            if not item.task_inputs:
+                                circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
 
+                        if cancelled_for_orchestration and status != TaskStatus.CANCELLED.value:
+                            status = TaskStatus.CANCELLED.value
+                            error_message = "orchestration_cancelled"
                         if cancelled_for_resource and status != TaskStatus.CANCELLED.value:
                             status = TaskStatus.CANCELLED.value
                             error_message = "cancelled_for_resource_limit"
                         if cancelled_for_deadline and status != TaskStatus.CANCELLED.value:
                             status = TaskStatus.FAILED.value
                             error_message = "task_time_budget_exceeded"
-                            circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
+                            if not item.task_inputs:
+                                circuit_failures[task.capability] = circuit_failures.get(task.capability, 0) + 1
 
                         # Optional stage time budgets.
                         stage_budget_limit = stage_budget.get(task.stage)
@@ -990,9 +967,47 @@ class WorkflowScheduler:
                         {"task": task.key, "label": task.label, "status": status, "reason": reason},
                     )
 
+                def request_orchestration_cancel(reason: str) -> None:
+                    for future, (item, _started_at, _decision_reason, token, _deadline) in list(running.items()):
+                        if item.instance_key in orchestration_cancelled_instances:
+                            continue
+                        orchestration_cancelled_instances.add(item.instance_key)
+                        token.set()
+                        future.cancel()
+                        context.audit.write(
+                            "task.cancel_requested",
+                            {
+                                "task": item.definition.key,
+                                "instance_key": item.instance_key,
+                                "reason": reason,
+                            },
+                        )
+                        emit_runtime_event(
+                            context,
+                            "task.waiting",
+                            {
+                                "task": item.definition.key,
+                                "label": item.definition.label,
+                                "reason": reason,
+                            },
+                        )
+
+                def drain_orchestration_cancel(reason: str) -> bool:
+                    nonlocal cancel_notice_emitted
+                    if not cancel_notice_emitted:
+                        context.audit.write("orchestration.cancelled", {"reason": reason})
+                        cancel_notice_emitted = True
+                    request_orchestration_cancel(reason)
+                    if running:
+                        wait(running.keys(), timeout=0.1)
+                        process_done_futures()
+                        return True
+                    return False
+
                 while pending or running:
                     if self._cancel_event.is_set():
-                        context.audit.write("orchestration.cancelled", {"reason": "signal"})
+                        if drain_orchestration_cancel("signal"):
+                            continue
                         break
                     if execution_controller is not None and getattr(
                         execution_controller,
@@ -1039,6 +1054,7 @@ class WorkflowScheduler:
                                 pause_notice_emitted = False
                                 pause_event_emitted = False
                                 self._cancel_event.set()
+                                request_orchestration_cancel("operator_requested_stop")
                                 context.audit.write(
                                     "orchestration.control",
                                     {"action": "stop", "payload": control_signal},
@@ -1215,6 +1231,11 @@ class WorkflowScheduler:
                                 )
                                 context.run_store.clear_control()
                             last_control_signature = signature
+
+                    if self._cancel_event.is_set():
+                        if drain_orchestration_cancel("operator_requested_stop"):
+                            continue
+                        break
 
                     process_done_futures()
                     cancel_running_deadline_tasks()
@@ -1643,12 +1664,7 @@ class WorkflowScheduler:
                             task_inputs=list(item.task_inputs),
                         )
                         cancellation_token = Event()
-                        deadline_seconds = task_deadline_seconds(task)
-                        deadline_monotonic = (
-                            time.monotonic() + float(deadline_seconds)
-                            if deadline_seconds is not None
-                            else None
-                        )
+                        deadline_monotonic = None
                         task_context = replace(
                             task_context,
                             cancellation_token=cancellation_token,

@@ -97,7 +97,6 @@ class WebProbeAdapter:
             command,
             capture_output=True,
             text=True,
-            timeout=timeout_seconds,
             env=build_subprocess_env(proxy_url),
             check=False,
         )

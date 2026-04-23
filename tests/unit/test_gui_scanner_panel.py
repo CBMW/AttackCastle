@@ -101,6 +101,42 @@ def test_scanner_panel_tool_context_menu_routes_selected_row_to_handler(tmp_path
         panel.close()
 
 
+def test_scanner_panel_tool_runs_show_elapsed_column(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = ScannerPanel()
+    snapshot = _make_snapshot(tmp_path)
+    snapshot.tool_executions[0]["status"] = "completed"
+    snapshot.tool_executions[0]["ended_at"] = "2026-04-09T12:01:05+00:00"
+
+    try:
+        panel.set_snapshot(snapshot)
+
+        headers = [
+            panel.tools_model.headerData(column, Qt.Horizontal)
+            for column in range(panel.tools_model.columnCount())
+        ]
+        assert headers == ["Tool", "Status", "Elapsed", "Exit", "Started"]
+        assert panel.tools_model.index(0, 2).data(Qt.DisplayRole) == "01:05"
+        assert panel._elapsed_timer.isActive() is False
+    finally:
+        panel.close()
+
+
+def test_scanner_panel_refreshes_running_tool_elapsed_cells(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = ScannerPanel()
+
+    try:
+        panel.set_snapshot(_make_snapshot(tmp_path))
+
+        assert panel._elapsed_timer.isActive() is True
+        assert panel.tools_model.index(0, 2).data(Qt.DisplayRole)
+    finally:
+        panel.close()
+
+
 def test_scanner_panel_keeps_selected_task_details_across_refresh(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app

@@ -754,7 +754,7 @@ class ProfileFieldsMixin:
 
     def _profile_settings_changed(self, *_args: object) -> None:
         self._update_tool_family_cards()
-        refresh = getattr(self, "_refresh_launch_summary", None)
+        refresh = getattr(self, "_launch_inputs_changed", None) or getattr(self, "_refresh_launch_summary", None)
         if callable(refresh):
             refresh()
 
@@ -815,7 +815,7 @@ class ProfileFieldsMixin:
                 else:
                     self._manual_tool_overrides[field] = checked
         self._update_tool_family_cards()
-        refresh = getattr(self, "_refresh_launch_summary", None)
+        refresh = getattr(self, "_launch_inputs_changed", None) or getattr(self, "_refresh_launch_summary", None)
         if callable(refresh):
             refresh()
 

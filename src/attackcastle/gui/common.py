@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from attackcastle.gui.extensions import DEFAULT_THEME_TOKENS, build_theme_stylesheet, theme_semantic_maps
 from attackcastle.gui.models import FindingState
+from attackcastle.core.models import parse_datetime
 
 APP_LOGO_PATH = Path(__file__).resolve().parents[1] / "assets" / "logo.png"
 
@@ -325,6 +327,19 @@ def format_duration(seconds: float | None) -> str:
     if hours:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
+
+
+def format_elapsed_duration(row: dict[str, Any], *, now: datetime | None = None) -> str:
+    started_at = parse_datetime(row.get("started_at"))
+    if started_at is None:
+        return ""
+    ended_at = parse_datetime(row.get("ended_at") or row.get("finished_at"))
+    if ended_at is None:
+        status = str(row.get("status") or "").strip().lower()
+        if status not in {"running", "in_progress", "started"}:
+            return ""
+        ended_at = now or datetime.now(timezone.utc)
+    return format_duration(max((ended_at - started_at).total_seconds(), 0.0))
 
 
 def title_case_label(value: str) -> str:

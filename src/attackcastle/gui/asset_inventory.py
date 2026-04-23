@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from ipaddress import ip_address
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from attackcastle.gui.models import EntityNote, RunSnapshot
 
@@ -25,12 +26,30 @@ def _normalize_url(value: Any) -> str:
         return raw
     if not parts.scheme and not parts.netloc:
         return raw
+    scheme = parts.scheme.lower()
+    try:
+        host = (parts.hostname or "").lower()
+        port = parts.port
+    except ValueError:
+        host = ""
+        port = None
+    if host:
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        default_port = {"http": 80, "https": 443}.get(scheme)
+        netloc = f"{host}:{port}" if port and port != default_port else host
+    else:
+        netloc = parts.netloc.lower()
+    query = urlencode(
+        sorted(parse_qsl(parts.query, keep_blank_values=True)),
+        doseq=True,
+    )
     return urlunsplit(
         (
-            parts.scheme.lower(),
-            parts.netloc.lower(),
+            scheme,
+            netloc,
             parts.path or "/",
-            parts.query,
+            query,
             "",
         )
     )
@@ -64,12 +83,86 @@ def _endpoint_lookup(snapshot: RunSnapshot) -> dict[str, dict[str, Any]]:
     }
 
 
+def _normalize_ip(value: Any) -> str:
+    text = _clean(value)
+    if not text:
+        return ""
+    try:
+        return str(ip_address(text))
+    except ValueError:
+        return ""
+
+
+def _is_ip_literal(value: Any) -> bool:
+    return bool(_normalize_ip(value))
+
+
+def _append_unique(values: list[str], value: Any) -> None:
+    text = _clean(value)
+    if text and text not in values:
+        values.append(text)
+
+
+def _asset_ip_values(row: dict[str, Any], assets_by_id: dict[str, dict[str, Any]]) -> list[str]:
+    values: list[str] = []
+    ip = _normalize_ip(row.get("ip"))
+    if ip:
+        values.append(ip)
+    resolved_ips = row.get("resolved_ips")
+    if isinstance(resolved_ips, (list, tuple, set)):
+        for item in resolved_ips:
+            normalized = _normalize_ip(item)
+            if normalized and normalized not in values:
+                values.append(normalized)
+    asset_id = _clean(row.get("asset_id"))
+    if asset_id:
+        for child in assets_by_id.values():
+            if _clean(child.get("parent_asset_id")) != asset_id:
+                continue
+            for item in _asset_ip_values(child, {}):
+                if item not in values:
+                    values.append(item)
+    return values
+
+
+def _single_asset_ip(row: dict[str, Any], assets_by_id: dict[str, dict[str, Any]]) -> str:
+    values = _asset_ip_values(row, assets_by_id)
+    return values[0] if len(values) == 1 else ""
+
+
+def _asset_alias_values(row: dict[str, Any], assets_by_id: dict[str, dict[str, Any]]) -> list[str]:
+    aliases: list[str] = []
+    raw_aliases = row.get("aliases")
+    if isinstance(raw_aliases, (list, tuple, set)):
+        for alias in raw_aliases:
+            _append_unique(aliases, alias)
+    asset_id = _clean(row.get("asset_id"))
+    if asset_id:
+        for child in assets_by_id.values():
+            if _clean(child.get("parent_asset_id")) != asset_id:
+                continue
+            child_name = _clean(child.get("name"))
+            if child_name and not _is_ip_literal(child_name):
+                _append_unique(aliases, child_name)
+            child_aliases = child.get("aliases")
+            if isinstance(child_aliases, (list, tuple, set)):
+                for alias in child_aliases:
+                    _append_unique(aliases, alias)
+    return aliases
+
+
 def _asset_signature_for_row(
     row: dict[str, Any],
     assets_by_id: dict[str, dict[str, Any]],
     *,
     visited: set[str] | None = None,
 ) -> str:
+    ip = _single_asset_ip(row, assets_by_id)
+    if ip:
+        return "|".join(("asset", "ip", ip))
+    canonical_key = _lower(row.get("canonical_key"))
+    if canonical_key:
+        return "|".join(("asset", "canonical", canonical_key))
     asset_id = _clean(row.get("asset_id"))
     seen = visited or set()
     if asset_id and asset_id in seen:
@@ -393,6 +486,26 @@ def _merge_inventory_row(existing: dict[str, Any], incoming: dict[str, Any]) -> 
             merged[key] = incoming_value
             continue
         current_value = merged[key]
+        if (
+            key == "name"
+            and _is_ip_literal(current_value)
+            and _has_value(incoming_value)
+            and not _is_ip_literal(incoming_value)
+        ):
+            merged[key] = incoming_value
+            continue
+        if (
+            key == "name"
+            and _has_value(current_value)
+            and _has_value(incoming_value)
+            and current_value != incoming_value
+            and not _is_ip_literal(incoming_value)
+        ):
+            aliases = merged.get("aliases")
+            alias_values = list(aliases) if isinstance(aliases, list) else []
+            _append_unique(alias_values, incoming_value)
+            merged["aliases"] = alias_values
+            continue
         if isinstance(current_value, list) and isinstance(incoming_value, list):
             merged[key] = _merge_list_values(current_value, incoming_value)
             continue
@@ -420,6 +533,20 @@ def _safe_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _asset_inventory_row(row: dict[str, Any], assets_by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    aggregate_row = dict(row)
+    ips = _asset_ip_values(row, assets_by_id)
+    if ips:
+        aggregate_row["resolved_ips"] = ips
+    single_ip = ips[0] if len(ips) == 1 else ""
+    if single_ip and not _clean(aggregate_row.get("ip")):
+        aggregate_row["ip"] = single_ip
+    aliases = _asset_alias_values(row, assets_by_id)
+    if aliases:
+        aggregate_row["aliases"] = aliases
+    return aggregate_row
 
 
 def build_workspace_inventory_snapshot(
@@ -487,15 +614,21 @@ def build_workspace_inventory_snapshot(
         }
 
         for row in snapshot.assets:
-            signature = entity_signature("asset", row, snapshot)
+            signature = _asset_signature_for_row(row, assets_by_id)
             if not signature:
                 continue
             old_asset_id = _clean(row.get("asset_id"))
             if old_asset_id:
                 asset_id_map[(snapshot.run_id, old_asset_id)] = signature
             parent_row = assets_by_id.get(_clean(row.get("parent_asset_id")))
-            parent_signature = entity_signature("asset", parent_row, snapshot) if parent_row is not None else ""
-            aggregate_row = _copy_row(row, asset_id=signature, parent_asset_id=parent_signature)
+            parent_signature = _asset_signature_for_row(parent_row, assets_by_id) if parent_row is not None else ""
+            if parent_signature == signature:
+                parent_signature = ""
+            aggregate_row = _copy_row(
+                _asset_inventory_row(row, assets_by_id),
+                asset_id=signature,
+                parent_asset_id=parent_signature,
+            )
             asset_rows[signature] = (
                 _merge_inventory_row(asset_rows[signature], aggregate_row)
                 if signature in asset_rows

@@ -11,6 +11,7 @@ from threading import Thread
 from typing import Any, Callable, Iterable, Iterator, TypeVar
 
 from attackcastle.core.models import ToolExecution, new_id, now_utc
+from attackcastle.core.runtime_events import emit_runtime_event
 
 try:
     import psutil
@@ -112,12 +113,56 @@ def build_tool_execution(
     )
 
 
+def emit_tool_execution_started(
+    context: Any,
+    *,
+    execution_id: str,
+    tool_name: str,
+    command: str,
+    started_at,
+    capability: str | None = None,
+    stdout_path: str | Path | None = None,
+    stderr_path: str | Path | None = None,
+    transcript_path: str | Path | None = None,
+    raw_artifact_paths: list[str] | None = None,
+    raw_command: str | None = None,
+    task_instance_key: str | None = None,
+    task_inputs: list[str] | None = None,
+) -> None:
+    emit_runtime_event(
+        context,
+        "tool_execution.started",
+        {
+            "execution": {
+                "execution_id": execution_id,
+                "tool_name": tool_name,
+                "command": command,
+                "started_at": started_at,
+                "ended_at": "",
+                "exit_code": None,
+                "status": "running",
+                "capability": capability,
+                "stdout_path": str(stdout_path) if stdout_path is not None else "",
+                "stderr_path": str(stderr_path) if stderr_path is not None else "",
+                "transcript_path": str(transcript_path) if transcript_path is not None else "",
+                "raw_artifact_paths": list(raw_artifact_paths or []),
+                "error_message": None,
+                "termination_reason": None,
+                "termination_detail": None,
+                "timed_out": False,
+                "raw_command": raw_command or command,
+                "task_instance_key": task_instance_key,
+                "task_inputs": list(task_inputs or []),
+            }
+        },
+    )
+
+
 def cancellation_requested(context) -> bool:  # noqa: ANN001
     token = getattr(context, "cancellation_token", None)
     if token is not None and getattr(token, "is_set", lambda: False)():
         return True
-    deadline = getattr(context, "deadline_monotonic", None)
-    return deadline is not None and time.monotonic() >= float(deadline)
+    return False
 
 
 def _process_tree(process: subprocess.Popen) -> list[object]:
@@ -169,7 +214,7 @@ def stream_command(
     stdout_path: Path,
     stderr_path: Path,
     transcript_path: Path | None = None,
-    timeout: int,
+    timeout: int | None = None,
     on_stdout=None,
     on_stderr=None,
     env: dict[str, str] | None = None,
@@ -258,7 +303,6 @@ def stream_command(
             timed_out = False
             cancelled = False
             try:
-                deadline = None if timeout is None else time.monotonic() + float(timeout)
                 while True:
                     if process.poll() is not None:
                         break
@@ -275,20 +319,10 @@ def stream_command(
                             except Exception:  # noqa: BLE001
                                 pass
                         break
-                    if deadline is not None and time.monotonic() >= deadline:
-                        raise subprocess.TimeoutExpired(command, timeout)
                     try:
                         process.wait(timeout=0.25)
                     except subprocess.TimeoutExpired:
                         continue
-            except subprocess.TimeoutExpired:
-                _terminate_process_tree(process, kill=True)
-                timed_out = True
-                error_message = f"command exceeded timeout of {timeout}s"
-                try:
-                    process.wait(timeout=1)
-                except Exception:  # noqa: BLE001
-                    pass
             finally:
                 stdout_thread.join(timeout=2)
                 stderr_thread.join(timeout=2)

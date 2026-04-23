@@ -57,6 +57,16 @@ def _readiness(status: str, *, can_launch: bool, partial_run: bool, missing_tool
     )
 
 
+def _complete_readiness(dialog: StartScanDialog) -> None:
+    dialog._readiness_timer.stop()
+    dialog._start_readiness_check()
+    for _ in range(100):
+        if dialog._readiness_result_is_current():
+            return
+        QTest.qWait(20)
+    raise AssertionError("readiness check did not finish")
+
+
 def test_launch_dialog_uses_inline_validation_for_missing_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     dialog = _make_dialog()
     warnings: list[str] = []
@@ -85,6 +95,60 @@ def test_launch_dialog_has_no_profile_preset_controls() -> None:
         assert "Active Validation:" not in dialog.launch_summary.text()
         assert not hasattr(dialog, "_apply_profile_recipe")
         assert not hasattr(dialog, "profile_preset_summary")
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_skips_report_generation_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    dialog = _make_dialog()
+    readiness_kwargs: list[dict[str, object]] = []
+
+    def fake_readiness(**kwargs: object) -> ReadinessReport:
+        readiness_kwargs.append(kwargs)
+        return _readiness("ready", can_launch=True, partial_run=False, missing_tools=[])
+
+    try:
+        monkeypatch.setattr("attackcastle.gui.dialogs.assess_readiness", fake_readiness)
+        dialog.scan_name_edit.setText("No Report")
+        dialog.target_input_edit.setPlainText("example.com")
+        dialog._readiness_report = None
+        dialog._readiness_signature = ""
+        dialog._active_readiness_requests.clear()
+        _complete_readiness(dialog)
+
+        request = dialog.build_request()
+
+        assert dialog.export_html.isChecked() is False
+        assert request.profile.export_html_report is False
+        assert readiness_kwargs
+        assert readiness_kwargs[-1]["no_report"] is True
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_enables_report_generation_when_checked(monkeypatch: pytest.MonkeyPatch) -> None:
+    dialog = _make_dialog()
+    readiness_kwargs: list[dict[str, object]] = []
+
+    def fake_readiness(**kwargs: object) -> ReadinessReport:
+        readiness_kwargs.append(kwargs)
+        return _readiness("ready", can_launch=True, partial_run=False, missing_tools=[])
+
+    try:
+        monkeypatch.setattr("attackcastle.gui.dialogs.assess_readiness", fake_readiness)
+        dialog.scan_name_edit.setText("With Report")
+        dialog.target_input_edit.setPlainText("example.com")
+        dialog.export_html.setChecked(True)
+        dialog._readiness_report = None
+        dialog._readiness_signature = ""
+        dialog._active_readiness_requests.clear()
+        _complete_readiness(dialog)
+
+        request = dialog.build_request()
+
+        assert request.profile.export_html_report is True
+        assert readiness_kwargs
+        assert readiness_kwargs[-1]["no_report"] is False
     finally:
         dialog.close()
 
@@ -194,9 +258,11 @@ def test_launch_dialog_only_confirms_modally_for_elevated_risk(monkeypatch: pyte
     confirmations: list[str] = []
 
     try:
+        monkeypatch.setattr("attackcastle.gui.dialogs.assess_readiness", lambda **kwargs: _readiness("ready", can_launch=True, partial_run=False, missing_tools=[]))
         dialog.scan_name_edit.setText("Authorized")
         dialog.target_input_edit.setPlainText("example.com")
         dialog.risk_mode_combo.setCurrentText("aggressive")
+        _complete_readiness(dialog)
         monkeypatch.setattr(QMessageBox, "question", lambda *args: confirmations.append(str(args[2])) or QMessageBox.No)
 
         dialog.accept()
@@ -344,7 +410,7 @@ def test_launch_dialog_shows_ready_readiness_banner(monkeypatch: pytest.MonkeyPa
     try:
         dialog.scan_name_edit.setText("Ready Scan")
         dialog.target_input_edit.setPlainText("example.com")
-        dialog._refresh_launch_summary()
+        _complete_readiness(dialog)
 
         assert "Readiness: Ready" in dialog.readiness_label.text()
         assert "Can launch: yes" in dialog.readiness_label.text()
@@ -359,7 +425,7 @@ def test_launch_dialog_shows_partial_readiness_banner(monkeypatch: pytest.Monkey
     try:
         dialog.scan_name_edit.setText("Partial Scan")
         dialog.target_input_edit.setPlainText("example.com")
-        dialog._refresh_launch_summary()
+        _complete_readiness(dialog)
 
         assert "Readiness: Partial" in dialog.readiness_label.text()
         assert "Missing tools: nmap" in dialog.readiness_label.text()
@@ -375,7 +441,7 @@ def test_launch_dialog_blocks_accept_when_readiness_fails(monkeypatch: pytest.Mo
     try:
         dialog.scan_name_edit.setText("Blocked Scan")
         dialog.target_input_edit.setPlainText("example.com")
-        dialog._refresh_launch_summary()
+        _complete_readiness(dialog)
 
         dialog.accept()
 

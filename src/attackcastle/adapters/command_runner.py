@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from attackcastle.adapters.base import build_tool_execution, normalize_command_termination, stream_command
+from attackcastle.adapters.base import (
+    build_tool_execution,
+    emit_tool_execution_started,
+    normalize_command_termination,
+    stream_command,
+)
 from attackcastle.core.interfaces import AdapterContext
 from attackcastle.core.models import EvidenceArtifact, TaskArtifactRef, TaskResult, ToolExecution, new_id, now_utc
 from attackcastle.proxy import build_subprocess_env, command_text
@@ -123,6 +128,21 @@ def run_command_spec(
             execution_id=execution_id,
         )
 
+    emit_tool_execution_started(
+        context,
+        execution_id=execution_id,
+        tool_name=spec.tool_name,
+        command=rendered_command,
+        started_at=started_at,
+        capability=spec.capability,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
+        transcript_path=transcript_path,
+        raw_artifact_paths=[str(path) for path in spec.extra_artifacts],
+        raw_command=raw_command,
+        task_instance_key=getattr(context, "task_instance_key", None),
+        task_inputs=list(getattr(context, "task_inputs", []) or []),
+    )
     stream_result = stream_command(
         spec.command,
         stdout_path=stdout_path,
