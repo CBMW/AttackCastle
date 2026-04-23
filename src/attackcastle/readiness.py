@@ -15,6 +15,12 @@ from rich.console import Console
 
 EXTERNAL_DEPENDENCY_SPECS = (
     {
+        "check": "ping_binary",
+        "command": "ping",
+        "apt_package": "iputils-ping",
+        "suggestion": "Install ping for target reachability checks.",
+    },
+    {
         "check": "subfinder_binary",
         "command": "subfinder",
         "apt_package": "subfinder",
@@ -238,6 +244,10 @@ def external_dependency_rows() -> list[dict[str, Any]]:
 def validate_external_tool(command_name: str, resolved_path: str | None) -> dict[str, Any]:
     if not resolved_path:
         return {"status": "missing", "version": None, "error": None}
+    if command_name == "ping":
+        # ping is a built-in baseline dependency with inconsistent version flags
+        # across Windows, Linux, and macOS; treat an on-PATH binary as usable.
+        return {"status": "ok", "version": None, "error": None}
     candidates = TOOL_VALIDATION_ARGS.get(command_name, [["--version"]])
     last_error = ""
     for args in candidates:

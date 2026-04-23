@@ -626,6 +626,7 @@ class AttackSession:
     request: str = ""
     response: str = ""
     notes: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
 
@@ -643,6 +644,9 @@ class AttackSession:
             request=str(payload.get("request", "")),
             response=str(payload.get("response", "")),
             notes=str(payload.get("notes", "")),
+            metadata=dict(payload.get("metadata", {}))
+            if isinstance(payload.get("metadata", {}), dict)
+            else {},
             created_at=str(payload.get("created_at", now_iso())),
             updated_at=str(payload.get("updated_at", now_iso())),
         )

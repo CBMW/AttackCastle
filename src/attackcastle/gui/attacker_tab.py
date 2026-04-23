@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request
 from uuid import uuid4
 
-from PySide6.QtCore import QObject, QPoint, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, Qt, QUrl, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -57,9 +57,15 @@ from attackcastle.gui.models import (
 )
 from attackcastle.proxy import open_url
 
+try:
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+except ImportError:  # pragma: no cover - handled by fallback UI.
+    QWebEngineView = None
+
 
 HTTP_REPLAY_TIMEOUT_SECONDS = 30
 HTTP_REPLAY_BODY_PREVIEW_BYTES = 1_000_000
+BROWSER_DEFAULT_URL = "https://example.com/"
 
 
 @dataclass(frozen=True)
@@ -81,6 +87,15 @@ ATTACKER_TOOLS: tuple[AttackerToolDefinition, ...] = (
         workspace_label="HTTP Replay",
         description="",
         session_type="http-replay",
+        supported=frozenset({"web_app", "endpoint", "parameter", "form", "login_surface", "site_map"}),
+        status="",
+    ),
+    AttackerToolDefinition(
+        key="browser",
+        name="Browser",
+        workspace_label="Browser",
+        description="",
+        session_type="browser-pane",
         supported=frozenset({"web_app", "endpoint", "parameter", "form", "login_surface", "site_map"}),
         status="",
     ),
@@ -283,6 +298,7 @@ class AttackerTab(QWidget):
         self._preview_tool_key = ""
         self._rendering = False
         self._http_replay_bridges: list[_HttpReplayBridge] = []
+        self._browser_views: dict[str, Any] = {}
         self._tool_cards: dict[str, AttackerToolCard] = {}
 
         layout = QVBoxLayout(self)
@@ -314,6 +330,8 @@ class AttackerTab(QWidget):
             self._tool_cards[tool.key] = card
             if tool.key == "http":
                 self.http_button = card
+            elif tool.key == "browser":
+                self.browser_button = card
             elif tool.key == "metasploit":
                 self.metasploit_button = card
             tool_sidebar_layout.addWidget(card)
@@ -372,7 +390,7 @@ class AttackerTab(QWidget):
             attack_workspace_id=f"attack-{uuid4().hex}",
             name=f"{label} {len(self._workspaces) + 1}",
             workspace_type=workspace_type,
-            sessions=[self._new_session(workspace_type)],
+            sessions=self._initial_sessions_for_workspace(workspace_type),
         )
         self._workspaces.append(workspace)
         self._active_attack_workspace_id = workspace.attack_workspace_id
@@ -402,7 +420,7 @@ class AttackerTab(QWidget):
             name=name,
             workspace_type=workspace_type,
             target_objects=[target],
-            sessions=[self._new_session(workspace_type, target=target)],
+            sessions=self._initial_sessions_for_workspace(workspace_type, target=target),
             status="draft",
         )
         self._workspaces.append(workspace)
@@ -455,24 +473,71 @@ class AttackerTab(QWidget):
         label = target.target or target.label or title_case_label(target.entity_kind)
         return f"{label} - {prefix}"
 
-    def _new_session(self, workspace_type: str, target: AttackTargetObject | None = None) -> AttackSession:
+    def _initial_sessions_for_workspace(
+        self,
+        workspace_type: str,
+        target: AttackTargetObject | None = None,
+    ) -> list[AttackSession]:
+        if workspace_type == "browser":
+            home_url = self._browser_seed_url(target)
+            return [
+                self._new_session(workspace_type, target=target, pane_index=0, home_url=home_url),
+                self._new_session(workspace_type, target=target, pane_index=1, home_url=home_url),
+            ]
+        return [self._new_session(workspace_type, target=target)]
+
+    def _new_session(
+        self,
+        workspace_type: str,
+        target: AttackTargetObject | None = None,
+        *,
+        pane_index: int = 0,
+        home_url: str = "",
+    ) -> AttackSession:
         config = WORKSPACE_TYPES.get(workspace_type, WORKSPACE_TYPES["http"])
         session_type = config["session_type"]
         label = config["label"]
         command = ""
         request = ""
+        metadata: dict[str, Any] = {}
         if workspace_type == "metasploit":
             command = "msfconsole -qx \"use auxiliary/scanner/; set RHOSTS <target>; check; exit\""
         elif workspace_type == "http":
             target_value = target.target if target is not None else "https://example.com/"
             request = f"GET {target_value} HTTP/1.1\nHost: {target_value.replace('https://', '').replace('http://', '').split('/')[0]}\n\n"
+        elif workspace_type == "browser":
+            request = home_url or self._browser_seed_url(target)
+            label = f"Browser {'AB'[pane_index] if pane_index in {0, 1} else pane_index + 1}"
+            metadata = {
+                "pane_index": pane_index,
+                "browser_id": f"browser-{uuid4().hex}",
+                "automation_slot": f"browser-{pane_index + 1}",
+                "home_url": request,
+                "current_url": request,
+            }
         return AttackSession(
             session_id=f"session-{uuid4().hex}",
             session_type=session_type,
             label=label,
             command=command,
             request=request,
+            metadata=metadata,
         )
+
+    def _browser_seed_url(self, target: AttackTargetObject | None) -> str:
+        if target is None:
+            return BROWSER_DEFAULT_URL
+        raw_target = str(target.target or target.label or "").strip()
+        if not raw_target:
+            return BROWSER_DEFAULT_URL
+        return self._normalize_browser_url(raw_target)
+
+    def _normalize_browser_url(self, raw_url: str) -> str:
+        text = str(raw_url or "").strip()
+        if not text:
+            return BROWSER_DEFAULT_URL
+        normalized = QUrl.fromUserInput(text).toString()
+        return normalized or text
 
     def _persist(self) -> None:
         for workspace in self._workspaces:
@@ -482,6 +547,7 @@ class AttackerTab(QWidget):
     def _render_workspaces(self) -> None:
         self._rendering = True
         try:
+            self._browser_views.clear()
             while self.workspace_tabs.count():
                 widget = self.workspace_tabs.widget(0)
                 self.workspace_tabs.removeTab(0)
@@ -522,15 +588,25 @@ class AttackerTab(QWidget):
         )
         header, _title, summary = build_section_header(
             "No Attack Workspace Open",
-            summary="Start with the HTTP module or send an asset from the inventory for focused validation.",
+            summary="Start with the HTTP module, open a Browser workspace, or send an asset from the inventory for focused validation.",
         )
         summary.setVisible(True)
+        actions = QHBoxLayout()
+        actions.setContentsMargins(0, 0, 0, 0)
+        actions.setSpacing(PAGE_CARD_SPACING)
+
         create_http = QPushButton("New HTTP Repeater")
         create_http.setObjectName("attackerPrimaryAction")
         style_button(create_http, min_height=34)
         create_http.clicked.connect(lambda _checked=False: self.create_blank_workspace("http"))
+        create_browser = QPushButton("New Browser")
+        style_button(create_browser, role="secondary", min_height=34)
+        create_browser.clicked.connect(lambda _checked=False: self.create_blank_workspace("browser"))
         empty_layout.addWidget(header)
-        empty_layout.addWidget(create_http, 0, Qt.AlignLeft)
+        actions.addWidget(create_http, 0)
+        actions.addWidget(create_browser, 0)
+        actions.addStretch(1)
+        empty_layout.addLayout(actions)
         layout.addWidget(empty_panel)
         layout.addStretch(1)
         return page
@@ -587,6 +663,12 @@ class AttackerTab(QWidget):
         if workspace.workspace_type == "http":
             sessions = workspace.sessions or [self._new_session(workspace.workspace_type)]
             return self._build_http_workspace(workspace, sessions[0])
+        if workspace.workspace_type == "browser":
+            sessions = workspace.sessions or self._initial_sessions_for_workspace(
+                workspace.workspace_type,
+                workspace.target_objects[0] if workspace.target_objects else None,
+            )
+            return self._build_browser_workspace(workspace, sessions[:2])
 
         body = build_flat_container()
         layout = QVBoxLayout(body)
@@ -618,6 +700,181 @@ class AttackerTab(QWidget):
         helper.setVisible(True)
         return panel
 
+    def _build_browser_workspace(self, workspace: AttackWorkspace, sessions: list[AttackSession]) -> QWidget:
+        page = build_flat_container()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(PAGE_SECTION_SPACING)
+
+        layout.addWidget(self._build_browser_header(workspace, sessions))
+
+        if len(sessions) > 1:
+            browser_split = apply_responsive_splitter(QSplitter(Qt.Vertical), (1, 1), handle_width=4)
+            browser_split.setObjectName("attackerBrowserSplit")
+            for index, session in enumerate(sessions):
+                browser_split.addWidget(self._build_browser_panel(workspace, session, index))
+            browser_split.setSizes([400, 400])
+            layout.addWidget(browser_split, 1)
+        elif sessions:
+            layout.addWidget(self._build_browser_panel(workspace, sessions[0], 0), 1)
+        else:
+            layout.addWidget(QLabel("No browser panes are open."), 0, Qt.AlignCenter)
+        return page
+
+    def _build_browser_header(self, workspace: AttackWorkspace, sessions: list[AttackSession]) -> QWidget:
+        header, header_layout = build_surface_frame(
+            object_name="attackerToolHeader",
+            surface=SURFACE_SECONDARY,
+            spacing=PAGE_CARD_SPACING,
+        )
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(PAGE_SECTION_SPACING * 2)
+
+        title_stack = QVBoxLayout()
+        title_stack.setContentsMargins(0, 0, 0, 0)
+        title_stack.setSpacing(4)
+        title = QLabel("Browser")
+        title.setObjectName("attackerWorkspaceTitle")
+        title_stack.addWidget(title)
+
+        context_row = QHBoxLayout()
+        context_row.setContentsMargins(0, 0, 0, 0)
+        context_row.setSpacing(PAGE_CARD_SPACING)
+        for text, state in (
+            (self._browser_target_label(workspace, sessions), "target"),
+            (f"{len(sessions)} pane{'s' if len(sessions) != 1 else ''} open", "neutral"),
+            (workspace.status.title() if workspace.status else "Draft", workspace.status or "draft"),
+        ):
+            context_row.addWidget(self._build_pill(text, state))
+        context_row.addStretch(1)
+        title_stack.addLayout(context_row)
+
+        helper = QLabel("Each pane keeps its own session identity so future automation can bind to a stable browser target.")
+        helper.setObjectName("attackerPanelHelper")
+        helper.setWordWrap(True)
+        title_stack.addWidget(helper)
+
+        row.addLayout(title_stack, 1)
+        header_layout.addLayout(row)
+        return header
+
+    def _build_browser_panel(
+        self,
+        workspace: AttackWorkspace,
+        session: AttackSession,
+        pane_index: int,
+    ) -> QWidget:
+        current_url = self._browser_session_url(session)
+        session.metadata = {
+            **session.metadata,
+            "pane_index": session.metadata.get("pane_index", pane_index),
+            "automation_slot": session.metadata.get("automation_slot", f"browser-{pane_index + 1}"),
+            "browser_id": session.metadata.get("browser_id") or f"browser-{uuid4().hex}",
+            "home_url": session.metadata.get("home_url") or current_url,
+            "current_url": current_url,
+        }
+
+        panel, panel_layout = build_surface_frame(
+            object_name="attackerBrowserPanel",
+            surface=SURFACE_SECONDARY,
+            spacing=PAGE_CARD_SPACING,
+        )
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(PAGE_CARD_SPACING)
+        title_stack = QVBoxLayout()
+        title_stack.setContentsMargins(0, 0, 0, 0)
+        title_stack.setSpacing(2)
+        title_label = QLabel(session.label or f"Browser {pane_index + 1}")
+        title_label.setObjectName("attackerPanelTitle")
+        helper_label = QLabel(f"Automation slot: {session.metadata['automation_slot']}")
+        helper_label.setObjectName("attackerPanelHelper")
+        helper_label.setWordWrap(True)
+        title_stack.addWidget(title_label)
+        title_stack.addWidget(helper_label)
+        header.addLayout(title_stack, 1)
+
+        close_button = QPushButton("X")
+        close_button.setObjectName("attackerBrowserCloseButton")
+        style_button(close_button, role="secondary", min_height=30)
+        set_tooltip(close_button, "Close this browser pane. Closing both panes removes the Browser module.")
+        close_button.clicked.connect(
+            lambda _checked=False, item=workspace, session_id=session.session_id: self._close_browser_session(item, session_id)
+        )
+        header.addWidget(close_button, 0, Qt.AlignRight | Qt.AlignTop)
+        panel_layout.addLayout(header)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(PAGE_CARD_SPACING)
+        back_button = QPushButton("<")
+        forward_button = QPushButton(">")
+        reload_button = QPushButton("Reload")
+        go_button = QPushButton("Go")
+        for button in (back_button, forward_button, reload_button):
+            style_button(button, role="secondary", min_height=30)
+        style_button(go_button, min_height=30)
+        address = QLineEdit(current_url)
+        address.setObjectName("attackerBrowserAddress")
+        address.setPlaceholderText("Enter a URL")
+        controls.addWidget(back_button, 0)
+        controls.addWidget(forward_button, 0)
+        controls.addWidget(reload_button, 0)
+        controls.addWidget(address, 1)
+        controls.addWidget(go_button, 0)
+        panel_layout.addLayout(controls)
+
+        if QWebEngineView is None:
+            fallback = QLabel(
+                "Qt WebEngine is unavailable in this environment, so the browser pane cannot render yet. "
+                "The pane still preserves its URL and automation metadata."
+            )
+            fallback.setWordWrap(True)
+            fallback.setAlignment(Qt.AlignCenter)
+            fallback.setObjectName("attackerComingSoonText")
+            panel_layout.addWidget(fallback, 1)
+            back_button.setEnabled(False)
+            forward_button.setEnabled(False)
+            reload_button.setEnabled(False)
+            go_button.clicked.connect(
+                lambda _checked=False, item=workspace, sess=session, field=address, index=pane_index: self._save_browser_session_state(
+                    item,
+                    sess,
+                    field.text(),
+                    index,
+                )
+            )
+            address.returnPressed.connect(go_button.click)
+            return panel
+
+        browser = QWebEngineView()
+        browser.setObjectName("attackerBrowserView")
+        browser.setProperty("attackWorkspaceId", workspace.attack_workspace_id)
+        browser.setProperty("attackSessionId", session.session_id)
+        self._browser_views[session.session_id] = browser
+
+        def navigate() -> None:
+            target_url = self._save_browser_session_state(workspace, session, address.text(), pane_index)
+            browser.setUrl(QUrl.fromUserInput(target_url))
+
+        def sync_address(url: QUrl) -> None:
+            normalized = url.toString()
+            if normalized:
+                address.setText(normalized)
+                self._save_browser_session_state(workspace, session, normalized, pane_index)
+
+        browser.urlChanged.connect(sync_address)
+        back_button.clicked.connect(browser.back)
+        forward_button.clicked.connect(browser.forward)
+        reload_button.clicked.connect(browser.reload)
+        go_button.clicked.connect(navigate)
+        address.returnPressed.connect(navigate)
+        browser.setUrl(QUrl.fromUserInput(current_url))
+        panel_layout.addWidget(browser, 1)
+        return panel
+
     def _build_http_workspace(self, workspace: AttackWorkspace, session: AttackSession) -> QWidget:
         page = build_flat_container()
         layout = QVBoxLayout(page)
@@ -627,13 +884,13 @@ class AttackerTab(QWidget):
         request = configure_scroll_surface(QPlainTextEdit())
         request.setObjectName("attackerConsoleText")
         request.setPlainText(session.request)
-        request.setPlaceholderText("")
+        request.setPlaceholderText("Enter a raw HTTP request")
 
         response = configure_scroll_surface(QPlainTextEdit())
         response.setObjectName("attackerConsoleText")
         response.setReadOnly(True)
         response.setPlainText(session.response)
-        response.setPlaceholderText("")
+        response.setPlaceholderText("HTTP response")
 
         send_request = QPushButton("Send Request")
         send_request.setObjectName("attackerPrimaryAction")
@@ -810,6 +1067,76 @@ class AttackerTab(QWidget):
         pill.setProperty("state", state or "neutral")
         pill.setAlignment(Qt.AlignCenter)
         return pill
+
+    def _browser_session_url(self, session: AttackSession) -> str:
+        metadata_url = str(session.metadata.get("current_url") or session.metadata.get("home_url") or "").strip()
+        if metadata_url:
+            return self._normalize_browser_url(metadata_url)
+        return self._normalize_browser_url(session.request or BROWSER_DEFAULT_URL)
+
+    def _browser_target_label(self, workspace: AttackWorkspace, sessions: list[AttackSession]) -> str:
+        target = next((item.target or item.label for item in workspace.target_objects if item.target or item.label), "")
+        if target:
+            return target
+        if sessions:
+            return self._browser_session_url(sessions[0])
+        return "No target"
+
+    def _save_browser_session_state(
+        self,
+        workspace: AttackWorkspace,
+        session: AttackSession,
+        raw_url: str,
+        pane_index: int,
+    ) -> str:
+        normalized = self._normalize_browser_url(raw_url)
+        session.request = normalized
+        session.updated_at = now_iso()
+        session.metadata = {
+            **session.metadata,
+            "pane_index": pane_index,
+            "automation_slot": session.metadata.get("automation_slot", f"browser-{pane_index + 1}"),
+            "browser_id": session.metadata.get("browser_id") or f"browser-{uuid4().hex}",
+            "home_url": session.metadata.get("home_url") or normalized,
+            "current_url": normalized,
+        }
+        self._persist()
+        return normalized
+
+    def _close_browser_session(self, workspace: AttackWorkspace, session_id: str) -> None:
+        remaining = [session for session in workspace.sessions if session.session_id != session_id]
+        if len(remaining) == len(workspace.sessions):
+            return
+        self._browser_views.pop(session_id, None)
+        if not remaining:
+            index = self._index_for_workspace_id(workspace.attack_workspace_id)
+            if index >= 0:
+                self._close_workspace_at(index)
+            return
+        workspace.sessions = remaining
+        self._persist_and_refresh(workspace.attack_workspace_id)
+
+    def browser_automation_targets(self, attack_workspace_id: str = "") -> list[dict[str, Any]]:
+        targets: list[dict[str, Any]] = []
+        for workspace in self._workspaces:
+            if attack_workspace_id and workspace.attack_workspace_id != attack_workspace_id:
+                continue
+            for session in workspace.sessions:
+                if session.session_type != "browser-pane":
+                    continue
+                view = self._browser_views.get(session.session_id)
+                targets.append(
+                    {
+                        "attack_workspace_id": workspace.attack_workspace_id,
+                        "session_id": session.session_id,
+                        "browser_id": session.metadata.get("browser_id", ""),
+                        "automation_slot": session.metadata.get("automation_slot", ""),
+                        "url": self._browser_session_url(session),
+                        "view": view,
+                        "page": view.page() if view is not None and hasattr(view, "page") else None,
+                    }
+                )
+        return targets
 
     def _workspace_target_label(self, workspace: AttackWorkspace, session: AttackSession) -> str:
         target = next((item.target or item.label for item in workspace.target_objects if item.target or item.label), "")

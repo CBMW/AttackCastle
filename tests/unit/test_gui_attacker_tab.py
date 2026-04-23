@@ -8,9 +8,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel, QPlainTextEdit, QPushButton, QTabWidget
+from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QPlainTextEdit, QPushButton, QSplitter, QTabWidget
 
+import attackcastle.gui.attacker_tab as attacker_tab_module
 from attackcastle.gui.attacker_tab import (
     AttackerTab,
     _execute_http_request,
@@ -125,6 +126,129 @@ def test_attacker_tab_creates_typed_workspace_from_asset(tmp_path: Path) -> None
         tab.close()
 
 
+def test_attacker_tab_creates_browser_workspace_with_two_panes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    stored: list[AttackWorkspace] = []
+
+    class FakeWebEngineView(QFrame):
+        urlChanged = Signal(QUrl)
+
+        def __init__(self, parent: QFrame | None = None) -> None:
+            super().__init__(parent)
+            self._url = QUrl()
+
+        def setUrl(self, url: QUrl) -> None:  # noqa: N802
+            self._url = QUrl(url)
+            self.urlChanged.emit(self._url)
+
+        def url(self) -> QUrl:
+            return QUrl(self._url)
+
+        def back(self) -> None:
+            return
+
+        def forward(self) -> None:
+            return
+
+        def reload(self) -> None:
+            return
+
+        def page(self) -> None:
+            return None
+
+    monkeypatch.setattr(attacker_tab_module, "QWebEngineView", FakeWebEngineView)
+
+    def save_workspaces(_workspace_id: str, rows: list[AttackWorkspace]) -> None:
+        stored.clear()
+        stored.extend(rows)
+
+    tab = AttackerTab(
+        load_workspaces=lambda _workspace_id: list(stored),
+        save_workspaces=save_workspaces,
+    )
+    snapshot = _make_snapshot(tmp_path)
+
+    try:
+        tab.set_workspace(snapshot.workspace_id)
+        created = tab.add_workspace_from_asset("web_app", snapshot.web_apps[0], snapshot, "browser")
+
+        assert created.workspace_type == "browser"
+        assert len(created.sessions) == 2
+        assert [session.session_type for session in created.sessions] == ["browser-pane", "browser-pane"]
+        assert [session.metadata["automation_slot"] for session in created.sessions] == ["browser-1", "browser-2"]
+        page = tab.workspace_tabs.widget(0)
+        labels = {label.text() for label in page.findChildren(QLabel)}
+        assert {"Browser", "Browser A", "Browser B"}.issubset(labels)
+        assert len(page.findChildren(FakeWebEngineView)) == 2
+        assert len([button for button in page.findChildren(QPushButton) if button.text() == "X"]) == 2
+        splitters = [splitter for splitter in page.findChildren(QSplitter) if splitter.objectName() == "attackerBrowserSplit"]
+        assert len(splitters) == 1
+        assert splitters[0].orientation() == Qt.Vertical
+        assert stored[0].attack_workspace_id == created.attack_workspace_id
+    finally:
+        tab.close()
+
+
+def test_closing_both_browser_panes_closes_the_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    stored: list[AttackWorkspace] = []
+
+    class FakeWebEngineView(QFrame):
+        urlChanged = Signal(QUrl)
+
+        def __init__(self, parent: QFrame | None = None) -> None:
+            super().__init__(parent)
+            self._url = QUrl()
+
+        def setUrl(self, url: QUrl) -> None:  # noqa: N802
+            self._url = QUrl(url)
+            self.urlChanged.emit(self._url)
+
+        def back(self) -> None:
+            return
+
+        def forward(self) -> None:
+            return
+
+        def reload(self) -> None:
+            return
+
+        def page(self) -> None:
+            return None
+
+    monkeypatch.setattr(attacker_tab_module, "QWebEngineView", FakeWebEngineView)
+
+    def save_workspaces(_workspace_id: str, rows: list[AttackWorkspace]) -> None:
+        stored.clear()
+        stored.extend(rows)
+
+    tab = AttackerTab(
+        load_workspaces=lambda _workspace_id: list(stored),
+        save_workspaces=save_workspaces,
+    )
+
+    try:
+        tab.set_workspace("workspace-browser")
+        workspace = tab.create_blank_workspace("browser")
+
+        assert len(workspace.sessions) == 2
+        first_session_id = workspace.sessions[0].session_id
+        tab._close_browser_session(workspace, first_session_id)
+        assert len(stored) == 1
+        assert len(stored[0].sessions) == 1
+        assert tab.workspace_tabs.count() == 1
+
+        second_session_id = stored[0].sessions[0].session_id
+        tab._close_browser_session(stored[0], second_session_id)
+        assert stored == []
+        assert tab.workspace_tabs.count() == 1
+        assert tab.workspace_tabs.tabText(0) == "No Workspaces"
+    finally:
+        tab.close()
+
+
 def test_http_replay_parser_accepts_absolute_and_relative_targets() -> None:
     method, url, headers, body = _parse_raw_http_request(
         "post /api/items HTTP/1.1\r\nHost: edge.example.com:443\r\nContent-Type: text/plain\r\n\r\nhello"
@@ -192,8 +316,9 @@ def test_attacker_tab_exposes_only_supported_workspace_types() -> None:
     )
 
     try:
-        assert tab.compatible_workspace_types("web_app") == ["http"]
+        assert tab.compatible_workspace_types("web_app") == ["http", "browser"]
         assert tab.compatible_workspace_types("asset") == []
+        assert tab.browser_button.property("available") is True
         assert tab.metasploit_button.property("available") is False
         tab._tool_selected("metasploit")
         labels = {label.text() for label in tab.workspace_tabs.widget(0).findChildren(QLabel)}
