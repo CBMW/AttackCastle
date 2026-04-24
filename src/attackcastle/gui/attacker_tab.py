@@ -151,12 +151,6 @@ class AttackerToolCard(QFrame):
         name.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         name.setWordWrap(False)
         header.addWidget(name, 1)
-        badge = QLabel(tool.status or ("Ready" if tool.enabled else "Unavailable"))
-        badge.setObjectName("attackerToolBadge")
-        badge.setProperty("state", "ready" if tool.enabled else "coming-soon")
-        badge.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        badge.setMinimumWidth(48)
-        header.addWidget(badge, 0, Qt.AlignRight | Qt.AlignVCenter)
 
         layout.addLayout(header)
         if tool.description:

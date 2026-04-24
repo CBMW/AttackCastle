@@ -779,9 +779,11 @@ def _matching_task_results(snapshot: RunSnapshot, task_row: dict[str, Any]) -> l
     for result in snapshot.task_results:
         score = 0
         task_type = str(result.get("task_type") or "").strip()
+        result_instance_key = str(result.get("task_instance_key") or "").strip()
+        if task_key and task_type and task_type != task_key and (not task_instance_key or result_instance_key != task_instance_key):
+            continue
         if task_key and task_type == task_key:
             score += 12
-        result_instance_key = str(result.get("task_instance_key") or "").strip()
         result_inputs = [str(item).strip() for item in result.get("task_inputs", []) if str(item).strip()]
         if task_instance_key and result_instance_key == task_instance_key:
             score += 90
@@ -864,6 +866,13 @@ def _matching_tool_executions(
         if result_paths and execution_paths.intersection(result_paths):
             score += 40
         capability = str(execution.get("capability") or "").strip()
+        if (
+            task_capability
+            and capability
+            and capability != task_capability
+            and (not preferred_execution_id or execution_id != preferred_execution_id)
+        ):
+            continue
         if task_capability and capability == task_capability:
             score += 12
         command = str(execution.get("command") or "")

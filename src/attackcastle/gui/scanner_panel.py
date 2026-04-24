@@ -376,6 +376,40 @@ class ScannerPanel(QWidget):
             self.inspector_summary.setText(summary)
         else:
             self.inspector_summary.setText("Select a task, tool run, issue, or audit entry to inspect details.")
+        if kind in {"task", "tool"} and self._snapshot is not None:
+            bundle = resolve_current_task_debug_bundle(
+                self._snapshot,
+                task_row=row if kind == "task" else None,
+                tool_row=row if kind == "tool" else None,
+            )
+            self.detail_text.setPlainText(str(bundle.get("text") or self._build_technical_text(row)))
+            self.raw_text.setPlainText(
+                json.dumps(
+                    {
+                        "selected_row": row,
+                        "matched_task": bundle.get("task"),
+                        "matched_task_results": bundle.get("task_results", []),
+                        "matched_tool_executions": bundle.get("tool_executions", []),
+                        "matched_evidence_artifacts": bundle.get("evidence_artifacts", []),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                    default=str,
+                )
+            )
+            command_rows = [
+                item
+                for item in bundle.get("tool_executions", [])
+                if isinstance(item, dict) and self._command_value(item)
+            ]
+            if not command_rows:
+                command_rows = [
+                    item
+                    for item in bundle.get("task_results", [])
+                    if isinstance(item, dict) and self._command_value(item)
+                ]
+            self._set_command_rows(command_rows)
+            return
         self.detail_text.setPlainText(self._build_technical_text(row))
         self.raw_text.setPlainText(json.dumps(row, indent=2, sort_keys=True))
         self._set_command_rows(self._matched_command_rows(row, kind=kind))

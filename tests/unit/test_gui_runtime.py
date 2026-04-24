@@ -351,6 +351,104 @@ def test_raw_command_and_task_instance_round_trip_and_match(tmp_path: Path) -> N
     assert bundle["tool_executions"][0]["raw_command"] == "httpx -silent -u https://example.com/"
 
 
+def test_resolve_current_task_debug_bundle_keeps_nmap_task_scoped_to_nmap_records(tmp_path: Path) -> None:
+    started_at = now_utc()
+    snapshot = RunSnapshot(
+        run_id="nmap-scope",
+        scan_name="Nmap Scope",
+        run_dir=str(tmp_path),
+        state="running",
+        elapsed_seconds=5,
+        eta_seconds=10,
+        current_task="Running Nmap",
+        total_tasks=2,
+        completed_tasks=1,
+        tasks=[
+            {
+                "key": "resolve-hosts",
+                "label": "Resolving hosts",
+                "status": "completed",
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {
+                    "capability": "dns_resolution",
+                    "instance_key": "resolve-hosts::iter1",
+                    "task_inputs": ["198.51.100.10"],
+                },
+            },
+            {
+                "key": "run-nmap",
+                "label": "Running Nmap",
+                "status": "running",
+                "started_at": started_at.isoformat(),
+                "ended_at": "",
+                "detail": {
+                    "capability": "network_port_scan",
+                    "instance_key": "run-nmap::iter1",
+                    "task_inputs": ["198.51.100.10"],
+                },
+            },
+        ],
+        task_results=[
+            {
+                "task_id": "task-resolve-hosts",
+                "task_type": "resolve-hosts",
+                "status": "completed",
+                "command": "dig staging.go2.teachersbuddy.com +short",
+                "raw_command": "dig staging.go2.teachersbuddy.com +short",
+                "started_at": started_at.isoformat(),
+                "finished_at": started_at.isoformat(),
+                "task_instance_key": "resolve-hosts::iter1",
+                "task_inputs": ["198.51.100.10"],
+            },
+            {
+                "task_id": "task-run-nmap",
+                "task_type": "run-nmap",
+                "status": "running",
+                "command": "nmap -Pn --top-ports 1000 198.51.100.10",
+                "raw_command": "nmap -Pn --top-ports 1000 198.51.100.10",
+                "started_at": started_at.isoformat(),
+                "finished_at": "",
+                "task_instance_key": "run-nmap::iter1",
+                "task_inputs": ["198.51.100.10"],
+            },
+        ],
+        tool_executions=[
+            {
+                "execution_id": "exec-dig",
+                "tool_name": "resolve-hosts",
+                "capability": "dns_resolution",
+                "command": "dig staging.go2.teachersbuddy.com +short",
+                "raw_command": "dig staging.go2.teachersbuddy.com +short",
+                "status": "completed",
+                "exit_code": 0,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "task_instance_key": "resolve-hosts::iter1",
+                "task_inputs": ["198.51.100.10"],
+            },
+            {
+                "execution_id": "exec-nmap",
+                "tool_name": "nmap",
+                "capability": "network_port_scan",
+                "command": "nmap -Pn --top-ports 1000 198.51.100.10",
+                "raw_command": "nmap -Pn --top-ports 1000 198.51.100.10",
+                "status": "running",
+                "exit_code": None,
+                "started_at": started_at.isoformat(),
+                "ended_at": "",
+                "task_instance_key": "run-nmap::iter1",
+                "task_inputs": ["198.51.100.10"],
+            },
+        ],
+    )
+
+    bundle = resolve_current_task_debug_bundle(snapshot, task_row=snapshot.tasks[1])
+
+    assert [row["execution_id"] for row in bundle["tool_executions"]] == ["exec-nmap"]
+    assert [row["task_id"] for row in bundle["task_results"]] == ["task-run-nmap"]
+
+
 def test_load_run_snapshot_merges_running_manifest_tasks_into_checkpoint_timeline(tmp_path: Path) -> None:
     run_store = RunStore(output_root=tmp_path, run_id="gui-running-merge")
     started_at = now_utc()

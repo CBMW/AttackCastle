@@ -147,7 +147,7 @@ def test_scanner_panel_keeps_selected_task_details_across_refresh(tmp_path: Path
         index = panel.tasks_model.index(0, 0)
 
         panel._task_selected(index)
-        assert "Status: running" in panel.detail_text.toPlainText()
+        assert "- status: running" in panel.detail_text.toPlainText()
 
         updated = _make_snapshot(tmp_path)
         updated.tasks[0]["status"] = "completed"
@@ -159,7 +159,7 @@ def test_scanner_panel_keeps_selected_task_details_across_refresh(tmp_path: Path
         }
         panel.set_snapshot(updated)
 
-        assert "Status: completed" in panel.detail_text.toPlainText()
+        assert "- status: completed" in panel.detail_text.toPlainText()
         assert '"status": "completed"' in panel.raw_text.toPlainText()
         assert panel.tasks_view.selectionModel().currentIndex().row() == 0
     finally:
@@ -181,6 +181,25 @@ def test_scanner_panel_task_details_copy_exact_raw_command(tmp_path: Path) -> No
         panel.command_copy_button.click()
 
         assert app.clipboard().text() == "httpx -silent -u https://example.com/"
+    finally:
+        panel.close()
+
+
+def test_scanner_panel_task_details_render_matched_debug_bundle(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    panel = ScannerPanel()
+    snapshot = _make_snapshot(tmp_path)
+
+    try:
+        panel.set_snapshot(snapshot)
+        index = panel.tasks_model.index(0, 0)
+
+        panel._task_selected(index)
+
+        assert "Task" in panel.detail_text.toPlainText()
+        assert "- key: web-probe" in panel.detail_text.toPlainText()
+        assert '"matched_tool_executions"' in panel.raw_text.toPlainText()
+        assert '"execution_id": "exec-httpx"' in panel.raw_text.toPlainText()
     finally:
         panel.close()
 

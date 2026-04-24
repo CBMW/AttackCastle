@@ -111,3 +111,32 @@ def test_run_command_spec_missing_tool_sets_missing_dependency_metadata(tmp_path
     assert result.execution.termination_reason == "missing_dependency"
     assert "missing required tool" in str(result.execution.termination_detail)
     assert result.task_result.termination_reason == "missing_dependency"
+
+
+def test_run_command_spec_positive_timeout_terminates_process(tmp_path: Path) -> None:
+    context = _context(tmp_path)
+
+    result = run_command_spec(
+        context,
+        CommandSpec(
+            tool_name="python",
+            capability="unit_test",
+            task_type="TimeoutEnforcedCommand",
+            command=[
+                sys.executable,
+                "-c",
+                "import time; print('start', flush=True); time.sleep(2); print('end', flush=True)",
+            ],
+            timeout_seconds=1,
+            artifact_prefix="timeout-enforced",
+        ),
+    )
+
+    transcript_text = result.transcript_path.read_text(encoding="utf-8")
+    assert "start" in transcript_text
+    assert result.execution.status == "failed"
+    assert result.execution.termination_reason == "timeout"
+    assert result.execution.timed_out is True
+    assert "timeout" in str(result.execution.termination_detail).lower()
+    assert result.task_result.termination_reason == "timeout"
+    assert result.task_result.timed_out is True

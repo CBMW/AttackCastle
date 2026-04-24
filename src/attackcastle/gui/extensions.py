@@ -836,9 +836,20 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QTabBar#groupTabBar::tab,
     QTabBar#inspectorTabBar::tab {{
-        padding: 5px 9px 4px 9px;
+        padding: 5px 16px 4px 10px;
         margin: 0 6px 0 0;
         min-height: 17px;
+    }}
+    QTabBar#groupTabBar::close-button,
+    QTabBar#inspectorTabBar::close-button {{
+        subcontrol-position: right;
+        margin: 0 2px 0 8px;
+    }}
+    QTabBar#groupTabBar::close-button:hover,
+    QTabBar#inspectorTabBar::close-button:hover {{
+        position: relative;
+        top: 0;
+        left: 0;
     }}
     QTabBar#inspectorTabBar::tab {{
         color: {palette['text_soft']};

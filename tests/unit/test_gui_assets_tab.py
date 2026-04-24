@@ -215,8 +215,8 @@ def test_assets_tab_header_copy_actions_use_displayed_table_data(tmp_path: Path)
         tab.assets_view.setCurrentIndex(tab.assets_model.index(0, 0))
         tab._copy_table_row_data(tab.assets_view, 0)
         assert app.clipboard().text() == (
-            "Kind\tName\tIP\tAliases\tServices\tWeb Apps\tNote\n"
-            "host\texample.com\t203.0.113.10\twww.example.com\t1\t1\t"
+            "Source\tName\tIP\tAliases\tServices\tWeb Apps\tNote\n"
+            "Scanner\texample.com\t203.0.113.10\twww.example.com\t1\t1\t"
         )
 
         tab._copy_table_all_data(tab.web_apps_view)
@@ -224,6 +224,29 @@ def test_assets_tab_header_copy_actions_use_displayed_table_data(tmp_path: Path)
             "URL\tStatus\tTitle\tForms\tNote\n"
             "https://example.com\t200\tExample\t0\t"
         )
+    finally:
+        tab.close()
+
+
+def test_assets_tab_uses_source_column_for_asset_provenance(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    tab, _launched, _notes = _make_tab()
+    snapshot = _make_snapshot(tmp_path)
+    snapshot.assets = [
+        {"asset_id": "asset-scope", "kind": "scope_target", "name": "example.com", "source_tool": "scope_parser"},
+        {"asset_id": "asset-scan", "kind": "host", "name": "api.example.com", "ip": "203.0.113.20", "source_tool": "nmap"},
+        {"asset_id": "asset-attack", "kind": "host", "name": "admin.example.com", "ip": "203.0.113.30", "source_tool": "attacker_http_replay"},
+    ]
+
+    try:
+        tab.set_snapshot(snapshot)
+        app.processEvents()
+
+        assert tab.assets_model.headerData(0, Qt.Horizontal, Qt.DisplayRole) == "Source"
+        assert tab.assets_model.index(0, 0).data() == "Scope Item"
+        assert tab.assets_model.index(1, 0).data() == "Scanner"
+        assert tab.assets_model.index(2, 0).data() == "Attacker"
     finally:
         tab.close()
 

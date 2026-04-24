@@ -320,6 +320,10 @@ def test_attacker_tab_exposes_only_supported_workspace_types() -> None:
         assert tab.compatible_workspace_types("asset") == []
         assert tab.browser_button.property("available") is True
         assert tab.metasploit_button.property("available") is False
+        assert all(
+            not any(label.objectName() == "attackerToolBadge" for label in card.findChildren(QLabel))
+            for card in tab._tool_cards.values()
+        )
         tab._tool_selected("metasploit")
         labels = {label.text() for label in tab.workspace_tabs.widget(0).findChildren(QLabel)}
         assert "Metasploit Check" in labels

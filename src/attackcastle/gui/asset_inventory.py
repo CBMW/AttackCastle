@@ -310,6 +310,33 @@ def row_label(entity_kind: str, row: dict[str, Any], snapshot: RunSnapshot) -> s
     return _clean(row.get("name")) or _clean(row.get("url")) or entity_kind.title()
 
 
+def asset_discovery_source(row: dict[str, Any]) -> str:
+    kind = _lower(row.get("kind"))
+    source_tool = _lower(row.get("source_tool"))
+    source = _lower(row.get("source"))
+
+    if kind == "scope_target" or source_tool == "scope_parser" or source == "scope_item":
+        return "Scope Item"
+
+    attacker_markers = (
+        "attacker",
+        "manual",
+        "browser",
+        "replay",
+        "metasploit",
+    )
+    if any(marker in source_tool for marker in attacker_markers) or any(marker in source for marker in attacker_markers):
+        return "Attacker"
+
+    if source_tool == "internal" or source == "internal":
+        return "Internal"
+
+    if source_tool or source or kind:
+        return "Scanner"
+
+    return "Internal"
+
+
 def scan_target_for_row(entity_kind: str, row: dict[str, Any], snapshot: RunSnapshot) -> str:
     assets_by_id = _asset_lookup(snapshot)
     services_by_id = _service_lookup(snapshot)

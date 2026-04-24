@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from attackcastle.gui.asset_inventory import (
+    asset_discovery_source,
     build_detail_payload,
     build_entity_note,
     entity_signature,
@@ -134,7 +135,7 @@ class AssetsTab(QWidget):
 
         self.assets_model = MappingTableModel(
             [
-                ("Kind", "kind"),
+                ("Source", asset_discovery_source),
                 ("Name", "name"),
                 ("IP", lambda row: row.get("ip") or ""),
                 ("Aliases", lambda row: ", ".join(row.get("aliases") or [])),

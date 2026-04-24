@@ -302,9 +302,23 @@ def stream_command(
             error_message: str | None = None
             timed_out = False
             cancelled = False
+            deadline = time.monotonic() + float(timeout) if timeout is not None and float(timeout) > 0 else None
             try:
                 while True:
                     if process.poll() is not None:
+                        break
+                    if deadline is not None and time.monotonic() >= deadline:
+                        timed_out = True
+                        error_message = f"command exceeded timeout of {timeout}s"
+                        _terminate_process_tree(process)
+                        try:
+                            process.wait(timeout=3)
+                        except Exception:  # noqa: BLE001
+                            _terminate_process_tree(process, kill=True)
+                            try:
+                                process.wait(timeout=1)
+                            except Exception:  # noqa: BLE001
+                                pass
                         break
                     if cancellation_token is not None and getattr(cancellation_token, "is_set", lambda: False)():
                         cancelled = True
