@@ -232,6 +232,35 @@ def _load_plan_total(run_store: RunStore) -> int:
     return len([item for item in items if isinstance(item, dict) and item.get("selected") is True])
 
 
+def _load_selected_plan_task_keys(run_store: RunStore) -> set[str] | None:
+    payload = read_json_file(run_store.data_dir / "plan.json")
+    if not isinstance(payload, dict):
+        return None
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        return None
+    selected = {
+        str(item.get("key") or "").strip()
+        for item in items
+        if isinstance(item, dict) and item.get("selected") is True and str(item.get("key") or "").strip()
+    }
+    return selected
+
+
+def _filter_unselected_task_rows(
+    rows: list[dict[str, Any]],
+    selected_task_keys: set[str] | None,
+) -> list[dict[str, Any]]:
+    if selected_task_keys is None:
+        return rows
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        key = str(row.get("key") or row.get("task_key") or "").strip()
+        if not key or key in selected_task_keys:
+            filtered.append(row)
+    return filtered
+
+
 def _load_checkpoint_manifest(run_store: RunStore) -> list[dict[str, Any]]:
     payload = read_json_file(run_store.checkpoints_dir / "manifest.json")
     if not isinstance(payload, dict):
@@ -1189,7 +1218,11 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
     summary = summary if isinstance(summary, dict) else {}
 
     total_tasks = _load_plan_total(run_store)
-    completed_tasks = len(_manifest_completed_task_keys(manifest))
+    selected_task_keys = _load_selected_plan_task_keys(run_store)
+    completed_manifest_keys = _manifest_completed_task_keys(manifest)
+    if selected_task_keys is not None:
+        completed_manifest_keys = completed_manifest_keys & selected_task_keys
+    completed_tasks = len(completed_manifest_keys)
     running_tasks = _manifest_running_task_labels(manifest)
     current_task = ", ".join(running_tasks[:2]) if running_tasks else "Idle"
 
@@ -1300,6 +1333,7 @@ def load_run_snapshot(run_dir: Path) -> RunSnapshot:
         tasks = _merge_manifest_task_rows(tasks, manifest, run_state=state)
     else:
         tasks = _synthesize_task_rows(manifest, task_results, tool_executions)
+    tasks = _filter_unselected_task_rows(tasks, selected_task_keys)
 
     active_task_rows = [
         item for item in tasks if str(item.get("status") or "").strip().lower() in ACTIVE_TASK_STATUSES

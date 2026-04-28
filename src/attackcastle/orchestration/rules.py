@@ -328,6 +328,9 @@ INPUT_SIGNATURE_MAP = {
     "run-subdomain-enum": lambda run_data: _signature(_subdomain_enum_targets(run_data)),
     "run-nmap": _pending_host_signature,
     "check-websites": lambda run_data: _pending_candidate_web_signature(run_data, "web_probe.scanned_urls"),
+    "check-http-security-headers": lambda run_data: _pending_candidate_web_signature(
+        run_data, "http_security_headers.scanned_urls"
+    ),
     "discover-web": lambda run_data: _pending_confirmed_web_signature(run_data, "web_discovery.scanned_urls"),
     "fingerprint-web": lambda run_data: _pending_confirmed_web_signature(run_data, "whatweb.scanned_urls"),
     "assess-web": lambda run_data: _pending_confirmed_web_signature(run_data, "nikto.scanned_urls"),
@@ -340,6 +343,9 @@ INPUT_ITEMS_MAP = {
     "run-subdomain-enum": _subdomain_enum_targets,
     "run-nmap": _pending_host_targets,
     "check-websites": lambda run_data: _pending_candidate_web_targets(run_data, "web_probe.scanned_urls"),
+    "check-http-security-headers": lambda run_data: _pending_candidate_web_targets(
+        run_data, "http_security_headers.scanned_urls"
+    ),
     "discover-web": lambda run_data: _pending_confirmed_web_targets(run_data, "web_discovery.scanned_urls"),
     "fingerprint-web": lambda run_data: _pending_confirmed_web_targets(run_data, "whatweb.scanned_urls"),
     "assess-web": lambda run_data: _pending_confirmed_web_targets(run_data, "nikto.scanned_urls"),

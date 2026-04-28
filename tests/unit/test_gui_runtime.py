@@ -503,6 +503,71 @@ def test_load_run_snapshot_merges_running_manifest_tasks_into_checkpoint_timelin
     assert snapshot.current_task == "resolve-hosts"
 
 
+def test_load_run_snapshot_hides_unselected_plan_tasks(tmp_path: Path) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="gui-hide-unselected")
+    started_at = now_utc()
+    run_store.write_json(
+        "data/gui_session.json",
+        {
+            "scan_name": "Hide Unselected",
+            "started_at": started_at.isoformat(),
+            "run_id": "gui-hide-unselected",
+        },
+    )
+    run_store.write_json(
+        "data/plan.json",
+        {
+            "items": [
+                {"key": "check-target-reachability", "selected": True},
+                {"key": "run-subdomain-enum", "selected": False},
+                {"key": "resolve-hosts", "selected": False},
+            ]
+        },
+    )
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="gui-hide-unselected",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(run_store.run_dir),
+            started_at=started_at,
+            state=RunState.COMPLETED,
+        ),
+        task_states=[
+            {
+                "key": "check-target-reachability",
+                "label": "Checking target reachability",
+                "status": TaskStatus.COMPLETED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+            },
+            {
+                "key": "run-subdomain-enum",
+                "label": "Enumerating subdomains",
+                "status": TaskStatus.SKIPPED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {"reason": "disabled by subdomain_enum.enabled"},
+            },
+            {
+                "key": "resolve-hosts",
+                "label": "Resolving hosts",
+                "status": TaskStatus.SKIPPED.value,
+                "started_at": started_at.isoformat(),
+                "ended_at": started_at.isoformat(),
+                "detail": {"reason": "disabled by resolve_hosts.enabled"},
+            },
+        ],
+    )
+    run_store.save_checkpoint("check-target-reachability", "completed", run_data)
+
+    snapshot = load_run_snapshot(run_store.run_dir)
+
+    assert [item["key"] for item in snapshot.tasks] == ["check-target-reachability"]
+    assert snapshot.completed_tasks == 1
+    assert snapshot.total_tasks == 1
+
+
 def test_load_run_snapshot_ignores_running_manifest_rows_for_terminal_runs(tmp_path: Path) -> None:
     run_store = RunStore(output_root=tmp_path, run_id="gui-terminal-stale-running")
     started_at = now_utc()

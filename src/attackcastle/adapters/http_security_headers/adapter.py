@@ -19,7 +19,7 @@ from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs, 
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, EvidenceArtifact, Observation, RunData, new_id, now_utc
-from attackcastle.normalization.correlator import collect_confirmed_web_targets
+from attackcastle.normalization.correlator import collect_confirmed_web_targets, collect_web_targets
 
 TASK_TYPE = "CheckHttpSecurityHeaders"
 PARSER_VERSION = "http_security_headers_v1"
@@ -369,6 +369,9 @@ class HTTPSecurityHeadersAdapter:
             )
 
         for target in collect_confirmed_web_targets(run_data):
+            _append(target)
+
+        for target in collect_web_targets(run_data):
             _append(target)
 
         for scope_target in run_data.scope:

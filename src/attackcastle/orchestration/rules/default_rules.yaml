@@ -23,6 +23,7 @@ tasks:
     capability: subdomain_enumeration
     approval_class: safe_auto
     adapter_key: subdomain_enum
+    config_section: subdomain_enum
     condition: has_domain_like_targets
     dependencies: []
     input_entity_types: [Domain]
@@ -42,6 +43,7 @@ tasks:
     capability: dns_resolution
     approval_class: safe_auto
     adapter_key: resolve_hosts
+    config_section: resolve_hosts
     condition: has_domain_like_targets
     dependencies:
       - run-subdomain-enum
@@ -153,9 +155,8 @@ tasks:
     adapter_key: http_security_headers
     config_section: http_security_headers
     condition: has_web_targets
-    dependencies:
-      - check-websites
-    input_entity_types: [WebService]
+    dependencies: []
+    input_entity_types: [URL, Hostname, IPAddress, WebService]
     produced_entity_types: [FindingCandidate]
     can_run_many: true
     profile_sensitivity: cautious

@@ -186,6 +186,22 @@ def collect_web_targets(run_data: RunData) -> list[dict[str, str | int]]:
                 asset_id=scope_target.target_id,
                 candidate_source="scope_host_port",
             )
+        elif scope_target.target_type == TargetType.SINGLE_IP and scope_target.host:
+            for port in COMMON_WEB_PROMOTION_PORTS:
+                scheme = "https" if port in {443, 8443} else "http"
+                if (scheme == "http" and port == 80) or (
+                    scheme == "https" and port == 443
+                ):
+                    url = f"{scheme}://{scope_target.host}"
+                else:
+                    url = f"{scheme}://{scope_target.host}:{port}"
+                _add_target(
+                    targets,
+                    seen,
+                    url=url,
+                    asset_id=scope_target.target_id,
+                    candidate_source="scope_ip_promotion",
+                )
 
     for service in run_data.services:
         name = (service.name or "").lower()

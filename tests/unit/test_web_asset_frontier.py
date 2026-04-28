@@ -130,6 +130,28 @@ def test_collect_web_targets_promotes_discovered_dns_hosts_with_asset_links(tmp_
     assert by_url["http://api.example.com:8080/"]["asset_id"] == "asset-api"
 
 
+def test_collect_web_targets_promotes_single_ip_scope(tmp_path: Path) -> None:
+    run_data = _run_data(tmp_path, target_input="203.0.113.10")
+    run_data.scope.append(
+        ScanTarget(
+            target_id="target-ip",
+            raw="203.0.113.10",
+            target_type=TargetType.SINGLE_IP,
+            value="203.0.113.10",
+            host="203.0.113.10",
+        )
+    )
+
+    urls = {str(item["url"]) for item in collect_web_targets(run_data)}
+
+    assert urls == {
+        "https://203.0.113.10/",
+        "http://203.0.113.10/",
+        "https://203.0.113.10:8443/",
+        "http://203.0.113.10:8080/",
+    }
+
+
 def test_web_probe_prefers_hostname_targets_and_creates_confirmed_web_app(
     tmp_path: Path,
     monkeypatch,

@@ -37,6 +37,7 @@ packages = ["src/attackcastle"]
 [tool.hatch.build]
 include = [
   "src/attackcastle/config/**/*.yaml",
+  "src/attackcastle/assets/**/*.*",
   "src/attackcastle/orchestration/rules/**/*.yaml",
   "src/attackcastle/findings/templates/**/*.json",
   "src/attackcastle/gui/web/**/*.*",

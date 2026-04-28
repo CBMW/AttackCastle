@@ -16,8 +16,9 @@ from attackcastle.adapters.http_security_headers.parser import (
     build_header_analysis,
     parse_raw_response_headers,
 )
+from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
-from attackcastle.core.models import RunData, RunMetadata, TaskResult, ToolExecution, WebApplication, now_utc
+from attackcastle.core.models import RunData, RunMetadata, ScanTarget, TaskResult, ToolExecution, WebApplication, now_utc
 from attackcastle.storage.run_store import RunStore
 
 
@@ -131,6 +132,42 @@ def test_build_header_analysis_flags_missing_weak_and_exposed_headers() -> None:
     assert by_header["Server"]["status"] == "Exposed"
     assert by_header["X-Powered-By"]["status"] == "Exposed"
     assert analysis["trigger_finding"] is True
+
+
+def test_http_security_headers_collects_candidate_scope_targets(tmp_path: Path) -> None:
+    context = _context(tmp_path, "http-header-candidates")
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="http-header-candidates",
+            target_input="example.com,203.0.113.10",
+            profile="prototype",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        scope=[
+            ScanTarget(
+                target_id="target-domain",
+                raw="example.com",
+                target_type=TargetType.DOMAIN,
+                value="example.com",
+                host="example.com",
+            ),
+            ScanTarget(
+                target_id="target-ip",
+                raw="203.0.113.10",
+                target_type=TargetType.SINGLE_IP,
+                value="203.0.113.10",
+                host="203.0.113.10",
+            ),
+        ],
+    )
+
+    urls = {item["url"] for item in HTTPSecurityHeadersAdapter()._collect_targets(context, run_data)}
+
+    assert "https://example.com/" in urls
+    assert "http://example.com/" in urls
+    assert "https://203.0.113.10/" in urls
+    assert "http://203.0.113.10/" in urls
 
 
 def test_http_security_headers_adapter_records_results_and_observations(tmp_path: Path, monkeypatch) -> None:

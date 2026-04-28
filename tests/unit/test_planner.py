@@ -1,7 +1,15 @@
 from pathlib import Path
 
 from attackcastle.app import _seed_scope_assets
-from attackcastle.adapters import DNSAdapter, HTTPSecurityHeadersAdapter, NmapAdapter, TLSAdapter, WebProbeAdapter
+from attackcastle.adapters import (
+    DNSAdapter,
+    HTTPSecurityHeadersAdapter,
+    NmapAdapter,
+    ResolveHostsAdapter,
+    SubdomainEnumAdapter,
+    TLSAdapter,
+    WebProbeAdapter,
+)
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
 from attackcastle.core.models import RunData, RunMetadata, ScanTarget, now_utc
@@ -108,6 +116,43 @@ def test_build_task_plan_respects_nmap_service_detection_toggle(tmp_path):
     assert "run-nmap-service-detection" not in keys
     assert service_item.selected is False
     assert "service_detection_enabled" in service_item.reason
+
+
+def test_build_task_plan_respects_subdomain_and_resolver_toggles(tmp_path):
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="test",
+            target_input="example.com",
+            profile="standard",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        )
+    )
+    result = build_task_plan(
+        adapters={
+            "subdomain_enum": SubdomainEnumAdapter(),
+            "resolve_hosts": ResolveHostsAdapter(),
+        },
+        findings_runner=_noop,
+        report_runner=_noop,
+        run_data=run_data,
+        profile_name="standard",
+        config={
+            "profile": {"max_noise_score": 10},
+            "subdomain_enum": {"enabled": False},
+            "resolve_hosts": {"enabled": False},
+        },
+    )
+    keys = {task.key for task in result.tasks}
+    subdomain_item = next(item for item in result.items if item.key == "run-subdomain-enum")
+    resolver_item = next(item for item in result.items if item.key == "resolve-hosts")
+
+    assert "run-subdomain-enum" not in keys
+    assert "resolve-hosts" not in keys
+    assert subdomain_item.selected is False
+    assert resolver_item.selected is False
+    assert "subdomain_enum.enabled" in subdomain_item.reason
+    assert "resolve_hosts.enabled" in resolver_item.reason
 
 
 def test_build_task_plan_respects_http_security_headers_toggle(tmp_path):
