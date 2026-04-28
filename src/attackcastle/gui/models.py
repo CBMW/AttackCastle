@@ -67,6 +67,7 @@ class GuiProfile:
     enable_whatweb: bool = True
     enable_nikto: bool = True
     enable_nuclei: bool = True
+    enable_http_security_headers: bool = True
     enable_wpscan: bool = False
     enable_sqlmap: bool = False
     proxy_enabled: bool = False
@@ -106,6 +107,7 @@ class GuiProfile:
             enable_whatweb=_coerce_bool(payload.get("enable_whatweb", True), True),
             enable_nikto=_coerce_bool(payload.get("enable_nikto", True), True),
             enable_nuclei=_coerce_bool(payload.get("enable_nuclei", True), True),
+            enable_http_security_headers=_coerce_bool(payload.get("enable_http_security_headers", True), True),
             enable_wpscan=_coerce_bool(payload.get("enable_wpscan", False), False),
             enable_sqlmap=_coerce_bool(payload.get("enable_sqlmap", False), False),
             proxy_enabled=_coerce_bool(payload.get("proxy_enabled", False), False),

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -116,8 +115,9 @@ from attackcastle.gui.performance import (
 from attackcastle.gui.profile_store import GuiProfileStore
 from attackcastle.gui.reports_tab import ReportsTab
 from attackcastle.gui.runtime import build_run_debug_bundle, load_run_snapshot
+from attackcastle.gui.run_snapshot_updater import RunSnapshotUpdater
 from attackcastle.gui.scanner_panel import ScannerPanel
-from attackcastle.core.execution_issues import build_execution_issues, summarize_execution_issues
+from attackcastle.gui.worker_processes import WorkerProcessManager
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore, ad_hoc_output_home
 from attackcastle.storage.run_store import RunStore
@@ -148,10 +148,17 @@ class MainWindow(QMainWindow):
         self._finding_states_by_run: dict[str, dict[str, FindingState]] = {}
         self._audit_entries: list[AuditEntry] = []
         self._run_registry: list[RunRegistryEntry] = []
-        self._process_buffers: dict[QProcess, str] = {}
-        self._job_files: dict[QProcess, Path] = {}
-        self._process_run_ids: dict[QProcess, str] = {}
-        self._run_processes: dict[str, QProcess] = {}
+        self._worker_processes = WorkerProcessManager(
+            self,
+            on_event=self._handle_worker_event,
+            on_stderr=self._handle_worker_stderr,
+            on_finished=self._worker_finished,
+        )
+        self._process_buffers = self._worker_processes.process_buffers
+        self._job_files = self._worker_processes.job_files
+        self._process_run_ids = self._worker_processes.process_run_ids
+        self._run_processes = self._worker_processes.run_processes
+        self._snapshot_updater = RunSnapshotUpdater()
         self._run_snapshots: dict[str, RunSnapshot] = {}
         self._debug_dialogs: list[DebugLogDialog] = []
         self._selected_run_id: str | None = None
@@ -1630,39 +1637,16 @@ class MainWindow(QMainWindow):
     def _launch_request(self, request: ScanRequest) -> None:
         request.performance_guard = self.performance_guard_settings.to_dict()
         self._apply_proxy_settings_to_request(request)
-        job_handle = tempfile.NamedTemporaryFile(prefix="attackcastle-gui-job-", suffix=".json", delete=False)
-        job_file = Path(job_handle.name)
-        job_handle.close()
-        job_file.write_text(json.dumps(request.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
-
-        process = QProcess(self)
-        process.setProgram(sys.executable)
-        process.setArguments(["-m", "attackcastle.gui.worker_main", str(job_file)])
-        process.readyReadStandardOutput.connect(lambda p=process: self._read_worker_stdout(p))
-        process.readyReadStandardError.connect(lambda p=process: self._read_worker_stderr(p))
-        process.finished.connect(lambda code, status, p=process: self._worker_finished(p, code, status))
-        process.setProperty("workspace_id", request.workspace_id)
-        self._process_buffers[process] = ""
-        self._job_files[process] = job_file
-        process.start()
+        self._worker_processes.launch(request)
         self.general_status.setText(f"Launching: {request.scan_name}")
 
     def _read_worker_stdout(self, process: QProcess) -> None:
-        buffer = self._process_buffers.get(process, "")
-        chunk = bytes(process.readAllStandardOutput()).decode("utf-8", errors="ignore")
-        buffer += chunk
-        lines = buffer.splitlines(keepends=False)
-        if buffer and not buffer.endswith("\n"):
-            self._process_buffers[process] = lines.pop() if lines else buffer
-        else:
-            self._process_buffers[process] = ""
-        for line in lines:
-            event = WorkerEvent.from_line(line)
-            if event is not None:
-                self._handle_worker_event(process, event)
+        self._worker_processes.read_stdout(process)
 
     def _read_worker_stderr(self, process: QProcess) -> None:
-        message = bytes(process.readAllStandardError()).decode("utf-8", errors="ignore").strip()
+        self._worker_processes.read_stderr(process)
+
+    def _handle_worker_stderr(self, message: str) -> None:
         if message:
             self.general_status.setText(message)
 
@@ -1674,8 +1658,7 @@ class MainWindow(QMainWindow):
                 snapshot = load_run_snapshot(Path(run_dir))
                 snapshot.live_process = True
                 self._run_snapshots[snapshot.run_id] = snapshot
-                self._process_run_ids[process] = snapshot.run_id
-                self._run_processes[snapshot.run_id] = process
+                self._worker_processes.mark_run_process(process, snapshot.run_id)
                 self._sync_run_registry_for_snapshot(snapshot)
                 self._selected_run_id = snapshot.run_id
                 self._sync_run_table()
@@ -1884,170 +1867,30 @@ class MainWindow(QMainWindow):
         return snapshot
 
     def _refresh_snapshot_issue_state(self, snapshot: RunSnapshot) -> None:
-        issues = build_execution_issues(snapshot)
-        issue_summary = summarize_execution_issues(snapshot, issues)
-        snapshot.execution_issues = issues
-        snapshot.execution_issues_summary = issue_summary
-        snapshot.completeness_status = str(issue_summary.get("completeness_status") or "healthy")
+        self._snapshot_updater.refresh_issue_state(snapshot)
 
     def _append_unique(self, rows: list[dict[str, Any]], row: dict[str, Any], key: str) -> None:
-        value = str(row.get(key) or "")
-        if not value:
-            return
-        for idx, existing in enumerate(rows):
-            if str(existing.get(key) or "") == value:
-                rows[idx] = row
-                return
-        rows.append(row)
+        self._snapshot_updater.append_unique(rows, row, key)
 
     @staticmethod
     def _task_update_value_present(value: Any) -> bool:
-        return value is not None and value != ""
+        return RunSnapshotUpdater.task_update_value_present(value)
 
     def _apply_task_event(self, snapshot: RunSnapshot, event_name: str, payload: dict[str, Any]) -> None:
-        task_key = str(payload.get("task") or "")
-        if not task_key:
-            return
-        detail = {
-            key: value
-            for key, value in {
-                "reason": payload.get("reason"),
-                "attempt": payload.get("attempt"),
-                "error": payload.get("error"),
-            }.items()
-            if self._task_update_value_present(value)
-        }
-        row = {
-            "key": task_key,
-            "label": payload.get("label") or task_key,
-            "status": payload.get("status") or event_name.replace("task.", ""),
-            "started_at": payload.get("started_at") or "",
-            "ended_at": payload.get("ended_at") or "",
-        }
-        if detail:
-            row["detail"] = detail
-        for idx, existing in enumerate(snapshot.tasks):
-            if str(existing.get("key") or "") == task_key:
-                merged = dict(existing)
-                if detail:
-                    merged_detail = dict(existing.get("detail") or {})
-                    merged_detail.update(detail)
-                    merged["detail"] = merged_detail
-                merged.update({k: v for k, v in row.items() if self._task_update_value_present(v)})
-                snapshot.tasks[idx] = merged
-                break
-        else:
-            snapshot.tasks.append(row)
-        snapshot.current_task = str(payload.get("label") or task_key)
-        terminal = {"completed", "skipped", "failed", "blocked", "cancelled"}
-        snapshot.completed_tasks = len(
-            [item for item in snapshot.tasks if str(item.get("status") or "") in terminal]
-        )
-        status = str(payload.get("status") or row["status"])
-        if status in {"failed", "blocked"}:
-            snapshot.state = "failed"
-        elif status == "cancelled":
-            snapshot.state = "cancelled"
-        else:
-            snapshot.state = "running"
-        self._refresh_snapshot_issue_state(snapshot)
+        self._snapshot_updater.apply_task_event(snapshot, event_name, payload)
 
     def _apply_entity_event(self, snapshot: RunSnapshot, payload: dict[str, Any]) -> None:
-        entity_type = str(payload.get("entity_type") or "")
-        entity = payload.get("entity", {})
-        if not isinstance(entity, dict):
-            return
-        if entity_type == "asset":
-            self._append_unique(snapshot.assets, entity, "asset_id")
-        elif entity_type == "service":
-            key = "service_id"
-            self._append_unique(snapshot.services, entity, key)
-        elif entity_type == "web_app":
-            self._append_unique(snapshot.web_apps, entity, "webapp_id")
-        elif entity_type == "technology":
-            self._append_unique(snapshot.technologies, entity, "tech_id")
-        elif entity_type == "endpoint":
-            self._append_unique(snapshot.endpoints, entity, "endpoint_id")
-        elif entity_type == "parameter":
-            self._append_unique(snapshot.parameters, entity, "parameter_id")
-        elif entity_type == "form":
-            self._append_unique(snapshot.forms, entity, "form_id")
-        elif entity_type == "login_surface":
-            self._append_unique(snapshot.login_surfaces, entity, "login_surface_id")
-        elif entity_type == "replay_request":
-            self._append_unique(snapshot.replay_requests, entity, "replay_request_id")
-        elif entity_type == "surface_signal":
-            self._append_unique(snapshot.surface_signals, entity, "surface_signal_id")
-        elif entity_type == "attack_path":
-            self._append_unique(snapshot.attack_paths, entity, "attack_path_id")
-        elif entity_type == "investigation_step":
-            self._append_unique(snapshot.investigation_steps, entity, "investigation_step_id")
-        elif entity_type == "playbook_execution":
-            self._append_unique(snapshot.playbook_executions, entity, "playbook_execution_id")
-        elif entity_type == "coverage_decision":
-            self._append_unique(snapshot.coverage_decisions, entity, "coverage_decision_id")
-        elif entity_type == "validation_result":
-            self._append_unique(snapshot.validation_results, entity, "validation_result_id")
-        elif entity_type == "coverage_gap":
-            self._append_unique(snapshot.coverage_gaps, entity, "coverage_gap_id")
-        elif entity_type == "evidence":
-            self._append_unique(snapshot.evidence, entity, "evidence_id")
-            artifact_path = str(entity.get("artifact_path") or "")
-            if artifact_path:
-                self._append_unique(
-                    snapshot.artifacts,
-                    {
-                        "path": artifact_path,
-                        "kind": entity.get("kind", ""),
-                        "source_tool": entity.get("source_tool", ""),
-                        "caption": entity.get("snippet", ""),
-                    },
-                    "path",
-                )
-            if str(entity.get("kind")) == "web_screenshot" and artifact_path:
-                self._append_unique(
-                    snapshot.screenshots,
-                    {
-                        "path": artifact_path,
-                        "caption": entity.get("snippet", ""),
-                        "source_tool": entity.get("source_tool", ""),
-                    },
-                    "path",
-                )
+        self._snapshot_updater.apply_entity_event(snapshot, payload)
 
     def _apply_site_map_event(self, snapshot: RunSnapshot, payload: dict[str, Any]) -> None:
-        source_map = {
-            "urls": "web.discovery.urls",
-            "js_endpoints": "web.discovery.js_endpoints",
-            "graphql_endpoints": "web.discovery.graphql_endpoints",
-            "source_maps": "web.discovery.source_maps",
-        }
-        entity_id = str(payload.get("webapp_id") or "")
-        for field, source in source_map.items():
-            values = payload.get(field, [])
-            if not isinstance(values, list):
-                continue
-            for item in values:
-                url = str(item).strip()
-                if not url:
-                    continue
-                self._append_unique(
-                    snapshot.site_map,
-                    {"source": source, "url": url, "entity_id": entity_id},
-                    "url",
-                )
+        self._snapshot_updater.apply_site_map_event(snapshot, payload)
 
     def _worker_finished(self, process: QProcess, exit_code: int, _status: QProcess.ExitStatus) -> None:
-        job_file = self._job_files.pop(process, None)
-        self._process_buffers.pop(process, None)
-        run_id = self._process_run_ids.pop(process, "")
+        _job_file, run_id = self._worker_processes.cleanup(process)
         if run_id:
-            self._run_processes.pop(run_id, None)
             if run_id in self._run_snapshots:
                 self._run_snapshots[run_id].live_process = False
                 self._sync_run_registry_for_snapshot(self._run_snapshots[run_id])
-        if job_file is not None:
-            job_file.unlink(missing_ok=True)
         if exit_code != 0:
             self.general_status.setText(f"Worker exited with code {exit_code}")
         process.deleteLater()

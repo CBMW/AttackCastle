@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import signal
 import time
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor, wait
 from contextlib import nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import timedelta
 from hashlib import sha1
 from threading import Event
@@ -27,19 +26,11 @@ from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.lifecycle import transition_run_state
 from attackcastle.core.models import RunData, now_utc, to_serializable
 from attackcastle.core.runtime_events import emit_runtime_event
-from attackcastle.normalization.mapper import merge_adapter_result
-from attackcastle.orchestration.escalation import task_allowed_by_matrix
+from attackcastle.orchestration.scheduler_admission import TaskAdmissionController
+from attackcastle.orchestration.scheduler_control import SchedulerControlHandler
+from attackcastle.orchestration.scheduler_results import TaskResultRecorder
+from attackcastle.orchestration.scheduler_state import ScheduledTask, SchedulerRunState
 from attackcastle.orchestration.task_graph import TaskDefinition, TaskExecutionState
-
-
-@dataclass
-class ScheduledTask:
-    definition: TaskDefinition
-    attempt: int = 0
-    input_signature: str = ""
-    iteration: int = 1
-    instance_key: str = ""
-    task_inputs: tuple[str, ...] = ()
 
 
 def _emit_adapter_result_runtime_events(context: AdapterContext, result: AdapterResult) -> None:
@@ -202,9 +193,13 @@ class WorkflowScheduler:
         completed_task_keys: set[str] | None = None,
         completed_task_instances: set[tuple[str, str]] | None = None,
     ) -> list[TaskExecutionState]:
+        run_state = SchedulerRunState(completed_task_keys, completed_task_instances)
+        result_recorder = TaskResultRecorder()
+        admission_controller = TaskAdmissionController()
+        control_handler = SchedulerControlHandler()
         states: list[TaskExecutionState] = []
-        completed = set(completed_task_keys or set())
-        completed_instances = set(completed_task_instances or set())
+        completed = run_state.completed
+        completed_instances = run_state.completed_instances
         terminal_status = {TaskStatus.COMPLETED.value, TaskStatus.SKIPPED.value, TaskStatus.CANCELLED.value}
         circuit_failures: dict[str, int] = {}
         max_failures = int(context.config.get("orchestration", {}).get("circuit_breaker_failures", 2))
@@ -221,9 +216,9 @@ class WorkflowScheduler:
         capability_run_tokens: set[str] = set()
         capability_runtime: dict[str, float] = {}
         total_retries = 0
-        waiting_reason_by_task: dict[str, str] = {}
-        last_input_signature_by_task: dict[str, str] = {}
-        last_iteration_by_task: dict[str, int] = {}
+        waiting_reason_by_task = run_state.waiting_reason_by_task
+        last_input_signature_by_task = run_state.last_input_signature_by_task
+        last_iteration_by_task = run_state.last_iteration_by_task
         paused = False
         pause_notice_emitted = False
         pause_event_emitted = False
@@ -239,7 +234,7 @@ class WorkflowScheduler:
             digest = sha1("|".join(task_inputs).encode("utf-8")).hexdigest()[:12]  # noqa: S324
             return f"{task_key}::iter{iteration}::{digest}"
 
-        pending: dict[str, ScheduledTask] = {}
+        pending = run_state.pending
         for task in tasks:
             instance_key = build_instance_key(task.key, 1, ())
             if task.key in completed or (task.key, instance_key) in completed_instances:
@@ -251,7 +246,7 @@ class WorkflowScheduler:
                 iteration=1,
                 instance_key=instance_key,
             )
-        running: dict[Future, tuple[ScheduledTask, object, str, Event, float | None]] = {}
+        running: dict[Future, tuple[ScheduledTask, object, str, Event, float | None]] = run_state.running
         resource_pressure_active = False
         resource_pressure_samples = 0
         resource_grace_samples = int(context.config.get("adaptive_execution", {}).get("resource_limits", {}).get("grace_samples", 3) or 3)
@@ -446,8 +441,61 @@ class WorkflowScheduler:
                         if logger is not None:
                             logger.debug("Unable to write partial scan_data snapshot after %s: %s", reason, exc)
 
+                def _coerce_budget_seconds(value: object) -> float | None:
+                    try:
+                        budget = float(value)
+                    except (TypeError, ValueError):
+                        return None
+                    if budget <= 0:
+                        return None
+                    return budget
+
+                def effective_task_time_budget(task: TaskDefinition) -> float | None:
+                    capability_budget = capability_budgets.get(task.capability, {})
+                    capability_runtime_limit = (
+                        capability_budget.get("max_runtime_seconds")
+                        if isinstance(capability_budget, dict)
+                        else None
+                    )
+                    candidates = [
+                        _coerce_budget_seconds(task.time_budget_seconds),
+                        _coerce_budget_seconds(stage_budget.get(task.stage)),
+                        _coerce_budget_seconds(capability_runtime_limit),
+                    ]
+                    valid_candidates = [value for value in candidates if value is not None]
+                    if not valid_candidates:
+                        return None
+                    return min(valid_candidates)
+
                 def cancel_running_deadline_tasks() -> None:
-                    return
+                    now_value = time.monotonic()
+                    for future, (item, _started_at, _reason, token, deadline_monotonic) in list(running.items()):
+                        if future.done() or deadline_monotonic is None:
+                            continue
+                        if item.instance_key in deadline_cancelled_instances:
+                            continue
+                        if now_value < deadline_monotonic:
+                            continue
+                        deadline_cancelled_instances.add(item.instance_key)
+                        token.set()
+                        future.cancel()
+                        context.audit.write(
+                            "task.cancel_requested",
+                            {
+                                "task": item.definition.key,
+                                "instance_key": item.instance_key,
+                                "reason": "task_time_budget_exceeded",
+                            },
+                        )
+                        emit_runtime_event(
+                            context,
+                            "task.waiting",
+                            {
+                                "task": item.definition.key,
+                                "label": item.definition.label,
+                                "reason": "task_time_budget_exceeded",
+                            },
+                        )
 
                 def select_resource_cancel_candidate() -> tuple[Future, ScheduledTask, Event] | None:
                     candidates: list[tuple[int, float, Future, ScheduledTask, Event]] = []
@@ -748,11 +796,8 @@ class WorkflowScheduler:
                                         task_result.task_instance_key = item.instance_key
                                     if not getattr(task_result, "task_inputs", None):
                                         task_result.task_inputs = list(item.task_inputs)
-                                merge_adapter_result(run_data, result)
-                                _emit_adapter_result_runtime_events(context, result)
-                                refresh_autonomy_state(run_data, context.config)
+                                failure_message = result_recorder.record_result(context, run_data, result)
                                 write_live_scan_data_snapshot(task.key)
-                                failure_message = _adapter_result_failure_message(result)
                                 if failure_message:
                                     error_message = failure_message
                                     status = TaskStatus.FAILED.value
@@ -1018,8 +1063,8 @@ class WorkflowScheduler:
 
                     control_signal = context.run_store.read_control()
                     if isinstance(control_signal, dict):
-                        signature = json.dumps(control_signal, sort_keys=True, default=str)
-                        action = str(control_signal.get("action", "")).lower()
+                        signature = control_handler.signature(control_signal)
+                        action = control_handler.action(control_signal)
                         if signature != last_control_signature:
                             if action in {"pause", "hold"}:
                                 paused = True
@@ -1311,7 +1356,8 @@ class WorkflowScheduler:
                                 )
                             continue
 
-                        if circuit_failures.get(task.capability, 0) >= max_failures:
+                        circuit_decision = admission_controller.circuit_allows(task, circuit_failures, max_failures)
+                        if not circuit_decision.allow:
                             timestamp = now_utc()
                             states.append(
                                 TaskExecutionState(
@@ -1471,12 +1517,9 @@ class WorkflowScheduler:
                                 )
                                 continue
 
-                        matrix_allowed, matrix_reason = task_allowed_by_matrix(
-                            task.key,
-                            run_data,
-                            context.config,
-                        )
-                        if not matrix_allowed:
+                        matrix_decision = admission_controller.matrix_allows(task, run_data, context.config)
+                        if not matrix_decision.allow:
+                            matrix_reason = matrix_decision.reason
                             previous_reason = waiting_reason_by_task.get(key)
                             if previous_reason != matrix_reason:
                                 waiting_reason_by_task[key] = matrix_reason
@@ -1664,7 +1707,12 @@ class WorkflowScheduler:
                             task_inputs=list(item.task_inputs),
                         )
                         cancellation_token = Event()
-                        deadline_monotonic = None
+                        time_budget_seconds = effective_task_time_budget(task)
+                        deadline_monotonic = (
+                            time.monotonic() + time_budget_seconds
+                            if time_budget_seconds is not None
+                            else None
+                        )
                         task_context = replace(
                             task_context,
                             cancellation_token=cancellation_token,
@@ -1723,12 +1771,9 @@ class WorkflowScheduler:
                                 if not frontier_signature:
                                     continue
                                 item.input_signature = frontier_signature
-                            matrix_allowed, matrix_reason = task_allowed_by_matrix(
-                                task.key,
-                                run_data,
-                                context.config,
-                            )
-                            if not matrix_allowed:
+                            matrix_decision = admission_controller.matrix_allows(task, run_data, context.config)
+                            if not matrix_decision.allow:
+                                matrix_reason = matrix_decision.reason
                                 timestamp = now_utc()
                                 states.append(
                                     TaskExecutionState(

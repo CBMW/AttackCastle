@@ -132,6 +132,9 @@ adaptive_execution:
     web_probe:
       min: 1
       max: 8
+    http_security_headers_check:
+      min: 1
+      max: 6
     vhost_discovery:
       min: 1
       max: 4
@@ -167,6 +170,7 @@ adaptive_execution:
       max: 2
   web_capabilities:
     - web_probe
+    - http_security_headers_check
     - vhost_discovery
     - web_discovery
     - request_capture
@@ -242,6 +246,10 @@ web_probe:
   screenshot_timeout_seconds: 20
   response_capture_bytes: 1048576
   max_redirects: 5
+
+http_security_headers:
+  enabled: true
+  timeout_seconds: 10
 
 vhost_discovery:
   timeout_seconds: 6
@@ -534,6 +542,7 @@ orchestration:
     dns_resolution: 1
     network_port_scan: 1
     web_probe: 1
+    http_security_headers_check: 1
     vhost_discovery: 1
     web_discovery: 1
     request_capture: 1
@@ -563,6 +572,9 @@ orchestration:
     web_probe:
       max_runs: 5
       max_runtime_seconds: 600
+    http_security_headers_check:
+      max_runs: 1
+      max_runtime_seconds: 300
     vhost_discovery:
       max_runs: 1
       max_runtime_seconds: 600

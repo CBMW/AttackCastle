@@ -2,6 +2,7 @@ from attackcastle.adapters.active_validation.adapter import ActiveValidationAdap
 from attackcastle.adapters.cve_enricher.adapter import CVEEnricherAdapter
 from attackcastle.adapters.dns.adapter import DNSAdapter
 from attackcastle.adapters.framework_checks.adapter import FrameworkChecksAdapter
+from attackcastle.adapters.http_security_headers.adapter import HTTPSecurityHeadersAdapter
 from attackcastle.adapters.nuclei.adapter import NucleiAdapter
 from attackcastle.adapters.nmap.adapter import NmapAdapter
 from attackcastle.adapters.nikto.adapter import NiktoAdapter
@@ -38,6 +39,7 @@ __all__ = [
     "NucleiAdapter",
     "WPScanAdapter",
     "FrameworkChecksAdapter",
+    "HTTPSecurityHeadersAdapter",
     "SQLMapAdapter",
     "SurfaceIntelAdapter",
 ]

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from attackcastle.app import _seed_scope_assets
-from attackcastle.adapters import DNSAdapter, NmapAdapter, TLSAdapter, WebProbeAdapter
+from attackcastle.adapters import DNSAdapter, HTTPSecurityHeadersAdapter, NmapAdapter, TLSAdapter, WebProbeAdapter
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
 from attackcastle.core.models import RunData, RunMetadata, ScanTarget, now_utc
@@ -36,6 +36,7 @@ def test_build_task_plan_includes_deferred_tasks(tmp_path):
         "dns": DNSAdapter(),
         "nmap": NmapAdapter(),
         "web_probe": WebProbeAdapter(),
+        "http_security_headers": HTTPSecurityHeadersAdapter(),
         "tls": TLSAdapter(),
     }
     result = build_task_plan(
@@ -49,6 +50,7 @@ def test_build_task_plan_includes_deferred_tasks(tmp_path):
     )
     keys = {task.key for task in result.tasks}
     assert "check-websites" in keys
+    assert "check-http-security-headers" in keys
     assert "detect-tls" in keys
 
 
@@ -106,6 +108,38 @@ def test_build_task_plan_respects_nmap_service_detection_toggle(tmp_path):
     assert "run-nmap-service-detection" not in keys
     assert service_item.selected is False
     assert "service_detection_enabled" in service_item.reason
+
+
+def test_build_task_plan_respects_http_security_headers_toggle(tmp_path):
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="test",
+            target_input="https://example.com",
+            profile="standard",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        )
+    )
+    result = build_task_plan(
+        adapters={
+            "web_probe": WebProbeAdapter(),
+            "http_security_headers": HTTPSecurityHeadersAdapter(),
+        },
+        findings_runner=_noop,
+        report_runner=_noop,
+        run_data=run_data,
+        profile_name="standard",
+        config={
+            "profile": {"max_noise_score": 10},
+            "http_security_headers": {"enabled": False},
+        },
+    )
+    keys = {task.key for task in result.tasks}
+    item = next(item for item in result.items if item.key == "check-http-security-headers")
+
+    assert "check-http-security-headers" not in keys
+    assert item.selected is False
+    assert "http_security_headers.enabled" in item.reason
 
 
 def test_seed_scope_assets_only_sets_ip_for_ip_literals(tmp_path):

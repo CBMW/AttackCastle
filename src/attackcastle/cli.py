@@ -47,6 +47,7 @@ from attackcastle.cli_ux import (
     render_safety_contract,
     render_task_graph,
 )
+from attackcastle.cli_runtime import CliRuntime
 from attackcastle.config_loader import explain_config_key, load_config, load_config_layers
 from attackcastle.core.errors import ValidationError
 from attackcastle.core.migrations import migrate_payload
@@ -128,6 +129,8 @@ app.add_typer(scope_app, name="scope")
 app.add_typer(profile_app, name="profile")
 app.add_typer(evidence_app, name="evidence")
 
+_CLI_RUNTIME = CliRuntime()
+
 
 def _normalize_output_format(output_format: str) -> str:
     normalized = output_format.strip().lower()
@@ -184,14 +187,11 @@ def _combine_target_sources(
 
 
 def _ctx_ux(ctx: typer.Context | None) -> UXConfig:
-    if ctx and isinstance(ctx.obj, UXConfig):
-        return ctx.obj
-    return UXConfig()
+    return _CLI_RUNTIME.ux(ctx)
 
 
 def _console(ctx: typer.Context | None, output_format: str) -> Console:
-    config = _ctx_ux(ctx)
-    return build_console(config, output_format=output_format)
+    return _CLI_RUNTIME.console(ctx, output_format)
 
 
 def _emit_payload(console: Console, payload: dict[str, Any], output_format: str, event: str = "result") -> None:

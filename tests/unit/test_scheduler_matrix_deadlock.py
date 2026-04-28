@@ -467,6 +467,54 @@ def test_scheduler_stop_control_cancels_running_task_token(tmp_path: Path):
     assert "task.waiting" in {event for event, _payload in emitted}
 
 
+def test_scheduler_deadline_budget_cancels_running_task_token(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="scheduler-deadline-budget")
+    context = AdapterContext(
+        profile_name="standard",
+        config={
+            "orchestration": {
+                "task_start_delay_seconds": 0.0,
+                "stage_time_budget_seconds": {"recon": 0.05},
+            }
+        },
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("scheduler-deadline-budget"),
+        audit=_AuditStub(),
+    )
+    token_was_set = {"value": False}
+
+    def _runner(task_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            token = task_context.cancellation_token
+            if token is not None and token.is_set():
+                token_was_set["value"] = True
+                break
+            time.sleep(0.01)
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="run-nmap",
+                label="Running Nmap",
+                capability="network_port_scan",
+                stage="recon",
+                runner=_runner,
+                should_run=lambda _run_data: (True, "always"),
+                retryable=False,
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert token_was_set["value"] is True
+    assert states[0].status == "failed"
+    assert states[0].error == "task_time_budget_exceeded"
+
+
 def test_scheduler_requeues_repeatable_task_when_new_frontier_appears(tmp_path: Path):
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-repeatable-frontier")
     context = AdapterContext(

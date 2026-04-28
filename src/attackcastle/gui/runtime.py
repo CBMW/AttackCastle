@@ -151,6 +151,13 @@ def profile_to_engine_overrides(profile: GuiProfile, performance_guard: dict[str
             ),
             "payload_wordlist_path": profile.payload_wordlist_path,
         },
+        "http_security_headers": {
+            "enabled": _coverage_enabled(
+                profile,
+                "http_security_checks.http_security_headers_check",
+                profile.enable_http_security_headers,
+            ),
+        },
         "tls": {
             "enabled": _coverage_enabled(
                 profile,

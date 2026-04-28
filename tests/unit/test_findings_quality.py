@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from attackcastle.core.models import Evidence, Observation, RunData, RunMetadata, WebApplication, now_utc
-from attackcastle.findings.engine import FindingsEngine
+from attackcastle.findings.http_security_headers import generate_http_security_header_finding
 
 
 def _template_dir() -> Path:
@@ -45,8 +45,14 @@ def test_findings_become_candidate_when_evidence_is_incomplete():
     run_data.observations.append(
         Observation(
             observation_id="o1",
-            key="web.missing_security_headers",
-            value=["x-frame-options"],
+            key="web.http_security_headers.analysis",
+            value={
+                "url": "https://example.com",
+                "status_code": 200,
+                "core_missing": ["X-Frame-Options"],
+                "core_weak": [],
+                "trigger_finding": True,
+            },
             entity_type="web_app",
             entity_id="web_1",
             source_tool="web_probe",
@@ -56,11 +62,10 @@ def test_findings_become_candidate_when_evidence_is_incomplete():
         )
     )
 
-    engine = FindingsEngine(template_dir=_template_dir(), minimum_evidence_completeness=0.9)
-    findings = engine.generate(run_data)
+    findings = generate_http_security_header_finding(run_data, template_dir=_template_dir())
     finding = next(item for item in findings if item.template_id == "HTTP_HEADER_MISCONFIGURATION")
     assert finding.status == "candidate"
-    assert finding.evidence_quality_score < 0.9
+    assert finding.evidence_quality_score < 0.8
 
 
 def test_findings_confirm_with_good_evidence_and_corroboration():
@@ -80,8 +85,14 @@ def test_findings_confirm_with_good_evidence_and_corroboration():
     run_data.observations.append(
         Observation(
             observation_id="o2",
-            key="web.missing_security_headers",
-            value=["x-frame-options"],
+            key="web.http_security_headers.analysis",
+            value={
+                "url": "https://example.com",
+                "status_code": 200,
+                "core_missing": ["X-Frame-Options"],
+                "core_weak": [],
+                "trigger_finding": True,
+            },
             entity_type="web_app",
             entity_id="web_1",
             source_tool="web_probe",
@@ -92,9 +103,7 @@ def test_findings_confirm_with_good_evidence_and_corroboration():
         )
     )
 
-    engine = FindingsEngine(template_dir=_template_dir(), minimum_evidence_completeness=0.8)
-    findings = engine.generate(run_data)
+    findings = generate_http_security_header_finding(run_data, template_dir=_template_dir())
     finding = next(item for item in findings if item.template_id == "HTTP_HEADER_MISCONFIGURATION")
     assert finding.status == "confirmed"
     assert finding.evidence_quality_score >= 0.8
-

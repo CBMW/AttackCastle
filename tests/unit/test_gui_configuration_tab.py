@@ -124,6 +124,20 @@ def test_profile_form_merges_risk_controls_into_profile_posture_section(tmp_path
         tab.close()
 
 
+def test_configuration_tab_exposes_http_security_headers_tool(tmp_path: Path) -> None:
+    tab = _make_tab(tmp_path)
+
+    try:
+        labels = {label.text() for label in tab.findChildren(QLabel) if label.objectName() == "toolCoverageName"}
+        assert "HTTP Security Headers Check" in labels
+        assert (
+            "missing or weak browser security controls"
+            in tab.enable_http_security_headers.toolTip().lower()
+        )
+    finally:
+        tab.close()
+
+
 def test_configuration_tab_exposes_tooltips_for_profile_actions(tmp_path: Path) -> None:
     tab = _make_tab(tmp_path)
 

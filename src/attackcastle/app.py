@@ -18,6 +18,7 @@ from attackcastle.adapters import (
     CVEEnricherAdapter,
     DNSAdapter,
     FrameworkChecksAdapter,
+    HTTPSecurityHeadersAdapter,
     NucleiAdapter,
     NiktoAdapter,
     NmapAdapter,
@@ -53,6 +54,7 @@ from attackcastle.core.models import (
 )
 from attackcastle.core.migrations import migrate_payload
 from attackcastle.findings.engine import FindingsEngine
+from attackcastle.findings.http_security_headers import generate_http_security_header_finding
 from attackcastle.findings.normalizer import build_vulnerability_records
 from attackcastle.logging import AuditLogger, configure_logger
 from attackcastle.normalization.identity_graph import build_identity_graph
@@ -602,6 +604,7 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
         "request_capture": RequestCaptureAdapter(),
         "surface_intel": SurfaceIntelAdapter(),
         "tls": TLSAdapter(),
+        "http_security_headers": HTTPSecurityHeadersAdapter(),
         "service_exposure": ServiceExposureAdapter(),
         "whatweb": WhatWebAdapter(),
         "nikto": NiktoAdapter(),
@@ -636,6 +639,12 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
 
     def findings_runner(inner_context: AdapterContext, inner_run_data: RunData):
         generated = findings_engine.generate(inner_run_data)
+        generated.extend(
+            generate_http_security_header_finding(
+                inner_run_data,
+                template_dir=Path(__file__).resolve().parent / "findings" / "templates",
+            )
+        )
         inner_run_data.facts["findings.generated"] = len(generated)
         inner_context.audit.write("findings.generated", {"count": len(generated)})
         return None

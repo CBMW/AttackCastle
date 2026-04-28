@@ -146,6 +146,28 @@ tasks:
     max_retries: 1
     backoff_seconds: 0.4
 
+  - key: check-http-security-headers
+    label: Checking HTTP security headers
+    capability: http_security_headers_check
+    approval_class: safe_auto
+    adapter_key: http_security_headers
+    config_section: http_security_headers
+    condition: has_web_targets
+    dependencies:
+      - check-websites
+    input_entity_types: [WebService]
+    produced_entity_types: [FindingCandidate]
+    can_run_many: true
+    profile_sensitivity: cautious
+    network_intensity: low
+    noise_score: 2
+    cost_score: 2
+    stage: enumeration
+    repeatable_on_new_inputs: true
+    retryable: true
+    max_retries: 1
+    backoff_seconds: 0.3
+
   - key: run-vhost-discovery
     label: Discovering virtual hosts
     capability: vhost_discovery
@@ -432,6 +454,7 @@ tasks:
       - run-nmap
       - run-nmap-service-detection
       - check-websites
+      - check-http-security-headers
       - run-vhost-discovery
       - discover-web
       - detect-tls

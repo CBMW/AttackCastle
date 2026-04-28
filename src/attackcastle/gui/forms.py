@@ -36,6 +36,7 @@ TOOL_FIELDS = (
     "enable_whatweb",
     "enable_nikto",
     "enable_nuclei",
+    "enable_http_security_headers",
     "enable_wpscan",
     "enable_sqlmap",
 )
@@ -50,6 +51,7 @@ TOOL_FIELD_NAMES = {
     "enable_whatweb": "whatweb",
     "enable_nikto": "nikto",
     "enable_nuclei": "nuclei",
+    "enable_http_security_headers": "HTTP Security Headers Check",
     "enable_wpscan": "wpscan",
     "enable_sqlmap": "sqlmap",
 }
@@ -190,6 +192,18 @@ TOOL_COVERAGE_CATEGORIES: tuple[dict[str, object], ...] = (
             ("sslscan", "TLS protocol and cipher enumeration.", ""),
             ("openssl", "Certificate collection and TLS handshake checks.", "enable_openssl_tls"),
             ("nmap", "TLS service scripts and certificate checks where enabled.", "enable_nmap"),
+        ),
+    },
+    {
+        "id": "http_security_checks",
+        "title": "HTTP Security Checks",
+        "description": "Review browser-facing headers and lightweight web security configuration signals.",
+        "tools": (
+            (
+                "HTTP Security Headers Check",
+                "Check HTTP response headers for missing or weak browser security controls.",
+                "enable_http_security_headers",
+            ),
         ),
     },
     {
@@ -424,6 +438,7 @@ class ProfileFieldsMixin:
         self.enable_whatweb = QCheckBox("whatweb")
         self.enable_nikto = QCheckBox("nikto")
         self.enable_nuclei = QCheckBox("nuclei")
+        self.enable_http_security_headers = QCheckBox("HTTP Security Headers Check")
         self.enable_wpscan = QCheckBox("wpscan")
         self.enable_sqlmap = QCheckBox("sqlmap")
         for checkbox in self._tool_checkboxes():
@@ -461,6 +476,10 @@ class ProfileFieldsMixin:
                 (self.enable_whatweb, "Enable technology fingerprinting with whatweb."),
                 (self.enable_nikto, "Enable nikto for common web exposure checks."),
                 (self.enable_nuclei, "Enable nuclei template-based checks."),
+                (
+                    self.enable_http_security_headers,
+                    "Check HTTP response headers for missing or weak browser security controls.",
+                ),
                 (self.enable_wpscan, "Enable WordPress-focused enumeration when supported."),
                 (self.enable_sqlmap, "Enable targeted SQL injection exploitation workflows when authorized."),
                 (self.export_html, "Write an HTML report at the end of the run."),
@@ -653,8 +672,8 @@ class ProfileFieldsMixin:
         body_layout.setSpacing(PAGE_CARD_SPACING)
         category_rows: list[QFrame] = []
         category_id = str(category.get("id") or _coverage_slug(str(category.get("title", ""))))
-        for tool_name, _description, field in category.get("tools", ()):
-            row = self._build_tool_row(str(tool_name), str(field), category_id)
+        for tool_name, description, field in category.get("tools", ()):
+            row = self._build_tool_row(str(tool_name), str(description), str(field), category_id)
             category_rows.append(row)
             body_layout.addWidget(row)
         self._tool_rows_by_card[card] = category_rows
@@ -662,7 +681,7 @@ class ProfileFieldsMixin:
         card_layout.addWidget(body)
         return card
 
-    def _build_tool_row(self, tool_name: str, field: str, category_id: str) -> QFrame:
+    def _build_tool_row(self, tool_name: str, description: str, field: str, category_id: str) -> QFrame:
         row = QFrame()
         row.setObjectName("toolCoverageRow")
         self._tool_rows.append(row)
@@ -692,6 +711,10 @@ class ProfileFieldsMixin:
         name_label.setObjectName("toolCoverageName")
         name_label.setProperty("available", available)
         row_layout.addWidget(name_label, 1, Qt.AlignVCenter)
+        if description:
+            row.setToolTip(description)
+            checkbox.setToolTip(description)
+            name_label.setToolTip(description)
 
         if available:
             entry = {
@@ -745,6 +768,7 @@ class ProfileFieldsMixin:
             self.enable_whatweb,
             self.enable_nikto,
             self.enable_nuclei,
+            self.enable_http_security_headers,
             self.enable_wpscan,
             self.enable_sqlmap,
         )
@@ -771,6 +795,7 @@ class ProfileFieldsMixin:
                 "enable_whatweb": True,
                 "enable_nikto": False,
                 "enable_nuclei": False,
+                "enable_http_security_headers": True,
                 "enable_wpscan": False,
                 "enable_sqlmap": False,
             }
@@ -785,6 +810,7 @@ class ProfileFieldsMixin:
                 "enable_whatweb": True,
                 "enable_nikto": True,
                 "enable_nuclei": True,
+                "enable_http_security_headers": True,
                 "enable_wpscan": True,
                 "enable_sqlmap": True,
             }
@@ -798,6 +824,7 @@ class ProfileFieldsMixin:
             "enable_whatweb": True,
             "enable_nikto": True,
             "enable_nuclei": True,
+            "enable_http_security_headers": True,
             "enable_wpscan": base_profile == "prototype",
             "enable_sqlmap": False,
         }
@@ -993,6 +1020,7 @@ class ProfileFieldsMixin:
             enable_whatweb=self.enable_whatweb.isChecked(),
             enable_nikto=self.enable_nikto.isChecked(),
             enable_nuclei=self.enable_nuclei.isChecked(),
+            enable_http_security_headers=self.enable_http_security_headers.isChecked(),
             enable_wpscan=self.enable_wpscan.isChecked(),
             enable_sqlmap=self.enable_sqlmap.isChecked(),
             export_html_report=self.export_html.isChecked(),
@@ -1028,6 +1056,7 @@ class ProfileFieldsMixin:
         self.enable_whatweb.setChecked(profile.enable_whatweb)
         self.enable_nikto.setChecked(profile.enable_nikto)
         self.enable_nuclei.setChecked(profile.enable_nuclei)
+        self.enable_http_security_headers.setChecked(profile.enable_http_security_headers)
         self.enable_wpscan.setChecked(profile.enable_wpscan)
         self.enable_sqlmap.setChecked(profile.enable_sqlmap)
         self._tool_coverage_overrides = dict(profile.tool_coverage_overrides)

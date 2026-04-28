@@ -881,6 +881,7 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
         name="Wordlist Profile",
         adaptive_execution_enabled=False,
         cpu_cores=3,
+        enable_http_security_headers=False,
         endpoint_wordlist_path="/tmp/endpoints.txt",
         parameter_wordlist_path="/tmp/params.txt",
         payload_wordlist_path="/tmp/payloads.txt",
@@ -893,6 +894,7 @@ def test_profile_to_engine_overrides_includes_wordlists() -> None:
     assert overrides["web_discovery"]["payload_wordlist_path"] == "/tmp/payloads.txt"
     assert overrides["sqlmap"]["parameter_wordlist_path"] == "/tmp/params.txt"
     assert overrides["nuclei"]["payload_wordlist_path"] == "/tmp/payloads.txt"
+    assert overrides["http_security_headers"]["enabled"] is False
     assert overrides["active_validation"] == {"enabled": False}
     assert overrides["coverage_engine"] == {"enabled": False}
     assert overrides["request_capture"] == {"enabled": False}

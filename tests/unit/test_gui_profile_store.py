@@ -41,6 +41,7 @@ def test_gui_profile_store_round_trip(tmp_path: Path) -> None:
     profile = GuiProfile(
         name="Client A",
         concurrency=7,
+        enable_http_security_headers=False,
         enable_sqlmap=True,
         output_directory="/tmp/output",
         endpoint_wordlist_path="/tmp/endpoints.txt",
@@ -51,6 +52,7 @@ def test_gui_profile_store_round_trip(tmp_path: Path) -> None:
     loaded = store.load()
     saved = next(item for item in loaded if item.name == "Client A")
     assert saved.concurrency == 7
+    assert saved.enable_http_security_headers is False
     assert saved.enable_sqlmap is True
     assert saved.output_directory == "/tmp/output"
     assert saved.endpoint_wordlist_path == "/tmp/endpoints.txt"

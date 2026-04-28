@@ -1659,6 +1659,91 @@ def _convert_docx_to_pdf_with_libreoffice(source_path: Path, output_path: Path, 
         shutil.move(str(converted), str(output_path))
 
 
+class DocxTemplateRenderer:
+    """Renders report template sections from shortcode values."""
+
+    def render_section_docx(
+        self,
+        section: ReportTemplateSection,
+        output_path: Path,
+        shortcode_values: dict[str, str],
+        *,
+        severity_counts: dict[str, int] | None = None,
+    ) -> None:
+        render_section_docx(section, output_path, shortcode_values, severity_counts=severity_counts)
+
+    def render_template_bytes(
+        self,
+        template_path: Path,
+        replacements: dict[str, str],
+        severity_counts: dict[str, int] | None = None,
+    ) -> dict[str, bytes]:
+        return _render_docx_template_bytes(template_path, replacements, severity_counts)
+
+    def render_template_file(
+        self,
+        template_path: Path,
+        output_path: Path,
+        replacements: dict[str, str],
+        severity_counts: dict[str, int] | None = None,
+    ) -> None:
+        _render_docx_template_file(template_path, output_path, replacements, severity_counts)
+
+
+class DocxPreviewRenderer:
+    """Builds preview text or HTML for rendered report sections."""
+
+    def render_text(
+        self,
+        section: ReportTemplateSection,
+        shortcode_values: dict[str, str],
+        *,
+        severity_counts: dict[str, int] | None = None,
+    ) -> str:
+        return render_section_preview_text(section, shortcode_values, severity_counts=severity_counts)
+
+    def render_html(
+        self,
+        section: ReportTemplateSection,
+        shortcode_values: dict[str, str],
+        *,
+        severity_counts: dict[str, int] | None = None,
+        asset_dir: Path | None = None,
+    ) -> str:
+        return render_section_preview_html(
+            section,
+            shortcode_values,
+            severity_counts=severity_counts,
+            asset_dir=asset_dir,
+        )
+
+
+class DocxMerger:
+    """Combines rendered DOCX sections using the configured backend."""
+
+    def merge_with_available_backend(
+        self,
+        source_paths: list[Path],
+        output_path: Path,
+        merge_tool_path: str = "",
+    ) -> None:
+        _merge_docx_files_with_available_backend(source_paths, output_path, merge_tool_path)
+
+    def append_sections_as_alt_chunks(
+        self,
+        base_parts: dict[str, bytes],
+        section_parts: list[tuple[str, dict[str, bytes]]],
+    ) -> dict[str, bytes]:
+        return _append_docx_sections_as_alt_chunks(base_parts, section_parts)
+
+
+class DocxPdfConverter:
+    """Converts exported DOCX files to PDF."""
+
+    def convert(self, source_path: Path, output_path: Path | None = None, *, merge_tool_path: str = "") -> Path:
+        return convert_docx_to_pdf(source_path, output_path, merge_tool_path=merge_tool_path)
+
+
 def convert_docx_to_pdf(source_path: Path, output_path: Path | None = None, *, merge_tool_path: str = "") -> Path:
     source_path = Path(source_path).expanduser().resolve()
     if not source_path.exists():
@@ -1724,22 +1809,24 @@ def export_report(
     missing = [path for path in template_paths if not path.exists()]
     if missing:
         raise ReportExportError(f"Template not found: {missing[0]}")
+    template_renderer = DocxTemplateRenderer()
+    merger = DocxMerger()
     if len(enabled_sections) == 1:
-        _write_docx(_render_docx_template_bytes(template_paths[0], replacements, counts), output_path)
+        _write_docx(template_renderer.render_template_bytes(template_paths[0], replacements, counts), output_path)
     elif _merge_backend_enabled(use_word_automation) or merge_tool_path:
         with tempfile.TemporaryDirectory(prefix="attackcastle_reports_rendered_") as temp_dir:
             rendered_paths: list[Path] = []
             for index, template_path in enumerate(template_paths):
                 rendered_path = Path(temp_dir) / f"{index:02d}_{template_path.name}"
-                _render_docx_template_file(template_path, rendered_path, replacements, counts)
+                template_renderer.render_template_file(template_path, rendered_path, replacements, counts)
                 rendered_paths.append(rendered_path)
-            _merge_docx_files_with_available_backend(rendered_paths, output_path, merge_tool_path)
+            merger.merge_with_available_backend(rendered_paths, output_path, merge_tool_path)
     else:
         rendered_sections = [
-            (section.section_id, _render_docx_template_bytes(template_path, replacements, counts))
+            (section.section_id, template_renderer.render_template_bytes(template_path, replacements, counts))
             for section, template_path in zip(enabled_sections, template_paths)
         ]
-        base_parts = _append_docx_sections_as_alt_chunks(rendered_sections[0][1], rendered_sections[1:])
+        base_parts = merger.append_sections_as_alt_chunks(rendered_sections[0][1], rendered_sections[1:])
         _write_docx(base_parts, output_path)
     return ReportExportResult(
         output_path=output_path,

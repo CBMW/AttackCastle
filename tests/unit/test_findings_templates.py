@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from attackcastle.core.models import Observation, RunData, RunMetadata, WebApplication, new_id, now_utc
-from attackcastle.findings.engine import FindingsEngine
+from attackcastle.core.models import Evidence, Observation, RunData, RunMetadata, WebApplication, new_id, now_utc
+from attackcastle.findings.http_security_headers import generate_http_security_header_finding
 from attackcastle.findings.schema import lint_templates, load_templates
 
 
@@ -29,17 +29,12 @@ def test_template_inheritance_resolution():
     ids = {item["id"] for item in templates}
     assert "BASE_WEB_FINDING" in ids
     http_template = next(item for item in templates if item["id"] == "HTTP_HEADER_MISCONFIGURATION")
-    assert "web" in [tag.lower() for tag in http_template.get("tags", [])]
-    assert http_template["category"] == "Web Security Hardening"
+    assert "misconfiguration" in [tag.lower() for tag in http_template.get("tags", [])]
+    assert http_template["category"] == "Web Security Misconfiguration"
+    assert http_template["title"] == "HTTP Header Response Misconfiguration"
 
 
-def test_findings_engine_applies_suppression(tmp_path):
-    suppression_path = tmp_path / "suppressions.json"
-    suppression_path.write_text(
-        '[{"template_id":"HTTP_HEADER_MISCONFIGURATION","entity_type":"web_app","entity_id":"web_1","reason":"accepted risk"}]',
-        encoding="utf-8",
-    )
-
+def test_http_security_header_finding_generator_aggregates_targets(tmp_path):
     run_data = _blank_run_data()
     run_data.web_apps.append(
         WebApplication(
@@ -48,34 +43,72 @@ def test_findings_engine_applies_suppression(tmp_path):
             url="https://example.com",
         )
     )
-    evidence_id = new_id("evidence")
-    from attackcastle.core.models import Evidence
-
     run_data.evidence.append(
         Evidence(
-            evidence_id=evidence_id,
+            evidence_id="evidence_1",
             source_tool="test",
             kind="http_response",
             snippet="missing header evidence",
+            artifact_path=str(tmp_path / "headers.json"),
         )
     )
     run_data.observations.append(
         Observation(
             observation_id=new_id("obs"),
-            key="web.missing_security_headers",
-            value=["x-frame-options"],
+            key="web.http_security_headers.analysis",
+            value={
+                "url": "https://example.com",
+                "status_code": 200,
+                "core_missing": ["X-Frame-Options"],
+                "core_weak": [],
+                "trigger_finding": True,
+            },
             entity_type="web_app",
             entity_id="web_1",
             source_tool="test",
-            evidence_ids=[evidence_id],
+            evidence_ids=["evidence_1"],
         )
     )
-    engine = FindingsEngine(
-        template_dir=Path(__file__).resolve().parents[2] / "src" / "attackcastle" / "findings" / "templates",
-        suppression_file=suppression_path,
+    run_data.web_apps.append(
+        WebApplication(
+            webapp_id="web_2",
+            asset_id="asset_2",
+            url="https://admin.example.com",
+        )
     )
-    findings = engine.generate(run_data)
-    matched = [finding for finding in findings if finding.template_id == "HTTP_HEADER_MISCONFIGURATION"]
-    assert matched
-    assert matched[0].suppressed is True
-    assert matched[0].suppression_reason == "accepted risk"
+    run_data.evidence.append(
+        Evidence(
+            evidence_id="evidence_2",
+            source_tool="test",
+            kind="http_response",
+            snippet="weak header evidence",
+            artifact_path=str(tmp_path / "headers-2.json"),
+        )
+    )
+    run_data.observations.append(
+        Observation(
+            observation_id=new_id("obs"),
+            key="web.http_security_headers.analysis",
+            value={
+                "url": "https://admin.example.com",
+                "status_code": 200,
+                "core_missing": [],
+                "core_weak": ["Content-Security-Policy"],
+                "trigger_finding": True,
+            },
+            entity_type="web_app",
+            entity_id="web_2",
+            source_tool="test",
+            evidence_ids=["evidence_2"],
+        )
+    )
+
+    findings = generate_http_security_header_finding(
+        run_data,
+        template_dir=Path(__file__).resolve().parents[2] / "src" / "attackcastle" / "findings" / "templates",
+    )
+
+    assert len(findings) == 1
+    assert findings[0].title == "HTTP Header Response Misconfiguration"
+    assert findings[0].severity.value == "low"
+    assert {item["entity_id"] for item in findings[0].affected_entities} == {"web_1", "web_2"}

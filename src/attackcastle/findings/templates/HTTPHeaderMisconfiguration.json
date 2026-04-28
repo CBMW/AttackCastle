@@ -1,17 +1,18 @@
 {
+  "abstract": true,
   "id": "HTTP_HEADER_MISCONFIGURATION",
   "extends": "BASE_WEB_FINDING",
   "version": "1.0.0",
-  "title": "Missing Recommended Security Headers",
-  "severity": "medium",
-  "category": "Web Security Hardening",
-  "description": "The application response is missing one or more commonly recommended HTTP security headers.",
-  "impact": "Missing headers can increase exposure to clickjacking, content sniffing, and policy bypass risks.",
-  "likelihood": "Medium for internet-facing services with default or weak hardening.",
+  "title": "HTTP Header Response Misconfiguration",
+  "severity": "low",
+  "category": "Web Security Misconfiguration",
+  "description": "HTTP security response headers help browsers enforce client-side protections such as HTTPS enforcement, clickjacking prevention, MIME sniffing protection, referrer leakage reduction, and content loading restrictions. Missing or weakly configured headers can reduce browser-side hardening and increase the impact of other vulnerabilities, such as cross-site scripting or clickjacking.",
+  "impact": "Missing or weak browser security headers reduce client-side hardening and can increase the impact of other web vulnerabilities.",
+  "likelihood": "Low for well-hardened applications and higher where defaults or inconsistent edge policies are in use.",
   "recommendations": [
-    "Set Content-Security-Policy with appropriate allowlists.",
-    "Set X-Frame-Options or frame-ancestors to reduce clickjacking risk.",
-    "Set X-Content-Type-Options: nosniff and modern policy headers."
+    "Configure appropriate HTTP security response headers across all affected applications and ensure they are applied consistently across frontend, API, admin, and supporting application hosts.",
+    "At minimum, configure HSTS, CSP, X-Frame-Options or frame-ancestors, X-Content-Type-Options, Referrer-Policy, and Permissions-Policy where applicable.",
+    "Review exposed Server and X-Powered-By headers and remove unnecessary implementation detail disclosure where practical."
   ],
   "references": [
     "https://owasp.org/www-project-secure-headers/",
@@ -20,7 +21,8 @@
   "tags": [
     "http",
     "headers",
-    "hardening"
+    "misconfiguration",
+    "security-headers"
   ],
   "trigger": {
     "entity_type": "web_app",
