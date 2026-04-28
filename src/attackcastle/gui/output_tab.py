@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
+    QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -44,13 +45,15 @@ from attackcastle.gui.common import (
     configure_tab_widget,
     configure_scroll_surface,
     ensure_table_defaults,
+    latest_retest_entry,
+    retest_status_label,
     set_tooltip,
     set_tooltips,
     size_dialog_to_screen,
     style_button,
     title_case_label,
 )
-from attackcastle.gui.models import FindingState, RunSnapshot, now_iso
+from attackcastle.gui.models import FindingState, RetestEntry, RunSnapshot, now_iso
 
 
 RISK_LEVELS = ("high", "medium", "low")
@@ -91,7 +94,14 @@ TRANSIENT_FINDING_FIELDS = {
     "report_flag_touched",
     "severity_override",
     "effective_severity",
+    "latest_retest_status",
+    "retests",
 }
+RETEST_STATUS_OPTIONS = (
+    ("Remediated", "remediated"),
+    ("Partially Remediated", "partial"),
+    ("Not Remediated", "not_remediated"),
+)
 
 
 class SearchableDropDownComboBox(QComboBox):
@@ -402,6 +412,75 @@ class CreateFindingDialog(QDialog):
         return finding
 
 
+class RetestFindingDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Retest Finding")
+        self.setModal(True)
+        self.setMinimumSize(520, 320)
+        size_dialog_to_screen(self, default_width=620, default_height=420, min_width=520, min_height=320)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        panel = QFrame()
+        panel.setObjectName("launchPanelGroup")
+        form = QFormLayout(panel)
+        form.setContentsMargins(12, 14, 12, 12)
+        apply_form_layout_defaults(form)
+
+        self.status_combo = QComboBox()
+        for label, status in RETEST_STATUS_OPTIONS:
+            self.status_combo.addItem(label, status)
+        self.notes_edit = configure_scroll_surface(QPlainTextEdit())
+        self.notes_edit.setMinimumHeight(110)
+        self.date_edit = QLineEdit(now_iso().split("T", 1)[0])
+        self.evidence_edit = QLineEdit()
+        self.evidence_button = QPushButton("Browse")
+        self.evidence_button.clicked.connect(self._select_evidence)
+        style_button(self.evidence_button, role="secondary")
+
+        evidence_widget = QWidget()
+        evidence_layout = QHBoxLayout(evidence_widget)
+        evidence_layout.setContentsMargins(0, 0, 0, 0)
+        evidence_layout.setSpacing(PAGE_SECTION_SPACING)
+        evidence_layout.addWidget(self.evidence_edit, 1)
+        evidence_layout.addWidget(self.evidence_button, 0)
+
+        form.addRow("Status", self.status_combo)
+        form.addRow("Notes", self.notes_edit)
+        form.addRow("Retest Date", self.date_edit)
+        form.addRow("Evidence", evidence_widget)
+        layout.addWidget(panel, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        ok_button = buttons.button(QDialogButtonBox.Ok)
+        if ok_button is not None:
+            ok_button.setText("Save")
+            style_button(ok_button)
+        cancel_button = buttons.button(QDialogButtonBox.Cancel)
+        if cancel_button is not None:
+            style_button(cancel_button, role="secondary")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _select_evidence(self) -> None:
+        paths, _filter = QFileDialog.getOpenFileNames(self, "Select Evidence", "", "All Files (*.*)")
+        if paths:
+            self.evidence_edit.setText("; ".join(paths))
+
+    def retest_entry(self) -> RetestEntry:
+        evidence = [item.strip() for item in self.evidence_edit.text().split(";") if item.strip()]
+        return RetestEntry(
+            date=self.date_edit.text().strip(),
+            status=str(self.status_combo.currentData() or ""),
+            notes=self.notes_edit.toPlainText().strip(),
+            evidence=evidence,
+        )
+
+
 class OutputTab(QWidget):
     def __init__(
         self,
@@ -474,6 +553,7 @@ class OutputTab(QWidget):
         self.findings_model = MappingTableModel(
             [
                 ("Report", lambda row: "Yes" if row.get("include_in_report") and row.get("report_flag_touched") else ""),
+                ("Retest", self._latest_retest_label),
                 ("Severity", "effective_severity"),
                 ("Title", "title"),
                 ("Root Cause", lambda row: row.get("root_cause") or row.get("category") or ""),
@@ -627,7 +707,7 @@ class OutputTab(QWidget):
         headings = [str(column[0]).lower() for column in model._columns]
         policies = []
         for heading in headings:
-            if heading in {"state", "status", "severity", "workflow", "change", "include", "report", "port", "eta", "elapsed", "forms", "priority", "confidence", "replay", "auto", "impact", "likelihood"}:
+            if heading in {"state", "status", "severity", "workflow", "change", "include", "report", "retest", "port", "eta", "elapsed", "forms", "priority", "confidence", "replay", "auto", "impact", "likelihood"}:
                 policies.append({"mode": "content", "min": 90, "max": 130})
             elif heading in {"url", "title", "next action", "summary", "snippet", "artifact", "path", "note", "root cause", "affected assets"}:
                 policies.append({"mode": "stretch", "min": 220})
@@ -754,6 +834,11 @@ class OutputTab(QWidget):
             row["severity_override"] = state.severity_override if state else ""
             row["effective_severity"] = (state.severity_override if state else "") or base_severity
             row["reproduce_steps"] = state.reproduce_steps if state else str(row.get("reproduce_steps") or row.get("reproduction_steps") or "")
+            if state:
+                row["retests"] = [entry.to_dict() for entry in state.retests]
+            else:
+                raw_retests = row.get("retests", [])
+                row["retests"] = list(raw_retests) if isinstance(raw_retests, list) else []
             rows.append(row)
         rows.sort(key=lambda row: (SEVERITY_ORDER.get(str(row.get("effective_severity") or "info").lower(), 99), str(row.get("title") or "")))
         return rows
@@ -905,6 +990,12 @@ class OutputTab(QWidget):
             if value:
                 return value
         return ""
+
+    def _latest_retest_label(self, row: dict[str, Any]) -> str:
+        latest = latest_retest_entry(row)
+        if latest is None:
+            return ""
+        return retest_status_label(str(latest.get("status") or ""))
 
     def _risk_level(self, row: dict[str, Any], key: str, rating_key: str | None = None) -> str:
         value = str(row.get(rating_key or "") or "").strip().lower()
@@ -1072,12 +1163,29 @@ class OutputTab(QWidget):
         remove_action = menu.addAction("Remove Finding")
         remove_action.triggered.connect(lambda _checked=False, selected=row: self._remove_finding(dict(selected)))
         menu.addSeparator()
+        retest_action = menu.addAction("Retest Finding")
+        retest_action.triggered.connect(lambda _checked=False, selected=row: self._retest_finding(dict(selected)))
         if self._report_exports_enabled:
             action = menu.addAction("Include In Reports Exports")
             action.setCheckable(True)
             action.setChecked(bool(row.get("include_in_report")) and bool(row.get("report_flag_touched")))
             action.triggered.connect(lambda checked=False, fid=finding_id: self._toggle_report_finding(fid, checked))
         return menu
+
+    def _retest_finding(self, row: dict[str, Any]) -> None:
+        finding_id = str(row.get("finding_id") or "").strip()
+        if not finding_id:
+            return
+        dialog = RetestFindingDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        state = self._state_for_finding_id(finding_id)
+        state.retests.append(dialog.retest_entry())
+        state.updated_at = now_iso()
+        self._finding_states[finding_id] = state
+        self._persist_finding_state(self._manual_findings_key(), state)
+        self._refresh_models()
+        self._select_finding_by_id(finding_id)
 
     def _toggle_report_finding(self, finding_id: str, enabled: bool) -> None:
         state = self._state_for_finding_id(finding_id)
@@ -1198,15 +1306,14 @@ class OutputTab(QWidget):
         if not self._current_finding_id or self._snapshot is None:
             QMessageBox.information(self, "No Finding", "Select a finding before saving workflow state.")
             return
-        state = FindingState(
-            finding_id=self._current_finding_id,
-            status=self.finding_status_combo.currentText(),
-            analyst_note=self.finding_note_edit.toPlainText().strip(),
-            severity_override=self.finding_severity_combo.currentText(),
-            include_in_report=self.finding_include_checkbox.isChecked(),
-            report_flag_touched=True,
-            reproduce_steps=self.finding_repro_edit.toPlainText().strip(),
-        )
+        state = self._state_for_finding_id(self._current_finding_id)
+        state.status = self.finding_status_combo.currentText()
+        state.analyst_note = self.finding_note_edit.toPlainText().strip()
+        state.severity_override = self.finding_severity_combo.currentText()
+        state.include_in_report = self.finding_include_checkbox.isChecked()
+        state.report_flag_touched = True
+        state.reproduce_steps = self.finding_repro_edit.toPlainText().strip()
+        state.updated_at = now_iso()
         self._finding_states[self._current_finding_id] = state
         self._persist_finding_state(self._snapshot.run_id, state)
         self._refresh_models()

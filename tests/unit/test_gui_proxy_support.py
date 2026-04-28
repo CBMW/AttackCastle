@@ -105,11 +105,16 @@ def test_settings_proxy_page_persists_and_updates_attacker_proxy(tmp_path: Path)
         window.proxy_scanner_url_edit.setText("http://127.0.0.1:8081")
         window.proxy_attacker_enabled_checkbox.setChecked(True)
         window.proxy_attacker_url_edit.setText("http://127.0.0.1:8082")
+        window.capture_proxy_enabled_checkbox.setChecked(True)
+        window.capture_proxy_host_edit.setText("127.0.0.1")
+        window.capture_proxy_port_edit.setText("8087")
 
         saved = workspace_store.load_proxy_settings()
         assert saved.global_proxy_url == "http://127.0.0.1:8080"
         assert saved.effective_scanner_proxy_url() == "http://127.0.0.1:8081"
         assert saved.effective_attacker_proxy_url() == "http://127.0.0.1:8082"
+        assert saved.capture_proxy_enabled is True
+        assert saved.capture_proxy_url() == "http://127.0.0.1:8087"
         assert window.attacker_tab._proxy_url == "http://127.0.0.1:8082"
 
         window.proxy_all_traffic_checkbox.setChecked(True)

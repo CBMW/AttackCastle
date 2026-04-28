@@ -25,6 +25,7 @@ dev = [
 ]
 gui = [
   "PySide6>=6.8.0",
+  "mitmproxy>=10.3.0",
 ]
 
 [project.scripts]

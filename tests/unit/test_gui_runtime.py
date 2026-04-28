@@ -715,6 +715,7 @@ def test_build_run_debug_bundle_starts_with_run_health_summary(tmp_path: Path) -
     assert "- tool_failures: 1" in bundle["combined_log"]
     assert "- tool_timeouts: 1" in bundle["combined_log"]
     assert "- nmap_coverage: scanned=2, pending=1" in bundle["combined_log"]
+    assert "reason=not_selected_or_not_recorded" in bundle["combined_log"]
     assert "nmap(status=failed, exit=1)" in bundle["combined_log"]
 
 

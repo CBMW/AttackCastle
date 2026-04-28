@@ -67,14 +67,14 @@ def _run_data(tmp_path: Path, url: str = "https://example.com") -> RunData:
 def test_linux_http_security_header_commands_match_expected_patterns() -> None:
     assert build_linux_head_command("https://example.com") == [
         "curl",
-        "-skI",
+        "-kI",
         "--max-redirs",
         "0",
         "https://example.com",
     ]
     assert build_linux_fallback_command("https://example.com") == [
         "curl",
-        "-skD",
+        "-kD",
         "-",
         "-o",
         "/dev/null",
@@ -232,3 +232,124 @@ def test_http_security_headers_adapter_records_results_and_observations(tmp_path
     assert result.evidence
     assert result.observations
     assert result.observations[0].key == "web.http_security_headers.analysis"
+
+
+def test_http_security_headers_records_tls_handshake_failure_as_structured_fact(tmp_path: Path, monkeypatch) -> None:
+    context = _context(tmp_path, "http-header-tls-failure")
+    run_data = _run_data(tmp_path, "https://104.18.4.168/")
+
+    def _fake_run_command_spec(context, spec, proxy_url=None):  # noqa: ANN001
+        suffix = "head" if "_head" in spec.artifact_prefix else "get"
+        return SimpleNamespace(
+            execution=ToolExecution(
+                execution_id=f"exec-{suffix}",
+                tool_name="http_security_headers",
+                command="curl failed",
+                started_at=now_utc(),
+                ended_at=now_utc(),
+                exit_code=35,
+                status="failed",
+                capability="http_security_headers_check",
+                termination_reason="nonzero_exit",
+                termination_detail="process exited with code 35",
+            ),
+            task_result=TaskResult(
+                task_id=f"task-{suffix}",
+                task_type="CheckHttpSecurityHeaders",
+                status="failed",
+                command="curl failed",
+                exit_code=35,
+                started_at=now_utc(),
+                finished_at=now_utc(),
+                termination_reason="nonzero_exit",
+                termination_detail="process exited with code 35",
+            ),
+            evidence_artifacts=[],
+            stdout_text="",
+            stderr_text="curl: (35) OpenSSL SSL_connect: SSL_ERROR_SYSCALL",
+            exit_code=35,
+            error_message="process exited with code 35",
+            command_text="curl failed",
+            stdout_path=context.run_store.artifact_path("http_security_headers", f"{suffix}.stdout.txt"),
+            stderr_path=context.run_store.artifact_path("http_security_headers", f"{suffix}.stderr.txt"),
+            transcript_path=context.run_store.artifact_path("http_security_headers", f"{suffix}.transcript.txt"),
+            execution_id=f"exec-{suffix}",
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.http_security_headers.adapter.run_command_spec", _fake_run_command_spec)
+
+    result = HTTPSecurityHeadersAdapter().run(context, run_data)
+
+    assert result.facts["http_security_headers.attempted_targets"] == 1
+    assert result.facts["http_security_headers.scanned_urls"] == ["https://104.18.4.168/"]
+    failures = result.facts["http_security_headers.probe_failures"]
+    assert failures[0]["failure_type"] == "tls_handshake_failed"
+    assert "canonical hostname/SNI" in failures[0]["message"]
+    assert result.warnings
+
+
+def test_http_security_headers_treats_cloudflare_direct_ip_403_as_edge_only(tmp_path: Path, monkeypatch) -> None:
+    context = _context(tmp_path, "http-header-cloudflare-edge")
+    run_data = _run_data(tmp_path, "http://104.18.4.168/")
+
+    def _fake_run_command_spec(context, spec, proxy_url=None):  # noqa: ANN001
+        stdout_text = json.dumps(
+            {
+                "method": "Head",
+                "status_code": 403,
+                "headers": [
+                    {"name": "Server", "value": "cloudflare"},
+                    {"name": "CF-RAY", "value": "example-SYD"},
+                    {"name": "Referrer-Policy", "value": "same-origin"},
+                    {"name": "X-Frame-Options", "value": "SAMEORIGIN"},
+                ],
+                "raw_headers": (
+                    "HTTP/1.1 403 Forbidden\r\n"
+                    "Server: cloudflare\r\n"
+                    "CF-RAY: example-SYD\r\n"
+                    "Referrer-Policy: same-origin\r\n"
+                    "X-Frame-Options: SAMEORIGIN"
+                ),
+            }
+        )
+        return SimpleNamespace(
+            execution=ToolExecution(
+                execution_id="exec-head",
+                tool_name="http_security_headers",
+                command="curl edge",
+                started_at=now_utc(),
+                ended_at=now_utc(),
+                exit_code=0,
+                status="completed",
+                capability="http_security_headers_check",
+            ),
+            task_result=TaskResult(
+                task_id="task-head",
+                task_type="CheckHttpSecurityHeaders",
+                status="completed",
+                command="curl edge",
+                exit_code=0,
+                started_at=now_utc(),
+                finished_at=now_utc(),
+            ),
+            evidence_artifacts=[],
+            stdout_text=stdout_text,
+            stderr_text="",
+            exit_code=0,
+            error_message=None,
+            command_text="curl edge",
+            stdout_path=context.run_store.artifact_path("http_security_headers", "edge.stdout.txt"),
+            stderr_path=context.run_store.artifact_path("http_security_headers", "edge.stderr.txt"),
+            transcript_path=context.run_store.artifact_path("http_security_headers", "edge.transcript.txt"),
+            execution_id="exec-head",
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.http_security_headers.adapter.run_command_spec", _fake_run_command_spec)
+
+    result = HTTPSecurityHeadersAdapter().run(context, run_data)
+
+    analysis = result.facts["http_security_headers.results"][0]
+    assert analysis["edge_context"] == "cloudflare_direct_ip_forbidden"
+    assert analysis["origin_representative"] is False
+    assert analysis["trigger_finding"] is False
+    assert result.facts["http_security_headers.affected_urls"] == []

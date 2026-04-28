@@ -438,24 +438,22 @@ class StartScanDialog(QDialog, ProfileFieldsMixin):
         extension_tab_layout.setContentsMargins(0, 0, 0, 0)
         extension_tab_layout.setSpacing(0)
         extension_tab_layout.addWidget(extension_group, 1)
-        self.launch_tabs.addTab(extension_tab, "Extensions")
+        extension_tab_index = self.launch_tabs.addTab(extension_tab, "Extensions")
+        self.launch_tabs.setTabEnabled(extension_tab_index, False)
+        self.launch_tabs.tabBar().setTabToolTip(
+            extension_tab_index,
+            "Extensions are in active development and are temporarily unavailable from launch.",
+        )
         self._populate_extensions()
 
-        frame = build_flat_container()
-        frame.setObjectName("launchAdvancedPanel")
-        frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(0, 0, 0, 0)
-        frame_layout.setSpacing(0)
-        frame_layout.addWidget(
-            self._profile_form(
-                include_identity=False,
-                collapsible_sections=True,
-                include_posture=False,
-            )
+        self._profile_form(
+            include_identity=False,
+            include_posture=False,
+            collapsible_sections=True,
+            section_tab_target=self.launch_tabs,
         )
         self.export_html.toggled.connect(self._launch_report_toggled)
-        self.advanced_scroll = frame
-        self.launch_tabs.addTab(self.advanced_scroll, "Overrides")
+        self.advanced_scroll = self.launch_tabs.widget(extension_tab_index + 1)
 
         self.target_input_edit.textChanged.connect(self._launch_inputs_changed)
         self.output_dir_edit.textChanged.connect(self._launch_inputs_changed)

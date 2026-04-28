@@ -8,7 +8,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QToolButton
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QTabWidget, QToolButton
 
 from attackcastle.gui.dialogs import StartScanDialog, WorkspaceChooserDialog, WorkspaceDialog
 from attackcastle.gui.extensions import ExtensionManifest, CommandHookExtensionConfig
@@ -192,6 +192,31 @@ def test_launch_dialog_tool_coverage_marks_unwired_tools_unavailable() -> None:
 
         assert disabled_rows
         assert {"amass", "rustscan", "testssl.sh"} <= unavailable_names
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_promotes_override_sections_to_top_level_tabs() -> None:
+    dialog = _make_dialog()
+
+    try:
+        tab_labels = [dialog.launch_tabs.tabText(index) for index in range(dialog.launch_tabs.count())]
+
+        assert "Overrides" not in tab_labels
+        assert ["Performance", "Tool Coverage", "Wordlists", "Run Output Exports"] == tab_labels[-4:]
+        extension_index = tab_labels.index("Extensions")
+        assert dialog.launch_tabs.isTabEnabled(extension_index) is False
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_tool_coverage_uses_stacked_subtabs() -> None:
+    dialog = _make_dialog()
+
+    try:
+        assert dialog.tool_family_tabs.tabPosition() == QTabWidget.West
+        assert dialog.tool_family_tabs.tabBar().usesScrollButtons() is False
+        assert dialog.tool_family_tabs.count() > 1
     finally:
         dialog.close()
 

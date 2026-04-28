@@ -588,6 +588,24 @@ class WorkflowScheduler:
                         return True
                     return any(item.definition.key == task_key for item, *_rest in running.values())
 
+                def terminal_state_keys() -> set[str]:
+                    return {
+                        state.key
+                        for state in states
+                        if state.status
+                        in terminal_status | {TaskStatus.FAILED.value, TaskStatus.BLOCKED.value}
+                    }
+
+                def completed_or_terminal_keys() -> set[str]:
+                    return set(completed) | terminal_state_keys()
+
+                def missing_dependencies(task: TaskDefinition) -> list[str]:
+                    terminal_keys = completed_or_terminal_keys()
+                    return [dep for dep in task.dependencies if dep not in terminal_keys]
+
+                def dependencies_satisfied(task: TaskDefinition) -> bool:
+                    return not missing_dependencies(task)
+
                 def mark_task_completed_if_idle(task_key: str) -> None:
                     if not has_active_instances(task_key):
                         completed.add(task_key)
@@ -724,7 +742,7 @@ class WorkflowScheduler:
                             continue
                         if has_active_instances(task.key) or task.key in running_keys:
                             continue
-                        if not all(dep in completed for dep in task.dependencies):
+                        if not dependencies_satisfied(task):
                             continue
                         signature = current_input_signature(task)
                         if not signature or signature == last_input_signature_by_task.get(task.key, ""):
@@ -1332,7 +1350,8 @@ class WorkflowScheduler:
                             break
                         item = pending[key]
                         task = item.definition
-                        if not all(dep in completed for dep in task.dependencies):
+                        blocked_dependencies = missing_dependencies(task)
+                        if blocked_dependencies:
                             previous_reason = waiting_reason_by_task.get(key)
                             if previous_reason != "waiting_for_dependencies":
                                 waiting_reason_by_task[key] = "waiting_for_dependencies"
@@ -1343,6 +1362,7 @@ class WorkflowScheduler:
                                         "instance_key": item.instance_key,
                                         "reason": "waiting_for_dependencies",
                                         "dependencies": task.dependencies,
+                                        "blocking_dependencies": blocked_dependencies,
                                     },
                                 )
                                 emit_runtime_event(
@@ -1763,7 +1783,7 @@ class WorkflowScheduler:
                         for key in list(pending.keys()):
                             item = pending[key]
                             task = item.definition
-                            if not all(dep in completed for dep in task.dependencies):
+                            if not dependencies_satisfied(task):
                                 continue
                             frontier_signature = item.input_signature
                             if task.repeatable_on_new_inputs:
@@ -1869,6 +1889,7 @@ class WorkflowScheduler:
                             frontier_signature = item.input_signature
                             timestamp = now_utc()
                             skipped_reason = "dependency_deadlock"
+                            blocked_dependencies = missing_dependencies(task)
                             states.append(
                                 TaskExecutionState(
                                     key=task.key,
@@ -1883,6 +1904,8 @@ class WorkflowScheduler:
                                         "iteration": item.iteration,
                                         "instance_key": item.instance_key,
                                         "task_inputs": list(item.task_inputs),
+                                        "dependencies": list(task.dependencies),
+                                        "blocking_dependencies": blocked_dependencies,
                                     },
                                 )
                             )
@@ -1905,6 +1928,8 @@ class WorkflowScheduler:
                                     "input_signature": frontier_signature,
                                     "instance_key": item.instance_key,
                                     "task_inputs": list(item.task_inputs),
+                                    "dependencies": list(task.dependencies),
+                                    "blocking_dependencies": blocked_dependencies,
                                 },
                             )
 

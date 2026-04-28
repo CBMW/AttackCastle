@@ -52,6 +52,11 @@ SEVERITY_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["severity"])
 WORKFLOW_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["workflow"])
 CHANGE_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["change"])
 TOOL_STATUS_COLORS = dict(_DEFAULT_SEMANTIC_MAPS["tool_status"])
+RETEST_COLORS = {
+    "remediated": ("#102A14", "#86BC25"),
+    "partial": ("#2E2100", "#F5C542"),
+    "not_remediated": ("#3A1111", "#FF6B5F"),
+}
 
 PAGE_CONTENT_MARGIN = 0
 PAGE_SECTION_SPACING = 6
@@ -415,6 +420,48 @@ def finding_metrics(
         "report_ready": report_ready,
         "confirmed": confirmed,
     }
+
+
+def latest_retest_entry(row: dict[str, Any]) -> dict[str, Any] | None:
+    retests = row.get("retests", [])
+    if not isinstance(retests, list):
+        return None
+    entries = [entry for entry in retests if isinstance(entry, dict) and str(entry.get("status") or "").strip()]
+    if not entries:
+        return None
+    return max(enumerate(entries), key=lambda item: (str(item[1].get("date") or ""), item[0]))[1]
+
+
+def retest_status_label(status: str) -> str:
+    return {
+        "remediated": "Remediated",
+        "partial": "Partially Remediated",
+        "not_remediated": "Not Remediated",
+    }.get(str(status or "").strip().lower(), "")
+
+
+def retest_metrics(findings: list[dict[str, Any]]) -> dict[str, int]:
+    metrics = {
+        "total_retested_findings": 0,
+        "remediated_count": 0,
+        "partial_count": 0,
+        "not_remediated_count": 0,
+    }
+    for finding in findings:
+        latest = latest_retest_entry(finding)
+        if latest is None:
+            continue
+        status = str(latest.get("status") or "").strip().lower()
+        if status not in {"remediated", "partial", "not_remediated"}:
+            continue
+        metrics["total_retested_findings"] += 1
+        if status == "remediated":
+            metrics["remediated_count"] += 1
+        elif status == "partial":
+            metrics["partial_count"] += 1
+        elif status == "not_remediated":
+            metrics["not_remediated_count"] += 1
+    return metrics
 
 
 def summarize_target_input(target_input: str) -> str:
@@ -894,6 +941,10 @@ class MappingTableModel(QAbstractTableModel):
                 colors = semantic_colors("confirmed", WORKFLOW_COLORS)
             elif normalized_column == "severity" and "effective_severity" in row:
                 colors = semantic_colors(str(row.get("effective_severity") or ""), SEVERITY_COLORS)
+            elif normalized_column == "retest":
+                latest_retest = latest_retest_entry(row)
+                if latest_retest is not None:
+                    colors = semantic_colors(str(latest_retest.get("status") or ""), RETEST_COLORS)
             elif normalized_column == "workflow" and "workflow_status" in row:
                 colors = semantic_colors(str(row.get("workflow_status") or ""), WORKFLOW_COLORS)
             elif normalized_column == "state" and "state" in row:

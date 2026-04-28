@@ -50,7 +50,7 @@ from attackcastle.gui.common import (
     splitter_orientation_key,
     title_case_label,
 )
-from attackcastle.gui.models import EntityNote, RunSnapshot
+from attackcastle.gui.models import EntityNote, HttpHistoryEntry, RunSnapshot
 
 
 class EntityNoteDialog(QDialog):
@@ -90,6 +90,7 @@ class AssetsTab(QWidget):
         save_note: Callable[[str, EntityNote], None],
         send_to_attacker: Callable[[str, dict[str, Any], RunSnapshot, str], None] | None = None,
         attacker_action_types: Callable[[str], list[tuple[str, str]]] | None = None,
+        send_http_history_to_attacker: Callable[[HttpHistoryEntry], None] | None = None,
         parent: QWidget | None = None,
         layout_loader: Callable[[str, str], list[int] | None] | None = None,
         layout_saver: Callable[[str, str, list[int]], None] | None = None,
@@ -100,7 +101,9 @@ class AssetsTab(QWidget):
         self._save_note = save_note
         self._send_to_attacker = send_to_attacker
         self._attacker_action_types = attacker_action_types
+        self._send_http_history_to_attacker = send_http_history_to_attacker
         self._snapshot: RunSnapshot | None = None
+        self._http_history_entries: list[HttpHistoryEntry] = []
         self._notes: dict[str, EntityNote] = {}
         self._active_detail_signature = ""
         self._active_detail_kind = ""
@@ -217,6 +220,19 @@ class AssetsTab(QWidget):
                 ("Note", lambda row: row.get("__note_preview") or ""),
             ]
         )
+        self.http_history_model = MappingTableModel(
+            [
+                ("Time", lambda row: row.get("timestamp") or ""),
+                ("Method", "method"),
+                ("Host", "host"),
+                ("Path", "path"),
+                ("Status", lambda row: row.get("response_status") or ""),
+                ("MIME", lambda row: row.get("content_type") or ""),
+                ("Length", lambda row: row.get("size") or 0),
+                ("TLS", lambda row: "Yes" if row.get("tls") else "No"),
+                ("Error", lambda row: row.get("error") or ""),
+            ]
+        )
 
         self.assets_view = self._make_table(self.assets_model, "asset")
         self.services_view = self._make_table(self.services_model, "service")
@@ -227,6 +243,7 @@ class AssetsTab(QWidget):
         self.login_surfaces_view = self._make_table(self.login_surfaces_model, "login_surface")
         self.site_map_view = self._make_table(self.site_map_model, "site_map")
         self.technologies_view = self._make_table(self.technologies_model, "technology")
+        self.http_history_view = self._make_table(self.http_history_model, "http_history")
 
         self.inventory_tabs = QTabWidget()
         configure_tab_widget(self.inventory_tabs, role="group")
@@ -247,6 +264,7 @@ class AssetsTab(QWidget):
         web_layout.addWidget(self.web_tabs)
         self.inventory_tabs.addTab(web_page, "Web")
 
+        self.inventory_tabs.addTab(self._table_surface("HTTP History", self.http_history_view), "HTTP History")
         self.inventory_tabs.addTab(self._table_surface("Technology Inventory", self.technologies_view), "Technology")
         inventory_page = build_flat_container()
         inventory_layout = QVBoxLayout(inventory_page)
@@ -254,7 +272,18 @@ class AssetsTab(QWidget):
         inventory_layout.setSpacing(PAGE_SECTION_SPACING)
         inventory_layout.addWidget(toolbar)
         inventory_layout.addWidget(self.inventory_tabs, 1)
-        content_layout.addWidget(inventory_page, 1)
+        self.graph_view = build_flat_container()
+        graph_layout = QVBoxLayout(self.graph_view)
+        graph_layout.setContentsMargins(0, 0, 0, 0)
+        graph_label = QLabel("Graph View")
+        graph_label.setObjectName("sectionTitle")
+        graph_layout.addWidget(graph_label)
+        graph_layout.addStretch(1)
+        self.asset_views = QTabWidget()
+        configure_tab_widget(self.asset_views, role="group")
+        self.asset_views.addTab(inventory_page, "Inventory")
+        self.asset_views.addTab(self.graph_view, "Graph View")
+        content_layout.addWidget(self.asset_views, 1)
 
         detail_body = build_flat_container()
         detail_body_layout = QVBoxLayout(detail_body)
@@ -392,6 +421,17 @@ class AssetsTab(QWidget):
                 {"mode": "content", "min": 110, "max": 150},
                 {"mode": "stretch", "min": 220},
             ),
+            "http_history": (
+                {"mode": "content", "min": 170, "max": 230},
+                {"mode": "content", "min": 80, "max": 100},
+                {"mode": "stretch", "min": 190},
+                {"mode": "stretch", "min": 260},
+                {"mode": "content", "min": 80, "max": 100},
+                {"mode": "content", "min": 130, "max": 180},
+                {"mode": "content", "min": 90, "max": 120},
+                {"mode": "content", "min": 70, "max": 90},
+                {"mode": "stretch", "min": 160},
+            ),
         }
         ensure_table_defaults(table, column_policies=policies.get(entity_kind), minimum_rows=9)
         table.doubleClicked.connect(lambda index, view=table: self._open_detail_for_index(view, index))
@@ -432,6 +472,17 @@ class AssetsTab(QWidget):
         if snapshot is not None and not workspace_changed:
             self._restore_active_detail()
 
+    def set_http_history(self, entries: list[HttpHistoryEntry]) -> None:
+        self._http_history_entries = [entry for entry in entries if isinstance(entry, HttpHistoryEntry)]
+        self._refresh_http_history_model()
+
+    def add_http_history_entry(self, entry: HttpHistoryEntry) -> None:
+        if not isinstance(entry, HttpHistoryEntry):
+            return
+        self._http_history_entries.append(entry)
+        self._http_history_entries = self._http_history_entries[-5000:]
+        self._refresh_http_history_model()
+
     def _refresh_models(self) -> None:
         snapshot = self._snapshot
         if snapshot is None:
@@ -450,6 +501,7 @@ class AssetsTab(QWidget):
                 self.technologies_model,
             ):
                 model.set_rows([])
+            self._refresh_http_history_model()
             return
 
         assets = self._enrich_rows("asset", snapshot.assets)
@@ -481,6 +533,21 @@ class AssetsTab(QWidget):
         self.login_surfaces_model.set_rows(filtered_login_surfaces)
         self.site_map_model.set_rows(filtered_routes)
         self.technologies_model.set_rows(filtered_technologies)
+        self._refresh_http_history_model()
+
+    def _refresh_http_history_model(self) -> None:
+        rows = [self._http_history_row(entry) for entry in self._http_history_entries]
+        filtered_rows = self._filter_rows(rows)
+        self.http_history_model.set_rows(filtered_rows)
+
+    def _http_history_row(self, entry: HttpHistoryEntry) -> dict[str, Any]:
+        row = entry.to_dict()
+        row["__entity_kind"] = "http_history"
+        row["__label"] = f"{entry.method or 'HTTP'} {entry.host}{entry.path}"
+        row["__target"] = entry.url
+        row["__signature"] = entry.history_id
+        row["__entry"] = entry
+        return row
 
     def _detail_sources(self) -> dict[str, tuple[QTableView, MappingTableModel]]:
         return {
@@ -493,6 +560,7 @@ class AssetsTab(QWidget):
             "login_surface": (self.login_surfaces_view, self.login_surfaces_model),
             "site_map": (self.site_map_view, self.site_map_model),
             "technology": (self.technologies_view, self.technologies_model),
+            "http_history": (self.http_history_view, self.http_history_model),
         }
 
     def _restore_active_detail(self) -> None:
@@ -568,20 +636,34 @@ class AssetsTab(QWidget):
                 index = selection.currentIndex()
             elif table.model() is not None and table.model().rowCount() > 0:
                 index = table.model().index(0, 0)
-        if not index.isValid() or self._snapshot is None:
+        if not index.isValid():
             return
         table.selectRow(index.row())
         row = index.data(Qt.UserRole) or {}
         if not isinstance(row, dict):
             return
         entity_kind = str(table.property("entity_kind") or row.get("__entity_kind") or "")
-        menu, scan_action, notes_action = self._build_context_menu(table, entity_kind, row)
+        if entity_kind == "http_history":
+            menu, send_action, _notes_action = self._build_context_menu(table, entity_kind, row)
+            action = menu.exec(table.viewport().mapToGlobal(point))
+            if action is send_action and self._send_http_history_to_attacker is not None:
+                entry = row.get("__entry")
+                if isinstance(entry, HttpHistoryEntry):
+                    self._send_http_history_to_attacker(entry)
+            return
+        if self._snapshot is None:
+            return
+        built_menu = self._build_context_menu(table, entity_kind, row)
+        menu, scan_action, notes_action = built_menu[:3]
+        graph_action = built_menu[3] if len(built_menu) > 3 else None
         target = str(row.get("__target") or "")
         action = menu.exec(table.viewport().mapToGlobal(point))
         if action is scan_action and target:
             self._launch_scan(target, row.get("__label") or row_label(entity_kind, row, self._snapshot))
         elif action is notes_action:
             self._edit_note_for_row(entity_kind, row)
+        elif graph_action is not None and action is graph_action:
+            self._focus_row_in_graph(entity_kind, row)
         elif action is not None and self._send_to_attacker is not None:
             action_payload = action.data()
             if isinstance(action_payload, dict) and action_payload.get("action") == "send_to_attacker":
@@ -592,9 +674,23 @@ class AssetsTab(QWidget):
                     str(action_payload.get("workspace_type") or ""),
                 )
 
-    def _build_context_menu(self, table: QTableView, entity_kind: str, row: dict[str, Any]) -> tuple[QMenu, Any, Any]:
+    def _build_context_menu(self, table: QTableView, entity_kind: str, row: dict[str, Any]) -> tuple[Any, ...]:
         target = str(row.get("__target") or "")
         menu = QMenu(table)
+        if entity_kind == "http_history":
+            send_menu = QMenu("Send to Attacker", menu)
+            menu.addMenu(send_menu)
+            menu._attackcastle_send_menu = send_menu  # type: ignore[attr-defined]
+            send_action = send_menu.addAction("HTTP Replay")
+            send_action.setEnabled(
+                self._send_http_history_to_attacker is not None
+                and isinstance(row.get("__entry"), HttpHistoryEntry)
+                and bool(str(row.get("raw_repeater_request") or ""))
+            )
+            send_menu.setEnabled(send_action.isEnabled())
+            notes_action = menu.addAction("Add Notes")
+            notes_action.setEnabled(False)
+            return menu, send_action, notes_action
         scan_action = menu.addAction("Scan Asset")
         scan_action.setEnabled(bool(target))
         if self._send_to_attacker is not None:
@@ -616,7 +712,11 @@ class AssetsTab(QWidget):
                 )
             send_menu.setEnabled(bool(action_types))
         notes_action = menu.addAction("Add Notes")
-        return menu, scan_action, notes_action
+        if self._send_to_attacker is not None:
+            return menu, scan_action, notes_action
+        graph_action = menu.addAction("Focus in Graph")
+        graph_action.setEnabled(entity_kind in {"asset", "service", "web_app", "endpoint", "technology"})
+        return menu, scan_action, notes_action, graph_action
 
     def _open_header_context_menu(self, table: QTableView, point: QPoint) -> None:
         model = table.model()
@@ -785,6 +885,9 @@ class AssetsTab(QWidget):
         self._show_detail(entity_kind, row, table)
 
     def _show_detail(self, entity_kind: str, row: dict[str, Any], table: QTableView | None) -> None:
+        if entity_kind == "http_history":
+            self._show_http_history_detail(row, table)
+            return
         snapshot = self._snapshot
         if snapshot is None:
             return
@@ -801,6 +904,62 @@ class AssetsTab(QWidget):
             summary_parts.append("Has project notes")
         self.detail_summary.setText(" | ".join(part for part in summary_parts if part))
         self.detail_text.setPlainText(self._build_detail_text(payload))
+        self._expand_detail_card()
+
+    def _show_http_history_detail(self, row: dict[str, Any], table: QTableView | None) -> None:
+        entry = row.get("__entry")
+        if not isinstance(entry, HttpHistoryEntry):
+            return
+        self._active_detail_signature = entry.history_id
+        self._active_detail_kind = "http_history"
+        self._active_detail_row = dict(row)
+        self._active_detail_table = table
+        self.detail_title.setText(f"{entry.method or 'HTTP'} {entry.url or entry.path}")
+        status = f"{entry.response_status} {entry.response_reason}".strip() if entry.response_status else "No response"
+        self.detail_summary.setText(
+            " | ".join(
+                part
+                for part in (
+                    entry.host,
+                    status,
+                    f"{entry.duration_ms} ms" if entry.duration_ms else "",
+                    "TLS" if entry.tls else "",
+                    entry.error,
+                )
+                if part
+            )
+        )
+        self.detail_text.setPlainText(self._build_http_history_detail_text(entry))
+        self._expand_detail_card()
+
+    def _build_http_history_detail_text(self, entry: HttpHistoryEntry) -> str:
+        request_headers = "\n".join(f"{key}: {value}" for key, value in entry.request_headers.items())
+        response_headers = "\n".join(f"{key}: {value}" for key, value in entry.response_headers.items())
+        response_line = (
+            f"HTTP/1.1 {entry.response_status} {entry.response_reason}".rstrip()
+            if entry.response_status
+            else "No response captured"
+        )
+        return "\n".join(
+            [
+                "Request",
+                entry.raw_repeater_request or f"{entry.method} {entry.path} HTTP/1.1\nHost: {entry.host}\n{request_headers}",
+                "",
+                "Response",
+                response_line,
+                response_headers,
+                "",
+                entry.response_body_preview,
+            ]
+        )
+
+    def _focus_row_in_graph(self, entity_kind: str, row: dict[str, Any]) -> None:
+        if hasattr(self, "asset_views") and hasattr(self, "graph_view"):
+            self.asset_views.setCurrentWidget(self.graph_view)
+        label = str(row.get("__label") or row.get("name") or row.get("url") or row.get("host") or title_case_label(entity_kind))
+        self.detail_title.setText("Graph View")
+        self.detail_summary.setText("Focused inventory entity")
+        self.detail_text.setPlainText(f"Graph view centered on {label}.")
         self._expand_detail_card()
 
     def _build_detail_text(self, payload: dict[str, Any]) -> str:

@@ -354,6 +354,32 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QFrame#profileSummaryCard {{
         border-color: {palette['border']};
     }}
+    QWidget#profileSectionPage {{
+        background: transparent;
+    }}
+    QTabWidget#profileSectionTabs::pane {{
+        margin-top: 6px;
+    }}
+    QTabBar#profileSectionTabBar::tab {{
+        padding: 7px 12px 6px 12px;
+        margin: 0 7px 0 0;
+        min-height: 20px;
+    }}
+    QTabWidget#toolCoverageTabs::pane {{
+        margin-top: 0;
+        padding: 0;
+    }}
+    QTabBar#toolCoverageTabBar::tab {{
+        padding: 6px 10px 5px 10px;
+        margin: 0 6px 0 0;
+        min-height: 20px;
+    }}
+    QTabBar#toolCoverageTabBar::tab:selected {{
+        border-bottom-color: {palette['accent_border']};
+    }}
+    QTabBar#toolCoverageTabBar::tab:hover {{
+        border-bottom-color: {palette['border']};
+    }}
     QFrame#profileActionCard {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
         border-color: {palette['border']};
@@ -1020,9 +1046,9 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     QListWidget#sidebarList {{
         background: transparent;
         border: 0;
-        padding: 0;
+        padding: 2px 0;
     }}
-    QListWidget#sidebarList::item {{ margin: 1px 0; padding: 5px 8px; border-radius: 7px; border: 1px solid transparent; }}
+    QListWidget#sidebarList::item {{ margin: 1px 0; padding: 7px 9px; min-height: 20px; border-radius: 7px; border: 1px solid transparent; }}
     QListWidget#sidebarList::item:hover {{ background: {palette['chip_hover']}; border-color: {palette['border_soft']}; color: {palette['text_strong']}; }}
     QListWidget#sidebarList::item:selected {{ background: {palette['selection_bg']}; border-color: {palette['accent_soft']}; color: {palette['text_strong']}; }}
     QFrame#profileCard QLineEdit,

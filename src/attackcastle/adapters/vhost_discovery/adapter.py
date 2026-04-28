@@ -418,13 +418,14 @@ class VHostDiscoveryAdapter:
         result.tool_executions.append(
             build_tool_execution(
                 tool_name=self.name,
-                command="internal host-header virtual host discovery",
+                command="",
                 started_at=started_at,
                 ended_at=now_utc(),
                 status="completed",
                 execution_id=execution_id,
                 capability=self.capability,
                 exit_code=0,
+                raw_command="",
             )
         )
         context.audit.write(

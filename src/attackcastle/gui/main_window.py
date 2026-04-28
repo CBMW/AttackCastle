@@ -8,7 +8,7 @@ from time import monotonic
 from typing import Any
 from uuid import uuid4
 
-from PySide6.QtCore import QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl
+from PySide6.QtCore import QObject, QItemSelectionModel, QModelIndex, QPoint, QProcess, QRect, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -65,6 +65,7 @@ from attackcastle.gui.common import (
     format_duration,
     format_progress,
     refresh_widget_style,
+    retest_metrics,
     style_button,
     set_tooltip,
     set_tooltips,
@@ -93,6 +94,7 @@ from attackcastle.gui.models import (
     FindingState,
     GuiProfile,
     GuiProxySettings,
+    HttpHistoryEntry,
     MigrationState,
     OverviewChecklistItem,
     ReportsConfig,
@@ -104,6 +106,7 @@ from attackcastle.gui.models import (
     now_iso,
 )
 from attackcastle.gui.overview_general import GeneralOverviewData, OverviewGeneralPanel
+from attackcastle.gui.http_history_proxy import HttpHistoryProxyService
 from attackcastle.gui.overview_checklist import OverviewChecklistPanel
 from attackcastle.gui.output_tab import OutputTab
 from attackcastle.gui.performance import (
@@ -121,6 +124,11 @@ from attackcastle.gui.worker_processes import WorkerProcessManager
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore, ad_hoc_output_home
 from attackcastle.storage.run_store import RunStore
+
+
+class _HttpHistoryBridge(QObject):
+    captured = Signal(object)
+
 
 class MainWindow(QMainWindow):
     def __init__(
@@ -173,6 +181,13 @@ class MainWindow(QMainWindow):
         self.performance_guard_settings = load_performance_guard_settings()
         self.proxy_settings = self.workspace_store.load_proxy_settings()
         self._applying_proxy_settings = False
+        self._http_history_bridge = _HttpHistoryBridge(self)
+        self._http_history_bridge.captured.connect(self._handle_http_history_entry)
+        self._http_history_proxy = HttpHistoryProxyService(
+            confdir=self.workspace_store.path.parent / "mitmproxy",
+            workspace_id_provider=lambda: self._active_workspace_id,
+            on_entry=lambda entry: self._http_history_bridge.captured.emit(entry),
+        )
         self._system_usage_sampler = ProcessTreeUsageSampler()
         self._resource_pressure_active = False
         self._last_resource_action = "No resource action yet."
@@ -198,7 +213,12 @@ class MainWindow(QMainWindow):
         self._load_workspace_state(self._active_workspace_id)
         self._update_run_action_state()
         self._refresh_settings_page()
+        self._sync_http_history_proxy_service()
         self._navigate_to("workspaces")
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802
+        self._http_history_proxy.stop()
+        super().closeEvent(event)
 
     def showEvent(self, event: Any) -> None:
         super().showEvent(event)
@@ -342,6 +362,7 @@ class MainWindow(QMainWindow):
             self._save_entity_note,
             send_to_attacker=self._send_asset_to_attacker,
             attacker_action_types=self._attacker_action_types,
+            send_http_history_to_attacker=self._send_http_history_to_attacker,
             layout_loader=self._load_ui_layout,
             layout_saver=self._save_ui_layout,
         )
@@ -741,6 +762,8 @@ class MainWindow(QMainWindow):
 
     def _add_settings_page(self, key: str, title: str, page: QWidget) -> None:
         self._settings_page_indices[key] = self.settings_tabs.addTab(page, title)
+        if hasattr(self, "settings_nav_list"):
+            self.settings_nav_list.addItem(QListWidgetItem(title))
 
     def _build_settings_page(self) -> QWidget:
         page = QWidget()
@@ -751,6 +774,8 @@ class MainWindow(QMainWindow):
         self.settings_tabs = QTabWidget()
         configure_tab_widget(self.settings_tabs, role="group")
         self.settings_tabs.setObjectName("settingsTabs")
+        self.settings_nav_list = QListWidget()
+        self.settings_nav_list.hide()
         self._settings_page_indices: dict[str, int] = {}
 
         self._settings_section_widgets: list[QWidget] = []
@@ -832,6 +857,15 @@ class MainWindow(QMainWindow):
         self.proxy_attacker_enabled_checkbox = QCheckBox("Use attacker-specific proxy")
         self.proxy_attacker_url_edit = QLineEdit()
         self.proxy_attacker_url_edit.setPlaceholderText("http://127.0.0.1:8080")
+        self.capture_proxy_enabled_checkbox = QCheckBox("Enable AttackCastle HTTP History proxy")
+        self.capture_proxy_host_edit = QLineEdit()
+        self.capture_proxy_host_edit.setPlaceholderText("127.0.0.1")
+        self.capture_proxy_port_edit = QLineEdit()
+        self.capture_proxy_port_edit.setPlaceholderText("8087")
+        self.capture_proxy_ca_path_label = QLabel("")
+        self.capture_proxy_ca_path_label.setObjectName("monoLabel")
+        self.capture_proxy_ca_path_label.setProperty("variant", "path")
+        self.capture_proxy_ca_path_label.setWordWrap(True)
         self.proxy_settings_status_label = QLabel("")
         self.proxy_settings_status_label.setObjectName("helperText")
         self.proxy_settings_status_label.setWordWrap(True)
@@ -839,6 +873,8 @@ class MainWindow(QMainWindow):
             self.proxy_global_url_edit,
             self.proxy_scanner_url_edit,
             self.proxy_attacker_url_edit,
+            self.capture_proxy_host_edit,
+            self.capture_proxy_port_edit,
         ):
             edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         set_tooltips(
@@ -849,6 +885,10 @@ class MainWindow(QMainWindow):
                 (self.proxy_scanner_url_edit, "Proxy URL applied to newly launched, resumed, and retried Scanner work."),
                 (self.proxy_attacker_enabled_checkbox, "Use an Attacker-specific proxy when the global all-traffic proxy is off."),
                 (self.proxy_attacker_url_edit, "Proxy URL applied to Attacker HTTP replay requests."),
+                (self.capture_proxy_enabled_checkbox, "Start a local manual forward proxy that feeds Assets HTTP History."),
+                (self.capture_proxy_host_edit, "Local interface for the AttackCastle HTTP History proxy listener."),
+                (self.capture_proxy_port_edit, "Local port for the AttackCastle HTTP History proxy listener."),
+                (self.capture_proxy_ca_path_label, "Import and trust this CA certificate in clients that should expose HTTPS request and response bodies."),
             )
         )
         proxy_form = QWidget()
@@ -862,6 +902,11 @@ class MainWindow(QMainWindow):
         proxy_form_layout.addRow(self._build_settings_divider())
         proxy_form_layout.addRow(self.proxy_attacker_enabled_checkbox)
         proxy_form_layout.addRow("Attacker proxy URL", self.proxy_attacker_url_edit)
+        proxy_form_layout.addRow(self._build_settings_divider())
+        proxy_form_layout.addRow(self.capture_proxy_enabled_checkbox)
+        proxy_form_layout.addRow("HTTP History host", self.capture_proxy_host_edit)
+        proxy_form_layout.addRow("HTTP History port", self.capture_proxy_port_edit)
+        proxy_form_layout.addRow("MITM CA certificate", self.capture_proxy_ca_path_label)
         proxy_layout.addWidget(proxy_form)
         proxy_layout.addWidget(self.proxy_settings_status_label)
         for signal in (
@@ -871,6 +916,9 @@ class MainWindow(QMainWindow):
             self.proxy_scanner_url_edit.textChanged,
             self.proxy_attacker_enabled_checkbox.toggled,
             self.proxy_attacker_url_edit.textChanged,
+            self.capture_proxy_enabled_checkbox.toggled,
+            self.capture_proxy_host_edit.textChanged,
+            self.capture_proxy_port_edit.textChanged,
         ):
             signal.connect(lambda *_args: self._persist_proxy_settings())
         self._add_settings_page("proxy", "Proxy", self._build_settings_content_page(proxy_panel))
@@ -1098,6 +1146,7 @@ class MainWindow(QMainWindow):
             root_cause = root_cause or "Uncategorized"
             root_cause_counts[root_cause] = root_cause_counts.get(root_cause, 0) + 1
 
+        retest_counts = retest_metrics(findings)
         task_totals = self._workspace_task_counts()
         return GeneralOverviewData(
             total_assets=len(inventory_snapshot.assets) if inventory_snapshot is not None else 0,
@@ -1106,6 +1155,10 @@ class MainWindow(QMainWindow):
             total_findings=len(findings),
             tasks_in_progress=task_totals[0],
             tasks_completed=task_totals[1],
+            total_retested_findings=retest_counts["total_retested_findings"],
+            remediated_count=retest_counts["remediated_count"],
+            partial_count=retest_counts["partial_count"],
+            not_remediated_count=retest_counts["not_remediated_count"],
             severity_counts=severity_counts,
             root_cause_counts=root_cause_counts,
         )
@@ -1141,6 +1194,8 @@ class MainWindow(QMainWindow):
                 state = states.get(finding_id)
                 base_severity = str(row.get("severity") or "info").lower()
                 row["effective_severity"] = (state.severity_override if state else "") or base_severity
+                if state:
+                    row["retests"] = [entry.to_dict() for entry in state.retests]
                 rows.append(row)
         for run_id, manual_findings in manual_findings_by_run.items():
             if run_id in seen_run_ids or not isinstance(manual_findings, list):
@@ -1156,6 +1211,8 @@ class MainWindow(QMainWindow):
                 state = states.get(finding_id)
                 base_severity = str(row.get("severity") or "info").lower()
                 row["effective_severity"] = (state.severity_override if state else "") or base_severity
+                if state:
+                    row["retests"] = [entry.to_dict() for entry in state.retests]
                 rows.append(row)
         return rows
 
@@ -1312,6 +1369,10 @@ class MainWindow(QMainWindow):
             self.proxy_scanner_url_edit.setText(self.proxy_settings.scanner_proxy_url)
             self.proxy_attacker_enabled_checkbox.setChecked(self.proxy_settings.attacker_proxy_enabled)
             self.proxy_attacker_url_edit.setText(self.proxy_settings.attacker_proxy_url)
+            self.capture_proxy_enabled_checkbox.setChecked(self.proxy_settings.capture_proxy_enabled)
+            self.capture_proxy_host_edit.setText(self.proxy_settings.capture_proxy_host)
+            self.capture_proxy_port_edit.setText(str(self.proxy_settings.capture_proxy_port))
+            self.capture_proxy_ca_path_label.setText(self.proxy_settings.capture_proxy_ca_path or str(self._http_history_proxy.ca_cert_path()))
         finally:
             self._applying_proxy_settings = False
         self._sync_proxy_settings_state()
@@ -1326,7 +1387,19 @@ class MainWindow(QMainWindow):
             scanner_proxy_url=self.proxy_scanner_url_edit.text().strip(),
             attacker_proxy_enabled=self.proxy_attacker_enabled_checkbox.isChecked(),
             attacker_proxy_url=self.proxy_attacker_url_edit.text().strip(),
+            capture_proxy_enabled=self.capture_proxy_enabled_checkbox.isChecked(),
+            capture_proxy_host=self.capture_proxy_host_edit.text().strip() or "127.0.0.1",
+            capture_proxy_port=self._capture_proxy_port_from_controls(),
+            capture_proxy_ca_path=str(self._http_history_proxy.ca_cert_path()),
+            capture_proxy_ca_status="Trust this CA in clients to inspect HTTPS traffic.",
         )
+
+    def _capture_proxy_port_from_controls(self) -> int:
+        try:
+            value = int(self.capture_proxy_port_edit.text().strip())
+        except ValueError:
+            return 8087
+        return value if 0 < value <= 65535 else 8087
 
     def _sync_proxy_settings_state(self) -> None:
         if not hasattr(self, "proxy_all_traffic_checkbox"):
@@ -1336,12 +1409,22 @@ class MainWindow(QMainWindow):
         self.proxy_scanner_url_edit.setEnabled(not proxy_all and self.proxy_scanner_enabled_checkbox.isChecked())
         self.proxy_attacker_enabled_checkbox.setEnabled(not proxy_all)
         self.proxy_attacker_url_edit.setEnabled(not proxy_all and self.proxy_attacker_enabled_checkbox.isChecked())
+        capture_enabled = self.capture_proxy_enabled_checkbox.isChecked()
+        self.capture_proxy_host_edit.setEnabled(capture_enabled)
+        self.capture_proxy_port_edit.setEnabled(capture_enabled)
         scanner_proxy = self.proxy_settings.effective_scanner_proxy_url()
         attacker_proxy = self.proxy_settings.effective_attacker_proxy_url()
         scanner_text = scanner_proxy or "direct"
         attacker_text = attacker_proxy or "direct"
+        capture_text = (
+            f"HTTP History: {self.proxy_settings.capture_proxy_url()}"
+            if self.proxy_settings.capture_proxy_enabled
+            else "HTTP History: disabled"
+        )
+        if self.proxy_settings.capture_proxy_enabled and self._http_history_proxy.last_error:
+            capture_text = f"{capture_text} ({self._http_history_proxy.last_error})"
         self.proxy_settings_status_label.setText(
-            f"Scanner traffic: {scanner_text} | Attacker traffic: {attacker_text}"
+            f"Scanner traffic: {scanner_text} | Attacker traffic: {attacker_text} | {capture_text}"
         )
 
     def _persist_proxy_settings(self) -> None:
@@ -1352,6 +1435,39 @@ class MainWindow(QMainWindow):
         self._sync_proxy_settings_state()
         if hasattr(self, "attacker_tab"):
             self.attacker_tab.set_proxy_url(self.proxy_settings.effective_attacker_proxy_url())
+        self._sync_http_history_proxy_service()
+
+    def _sync_http_history_proxy_service(self) -> None:
+        if not hasattr(self, "_http_history_proxy"):
+            return
+        if self.proxy_settings.capture_proxy_enabled:
+            self._http_history_proxy.start(
+                self.proxy_settings.capture_proxy_host,
+                self.proxy_settings.capture_proxy_port,
+            )
+        else:
+            self._http_history_proxy.stop()
+        if hasattr(self, "capture_proxy_ca_path_label"):
+            ca_path = str(self._http_history_proxy.ca_cert_path())
+            self.capture_proxy_ca_path_label.setText(ca_path)
+            if self.proxy_settings.capture_proxy_ca_path != ca_path:
+                self.proxy_settings.capture_proxy_ca_path = ca_path
+                self.proxy_settings.capture_proxy_ca_status = "Trust this CA in clients to inspect HTTPS traffic."
+                self.workspace_store.save_proxy_settings(self.proxy_settings)
+        self._sync_proxy_settings_state()
+
+    def _handle_http_history_entry(self, entry: object) -> None:
+        if not isinstance(entry, HttpHistoryEntry):
+            return
+        workspace_id = entry.workspace_id or self._active_workspace_id
+        entry.workspace_id = workspace_id
+        self.workspace_store.append_http_history_entry(workspace_id, entry)
+        if workspace_id == self._active_workspace_id and hasattr(self, "assets_tab"):
+            self.assets_tab.add_http_history_entry(entry)
+
+    def _send_http_history_to_attacker(self, entry: HttpHistoryEntry) -> None:
+        self.attacker_tab.add_workspace_from_http_history(entry)
+        self._navigate_to("attacker")
 
     def _apply_proxy_settings_to_request(self, request: ScanRequest) -> None:
         proxy_url = self.proxy_settings.effective_scanner_proxy_url()
@@ -3008,6 +3124,7 @@ class MainWindow(QMainWindow):
         self._run_registry = self.workspace_store.load_run_registry(workspace_id)
         self._finding_states_by_run = self.workspace_store.load_finding_states(workspace_id)
         self._audit_entries = self.workspace_store.load_audit(workspace_id)
+        http_history = self.workspace_store.load_http_history(workspace_id)
         self._selected_workspace_id = workspace_id or (self._workspaces[0].workspace_id if self._workspaces else "")
         self._selected_engagement_id = self._selected_workspace_id
         self._run_snapshots = {}
@@ -3027,6 +3144,8 @@ class MainWindow(QMainWindow):
         self._refresh_audit_table()
         self._sync_run_table()
         self._refresh_context_panels()
+        if hasattr(self, "assets_tab"):
+            self.assets_tab.set_http_history(http_history)
         if hasattr(self, "attacker_tab"):
             self.attacker_tab.set_workspace(workspace_id)
         self._refresh_dashboard()

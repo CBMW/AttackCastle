@@ -19,7 +19,7 @@ from attackcastle.gui.attacker_tab import (
     _parse_raw_http_request,
 )
 from attackcastle.gui.assets_tab import AssetsTab
-from attackcastle.gui.models import AttackWorkspace, RunSnapshot, Workspace
+from attackcastle.gui.models import AttackWorkspace, HttpHistoryEntry, RunSnapshot, Workspace
 from attackcastle.gui.workspace_store import WorkspaceStore
 
 
@@ -122,6 +122,40 @@ def test_attacker_tab_creates_typed_workspace_from_asset(tmp_path: Path) -> None
             for edit in page.findChildren(QPlainTextEdit)
         )
         assert stored[0].attack_workspace_id == created.attack_workspace_id
+    finally:
+        tab.close()
+
+
+def test_attacker_tab_creates_http_repeater_from_history_entry() -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    stored: list[AttackWorkspace] = []
+
+    def save_workspaces(_workspace_id: str, rows: list[AttackWorkspace]) -> None:
+        stored.clear()
+        stored.extend(rows)
+
+    tab = AttackerTab(
+        load_workspaces=lambda _workspace_id: list(stored),
+        save_workspaces=save_workspaces,
+    )
+    entry = HttpHistoryEntry(
+        history_id="http-1",
+        method="POST",
+        host="edge.example.com",
+        path="/api/login",
+        url="https://edge.example.com/api/login",
+        raw_repeater_request="POST /api/login HTTP/1.1\nHost: edge.example.com\nContent-Length: 4\n\nping",
+    )
+
+    try:
+        tab.set_workspace("workspace-1")
+        created = tab.add_workspace_from_http_history(entry)
+
+        assert created.workspace_type == "http"
+        assert created.target_objects[0].entity_kind == "http_history"
+        assert created.sessions[0].request == entry.raw_repeater_request
+        assert stored[0].sessions[0].request == entry.raw_repeater_request
     finally:
         tab.close()
 

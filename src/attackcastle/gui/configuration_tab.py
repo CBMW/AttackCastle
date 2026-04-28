@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStyle,
     QVBoxLayout,
@@ -21,8 +22,6 @@ from PySide6.QtWidgets import (
 )
 
 from attackcastle.gui.common import (
-    PAGE_CARD_SPACING,
-    PANEL_CONTENT_PADDING,
     PAGE_SECTION_SPACING,
     PersistentSplitterController,
     apply_responsive_splitter,
@@ -32,6 +31,11 @@ from attackcastle.gui.common import (
 from attackcastle.gui.forms import ProfileFieldsMixin
 from attackcastle.gui.models import GuiProfile
 from attackcastle.gui.profile_store import GuiProfileStore
+
+PROFILE_LIBRARY_WIDTH = 304
+PROFILE_LIBRARY_MIN_WIDTH = 280
+PROFILE_LIBRARY_PADDING = 12
+PROFILE_LIBRARY_SPACING = 8
 
 
 class ConfigurationTab(QWidget, ProfileFieldsMixin):
@@ -63,21 +67,32 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
 
         rail = QFrame()
         rail.setObjectName("sidebarPanel")
+        rail.setMinimumWidth(PROFILE_LIBRARY_MIN_WIDTH)
+        rail.setMaximumWidth(360)
+        rail.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         rail_layout = QVBoxLayout(rail)
-        rail_layout.setContentsMargins(PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING, PANEL_CONTENT_PADDING)
-        rail_layout.setSpacing(PAGE_SECTION_SPACING)
+        rail_layout.setContentsMargins(
+            PROFILE_LIBRARY_PADDING,
+            PROFILE_LIBRARY_PADDING,
+            PROFILE_LIBRARY_PADDING,
+            PROFILE_LIBRARY_PADDING,
+        )
+        rail_layout.setSpacing(PROFILE_LIBRARY_SPACING)
         rail_title = QLabel("Profile Library")
         rail_title.setObjectName("sectionTitle")
         self.profile_list = QListWidget()
         self.profile_list.setObjectName("sidebarList")
+        self.profile_list.setUniformItemSizes(True)
+        self.profile_list.setSpacing(2)
+        self.profile_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.profile_list.currentRowChanged.connect(self._load_selected_profile)
-        rail_layout.addWidget(rail_title)
+        rail_layout.addWidget(rail_title, 0, Qt.AlignLeft)
         rail_layout.addWidget(self.profile_list, 1)
         library_actions = QFrame()
         library_actions.setObjectName("profileLibraryActions")
         library_action_layout = QHBoxLayout(library_actions)
         library_action_layout.setContentsMargins(0, 0, 0, 0)
-        library_action_layout.setSpacing(PAGE_CARD_SPACING)
+        library_action_layout.setSpacing(6)
         self.new_button = self._library_action_button(
             QStyle.StandardPixmap.SP_FileIcon,
             "New Profile",
@@ -106,17 +121,14 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
         self.duplicate_button.clicked.connect(self._duplicate_profile)
         self.save_button.clicked.connect(self._save_profile)
         self.delete_button.clicked.connect(self._delete_profile)
-        library_action_layout.addStretch(1)
-        library_action_layout.addWidget(self.new_button)
-        library_action_layout.addWidget(self.duplicate_button)
-        library_action_layout.addWidget(self.save_button)
-        library_action_layout.addWidget(self.delete_button)
-        library_action_layout.addStretch(1)
+        for button in (self.new_button, self.duplicate_button, self.save_button, self.delete_button):
+            library_action_layout.addWidget(button, 1, Qt.AlignCenter)
         rail_layout.addWidget(library_actions)
 
         self.status_label = QLabel("Profiles are stored as JSON and translated into engine overrides at launch time.")
         self.status_label.setObjectName("helperText")
         self.status_label.setWordWrap(True)
+        self.status_label.setContentsMargins(1, 2, 1, 0)
         rail_layout.addWidget(self.status_label)
         self.splitter.addWidget(rail)
 
@@ -166,12 +178,12 @@ class ConfigurationTab(QWidget, ProfileFieldsMixin):
     def _sync_responsive_mode(self, width: int) -> None:
         if width >= 1280:
             self.splitter.setOrientation(Qt.Horizontal)
-            fallback = [320, max(width - 320, 760)]
+            fallback = [PROFILE_LIBRARY_WIDTH, max(width - PROFILE_LIBRARY_WIDTH, 760)]
             self._splitter_controller.apply(fallback)
             return
         if width >= 1040:
             self.splitter.setOrientation(Qt.Horizontal)
-            fallback = [280, max(width - 280, 660)]
+            fallback = [PROFILE_LIBRARY_MIN_WIDTH, max(width - PROFILE_LIBRARY_MIN_WIDTH, 660)]
             self._splitter_controller.apply(fallback)
             return
         self.splitter.setOrientation(Qt.Vertical)

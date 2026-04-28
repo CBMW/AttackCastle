@@ -10,6 +10,7 @@ from attackcastle.gui.models import (
     EntityNote,
     FindingState,
     GuiProxySettings,
+    HttpHistoryEntry,
     MigrationState,
     ReportsConfig,
     RunRegistryEntry,
@@ -18,9 +19,10 @@ from attackcastle.gui.models import (
     now_iso,
 )
 
-WORKSPACE_STORE_VERSION = 8
+WORKSPACE_STORE_VERSION = 9
 LEGACY_WORKSPACE_STORE_VERSION = 2
 NO_WORKSPACE_SCOPE_ID = "__no_workspace__"
+HTTP_HISTORY_LIMIT = 5000
 
 
 def default_workspace_store_path() -> Path:
@@ -58,6 +60,7 @@ def _workspace_has_meaningful_data(workspace: Workspace, payload: dict[str, Any]
         "entity_notes",
         "manual_findings",
         "attack_workspaces",
+        "http_history",
         "reports_config",
         "audit",
         "overview_state",
@@ -95,6 +98,7 @@ def _default_payload() -> dict[str, Any]:
         "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}},
         "manual_findings": {NO_WORKSPACE_SCOPE_ID: {}},
         "attack_workspaces": {NO_WORKSPACE_SCOPE_ID: []},
+        "http_history": {NO_WORKSPACE_SCOPE_ID: []},
         "reports_config": {NO_WORKSPACE_SCOPE_ID: {}},
         "audit": {NO_WORKSPACE_SCOPE_ID: []},
         "overview_state": {},
@@ -183,6 +187,7 @@ class WorkspaceStore:
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
         payload["manual_findings"] = self._normalized_manual_findings(payload.get("manual_findings"), workspaces)
         payload["attack_workspaces"] = self._normalized_attack_workspaces(payload.get("attack_workspaces"), workspaces)
+        payload["http_history"] = self._normalized_http_history(payload.get("http_history"), workspaces)
         payload["reports_config"] = self._normalized_reports_config(payload.get("reports_config"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
@@ -338,6 +343,32 @@ class WorkspaceStore:
             result[workspace_id] = workspaces_for_scope
         return result
 
+    def _normalized_http_history(self, raw: Any, workspaces: list[Workspace]) -> dict[str, list[dict[str, Any]]]:
+        valid_ids = {workspace.workspace_id for workspace in workspaces}
+        result: dict[str, list[dict[str, Any]]] = {NO_WORKSPACE_SCOPE_ID: []}
+        result.update({workspace.workspace_id: [] for workspace in workspaces})
+        if not isinstance(raw, dict):
+            return result
+        for workspace_id, rows in raw.items():
+            if workspace_id not in valid_ids and workspace_id != NO_WORKSPACE_SCOPE_ID:
+                continue
+            if not isinstance(rows, list):
+                continue
+            entries: list[dict[str, Any]] = []
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                entry = HttpHistoryEntry.from_dict(item)
+                if not entry.history_id:
+                    continue
+                if workspace_id == NO_WORKSPACE_SCOPE_ID:
+                    entry.workspace_id = ""
+                elif not entry.workspace_id:
+                    entry.workspace_id = workspace_id
+                entries.append(entry.to_dict())
+            result[workspace_id] = entries[-HTTP_HISTORY_LIMIT:]
+        return result
+
     def _normalized_reports_config(self, raw: Any, workspaces: list[Workspace]) -> dict[str, dict[str, Any]]:
         valid_ids = {workspace.workspace_id for workspace in workspaces}
         result: dict[str, dict[str, Any]] = {NO_WORKSPACE_SCOPE_ID: {}}
@@ -427,6 +458,7 @@ class WorkspaceStore:
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), remaining)
         payload["manual_findings"] = self._normalized_manual_findings(payload.get("manual_findings"), remaining)
         payload["attack_workspaces"] = self._normalized_attack_workspaces(payload.get("attack_workspaces"), remaining)
+        payload["http_history"] = self._normalized_http_history(payload.get("http_history"), remaining)
         payload["reports_config"] = self._normalized_reports_config(payload.get("reports_config"), remaining)
         payload["audit"] = self._normalized_audit(payload.get("audit"), remaining)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), remaining)
@@ -446,6 +478,7 @@ class WorkspaceStore:
         payload["entity_notes"] = self._normalized_entity_notes(payload.get("entity_notes"), workspaces)
         payload["manual_findings"] = self._normalized_manual_findings(payload.get("manual_findings"), workspaces)
         payload["attack_workspaces"] = self._normalized_attack_workspaces(payload.get("attack_workspaces"), workspaces)
+        payload["http_history"] = self._normalized_http_history(payload.get("http_history"), workspaces)
         payload["reports_config"] = self._normalized_reports_config(payload.get("reports_config"), workspaces)
         payload["audit"] = self._normalized_audit(payload.get("audit"), workspaces)
         payload["overview_state"] = self._normalized_overview_state(payload.get("overview_state"), workspaces)
@@ -658,6 +691,22 @@ class WorkspaceStore:
             if isinstance(item, dict)
         ]
 
+    def load_http_history(self, workspace_id: str | None = None) -> list[HttpHistoryEntry]:
+        normalized = self._normalized_payload()
+        raw = normalized.get("http_history", {})
+        if not isinstance(raw, dict):
+            return []
+        if workspace_id is None:
+            workspace_id = self.get_active_workspace_id()
+        rows = raw.get(self.scope_key(workspace_id), [])
+        if not isinstance(rows, list):
+            return []
+        return [
+            HttpHistoryEntry.from_dict(item)
+            for item in rows
+            if isinstance(item, dict)
+        ]
+
     def load_manual_findings(self, workspace_id: str | None = None, run_id: str | None = None) -> dict[str, list[dict[str, Any]]] | list[dict[str, Any]]:
         normalized = self._normalized_payload()
         raw = normalized.get("manual_findings", {})
@@ -713,6 +762,27 @@ class WorkspaceStore:
             if isinstance(workspace, AttackWorkspace) and workspace.attack_workspace_id
         ]
         return self._write_payload(payload)
+
+    def save_http_history(self, workspace_id: str | None, entries: list[HttpHistoryEntry]) -> Path:
+        payload = self._normalized_payload()
+        raw = payload.setdefault("http_history", {})
+        if not isinstance(raw, dict):
+            raw = {}
+            payload["http_history"] = raw
+        scope_id = self.scope_key(workspace_id)
+        normalized_entries: list[dict[str, Any]] = []
+        for entry in entries:
+            if not isinstance(entry, HttpHistoryEntry) or not entry.history_id:
+                continue
+            entry.workspace_id = "" if scope_id == NO_WORKSPACE_SCOPE_ID else scope_id
+            normalized_entries.append(entry.to_dict())
+        raw[scope_id] = normalized_entries[-HTTP_HISTORY_LIMIT:]
+        return self._write_payload(payload)
+
+    def append_http_history_entry(self, workspace_id: str | None, entry: HttpHistoryEntry) -> Path:
+        entries = self.load_http_history(workspace_id)
+        entries.append(entry)
+        return self.save_http_history(workspace_id, entries)
 
     def load_reports_config(self, workspace_id: str | None = None) -> ReportsConfig:
         normalized = self._normalized_payload()
@@ -877,6 +947,7 @@ class WorkspaceStore:
             "entity_notes": {NO_WORKSPACE_SCOPE_ID: {}},
             "manual_findings": {NO_WORKSPACE_SCOPE_ID: {}},
             "attack_workspaces": {NO_WORKSPACE_SCOPE_ID: []},
+            "http_history": {NO_WORKSPACE_SCOPE_ID: []},
             "reports_config": {NO_WORKSPACE_SCOPE_ID: {}},
             "audit": {
                 workspace_id: [entry.to_dict() for entry in rows[-500:]]

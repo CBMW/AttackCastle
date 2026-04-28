@@ -45,6 +45,10 @@ class GeneralOverviewData:
     total_findings: int = 0
     tasks_in_progress: int = 0
     tasks_completed: int = 0
+    total_retested_findings: int = 0
+    remediated_count: int = 0
+    partial_count: int = 0
+    not_remediated_count: int = 0
     severity_counts: dict[str, int] = field(default_factory=dict)
     root_cause_counts: dict[str, int] = field(default_factory=dict)
 
@@ -229,6 +233,9 @@ class OverviewGeneralPanel(QFrame):
             ("total_findings", "Total Findings"),
             ("tasks_in_progress", "Tasks In Progress"),
             ("tasks_completed", "Tasks Completed"),
+            ("remediated_count", "Remediated"),
+            ("partial_count", "Partially Remediated"),
+            ("not_remediated_count", "Not Remediated"),
         ]
         for key, label_text in metric_rows:
             row, value = self._build_metric_row(label_text)
@@ -276,6 +283,9 @@ class OverviewGeneralPanel(QFrame):
             "total_findings": data.total_findings,
             "tasks_in_progress": data.tasks_in_progress,
             "tasks_completed": data.tasks_completed,
+            "remediated_count": data.remediated_count,
+            "partial_count": data.partial_count,
+            "not_remediated_count": data.not_remediated_count,
         }
         for key, value in values.items():
             self.metric_values[key].setText(str(max(int(value), 0)))

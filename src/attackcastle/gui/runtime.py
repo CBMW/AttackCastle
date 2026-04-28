@@ -564,7 +564,39 @@ def _nmap_coverage_line(snapshot: RunSnapshot) -> str | None:
             if str(row.get("tool_name") or "") == "nmap" and str(row.get("status") or "") == "skipped"
         ]
     )
-    return f"- nmap_coverage: scanned={len(scanned)}, pending={len(pending)}, skipped_runs={skipped_runs}"
+    reason = _nmap_pending_reason(snapshot) if pending else ""
+    reason_suffix = f", reason={reason}" if reason else ""
+    return f"- nmap_coverage: scanned={len(scanned)}, pending={len(pending)}, skipped_runs={skipped_runs}{reason_suffix}"
+
+
+def _nmap_pending_reason(snapshot: RunSnapshot) -> str:
+    nmap_tasks = [
+        row
+        for row in snapshot.tasks
+        if str(row.get("key") or "").strip() in {"run-nmap", "run-nmap-service-detection"}
+        or str((row.get("detail") or {}).get("capability") or "").strip()
+        in {"network_port_scan", "service_detection"}
+    ]
+    for row in reversed(nmap_tasks):
+        detail = row.get("detail", {})
+        if not isinstance(detail, dict):
+            detail = {}
+        status = str(row.get("status") or "").strip()
+        reason = str(detail.get("reason") or detail.get("decision_reason") or row.get("error") or "").strip()
+        if status and reason:
+            return f"{status}:{reason}"
+        if status:
+            return status
+    skipped_tools = [
+        row
+        for row in snapshot.tool_executions
+        if str(row.get("tool_name") or "") == "nmap" and str(row.get("status") or "") == "skipped"
+    ]
+    for row in reversed(skipped_tools):
+        reason = str(row.get("termination_reason") or row.get("termination_detail") or "").strip()
+        if reason:
+            return f"tool_skipped:{reason}"
+    return "not_selected_or_not_recorded"
 
 
 def _tool_exit_failed(row: dict[str, Any]) -> bool:

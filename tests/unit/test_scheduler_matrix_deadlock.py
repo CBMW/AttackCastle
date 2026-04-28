@@ -93,6 +93,88 @@ def test_scheduler_skips_matrix_gated_task_and_runs_dependents(tmp_path: Path):
     assert executed["findings"] is True
 
 
+def test_scheduler_runs_findings_after_failed_terminal_dependency(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="failed-dependency-findings")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("failed-dependency-findings"),
+        audit=_AuditStub(),
+    )
+    executed = {"findings": False}
+
+    def _failed_runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        return AdapterResult(errors=["HTTP security header check did not return usable headers"])
+
+    def _findings_runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        executed["findings"] = True
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="check-http-security-headers",
+                label="Checking HTTP security headers",
+                capability="http_security_headers_check",
+                stage="enumeration",
+                runner=_failed_runner,
+                should_run=lambda _run_data: (True, "http targets"),
+                retryable=False,
+            ),
+            TaskDefinition(
+                key="generate-findings",
+                label="Generate findings",
+                capability="findings_engine",
+                stage="analysis",
+                runner=_findings_runner,
+                should_run=lambda _run_data: (True, "always"),
+                dependencies=["check-http-security-headers"],
+            ),
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    state_by_key = {state.key: state.status for state in states}
+    assert state_by_key["check-http-security-headers"] == "failed"
+    assert state_by_key["generate-findings"] == "completed"
+    assert executed["findings"] is True
+
+
+def test_scheduler_deadlock_state_lists_blocking_dependencies(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="deadlock-details")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("deadlock-details"),
+        audit=_AuditStub(),
+    )
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="generate-findings",
+                label="Generate findings",
+                capability="findings_engine",
+                stage="analysis",
+                runner=lambda _context, _run_data: AdapterResult(),
+                should_run=lambda _run_data: (True, "always"),
+                dependencies=["missing-upstream-task"],
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert states[0].status == "skipped"
+    assert states[0].detail["reason"] == "dependency_deadlock"
+    assert states[0].detail["blocking_dependencies"] == ["missing-upstream-task"]
+
+
 def test_scheduler_emits_live_result_events_and_persists_task_rows_in_checkpoints(tmp_path: Path):
     run_store = RunStore(output_root=tmp_path, run_id="scheduler-live-events")
     started_at = now_utc()

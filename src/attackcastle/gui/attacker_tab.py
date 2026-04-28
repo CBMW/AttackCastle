@@ -52,6 +52,7 @@ from attackcastle.gui.models import (
     AttackSession,
     AttackTargetObject,
     AttackWorkspace,
+    HttpHistoryEntry,
     RunSnapshot,
     now_iso,
 )
@@ -415,6 +416,33 @@ class AttackerTab(QWidget):
             workspace_type=workspace_type,
             target_objects=[target],
             sessions=self._initial_sessions_for_workspace(workspace_type, target=target),
+            status="draft",
+        )
+        self._workspaces.append(workspace)
+        self._active_attack_workspace_id = workspace.attack_workspace_id
+        self._persist()
+        self._render_workspaces()
+        return workspace
+
+    def add_workspace_from_http_history(self, entry: HttpHistoryEntry) -> AttackWorkspace:
+        raw_request = str(entry.raw_repeater_request or "").strip()
+        target = AttackTargetObject(
+            target_object_id=f"target-{uuid4().hex}",
+            entity_kind="http_history",
+            label=f"{entry.method or 'HTTP'} {entry.host}{entry.path}",
+            target=entry.url,
+            signature=entry.history_id,
+            data=entry.to_dict(),
+        )
+        session = self._new_session("http", target=target)
+        session.request = raw_request or session.request
+        session.label = "HTTP Replay"
+        workspace = AttackWorkspace(
+            attack_workspace_id=f"attack-{uuid4().hex}",
+            name=f"{target.label} - HTTP Replay",
+            workspace_type="http",
+            target_objects=[target],
+            sessions=[session],
             status="draft",
         )
         self._workspaces.append(workspace)

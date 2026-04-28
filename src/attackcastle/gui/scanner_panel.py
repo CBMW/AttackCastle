@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Callable
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, QTimer, Qt
@@ -142,6 +143,9 @@ class ScannerPanel(QWidget):
         self.command_text = configure_scroll_surface(QTextEdit())
         self.command_text.setObjectName("consoleText")
         self.command_text.setReadOnly(True)
+        self.output_text = configure_scroll_surface(QTextEdit())
+        self.output_text.setObjectName("consoleText")
+        self.output_text.setReadOnly(True)
         self.command_copy_button = QToolButton()
         self.command_copy_button.setIcon(QIcon.fromTheme("edit-copy"))
         self.command_copy_button.setText("Copy")
@@ -153,6 +157,7 @@ class ScannerPanel(QWidget):
         self.command_status_label.setWordWrap(True)
         self.inspector_tabs.addTab(self._tab_surface(self.detail_text), "Details")
         self.inspector_tabs.addTab(self._command_tab_surface(), "Command")
+        self.inspector_tabs.addTab(self._tab_surface(self.output_text), "Output")
         self.inspector_tabs.addTab(self._tab_surface(self.raw_text), "Raw")
         self.main_split.addWidget(self.inspector_tabs)
         self._elapsed_timer = QTimer(self)
@@ -236,6 +241,7 @@ class ScannerPanel(QWidget):
             self.detail_text.clear()
             self.raw_text.clear()
             self._set_command_rows([])
+            self._set_output_rows([])
             self._update_elapsed_timer()
             return
         if run_changed:
@@ -267,6 +273,7 @@ class ScannerPanel(QWidget):
             self.detail_text.setPlainText("Select a task, tool run, issue, or audit entry for details.")
             self.raw_text.clear()
             self._set_command_rows([])
+            self._set_output_rows([])
 
     def _update_elapsed_timer(self) -> None:
         rows = self._snapshot.tool_executions if self._snapshot is not None else []
@@ -409,10 +416,16 @@ class ScannerPanel(QWidget):
                     if isinstance(item, dict) and self._command_value(item)
                 ]
             self._set_command_rows(command_rows)
+            self._set_output_rows(
+                [item for item in bundle.get("tool_executions", []) if isinstance(item, dict)]
+                or [item for item in bundle.get("task_results", []) if isinstance(item, dict)]
+            )
             return
         self.detail_text.setPlainText(self._build_technical_text(row))
         self.raw_text.setPlainText(json.dumps(row, indent=2, sort_keys=True))
-        self._set_command_rows(self._matched_command_rows(row, kind=kind))
+        matched_rows = self._matched_command_rows(row, kind=kind)
+        self._set_command_rows(matched_rows)
+        self._set_output_rows(matched_rows)
 
     def _clear_active_detail(self) -> None:
         self._active_detail_kind = ""
@@ -496,7 +509,44 @@ class ScannerPanel(QWidget):
         return "\n".join(lines)
 
     def _command_value(self, row: dict[str, Any]) -> str:
-        return str(row.get("raw_command") or row.get("command") or "").strip()
+        command = str(row.get("raw_command") or row.get("command") or "").strip()
+        if command == "internal host-header virtual host discovery":
+            return ""
+        return command
+
+    def _read_output_path(self, path: str) -> str:
+        normalized = str(path or "").strip()
+        if not normalized:
+            return ""
+        output_path = Path(normalized).expanduser()
+        if not output_path.exists() or not output_path.is_file():
+            return ""
+        try:
+            return output_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _output_value(self, row: dict[str, Any]) -> str:
+        transcript = self._read_output_path(str(row.get("transcript_path") or ""))
+        if transcript:
+            return transcript
+
+        inline_parts: list[str] = []
+        for key in ("stdout_text", "stderr_text", "raw_output", "output"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                inline_parts.append(value)
+        if inline_parts:
+            return "\n".join(part.rstrip("\n") for part in inline_parts if part).strip("\n")
+
+        path_parts: list[str] = []
+        for key in ("stdout_path", "stderr_path"):
+            content = self._read_output_path(str(row.get(key) or ""))
+            if content:
+                path_parts.append(content)
+        return "\n".join(part.rstrip("\n") for part in path_parts if part).strip("\n")
 
     def _matched_command_rows(self, row: dict[str, Any], *, kind: str = "") -> list[dict[str, Any]]:
         if self._snapshot is None or kind not in {"task", "tool"}:
@@ -519,35 +569,31 @@ class ScannerPanel(QWidget):
 
     def _set_command_rows(self, rows: list[dict[str, Any]]) -> None:
         commands: list[str] = []
-        metadata: list[str] = []
-        for index, row in enumerate(rows, start=1):
+        for row in rows:
             command = self._command_value(row)
             if not command:
                 continue
             commands.append(command)
-            tool = str(row.get("tool_name") or row.get("task_type") or "command")
-            status = str(row.get("status") or "unknown")
-            exit_code = row.get("exit_code")
-            execution_id = str(row.get("execution_id") or row.get("task_id") or "").strip()
-            label = f"{index}. {tool} | status={status} | exit={exit_code if exit_code is not None else '-'}"
-            if execution_id:
-                label += f" | id={execution_id}"
-            metadata.append(label)
         if not commands:
             self._active_command_text = ""
             self.command_copy_button.setEnabled(False)
             self.command_status_label.setText("No raw command has been recorded for this selection yet.")
-            self.command_text.setPlainText("No command recorded.")
+            self.command_text.setPlainText("No Data")
             return
         self._active_command_text = commands[0]
         self.command_copy_button.setEnabled(True)
         self.command_status_label.setText(
             "Copy exact command." if len(commands) == 1 else f"Copy first exact command. {len(commands)} commands matched."
         )
-        rendered: list[str] = []
-        for label, command in zip(metadata, commands):
-            rendered.extend([label, command, ""])
-        self.command_text.setPlainText("\n".join(rendered).strip())
+        self.command_text.setPlainText("\n\n".join(commands).strip())
+
+    def _set_output_rows(self, rows: list[dict[str, Any]]) -> None:
+        outputs: list[str] = []
+        for row in rows:
+            output = self._output_value(row)
+            if output:
+                outputs.append(output)
+        self.output_text.setPlainText("\n\n".join(outputs).rstrip("\n") if outputs else "No Data")
 
     def _copy_active_command(self) -> None:
         if not self._active_command_text:

@@ -11,7 +11,9 @@ from attackcastle.gui.models import (
     EntityNote,
     FindingState,
     GuiProxySettings,
+    HttpHistoryEntry,
     OverviewChecklistItem,
+    RetestEntry,
     ReportsConfig,
     ReportScopeItem,
     RunRegistryEntry,
@@ -43,6 +45,35 @@ def test_workspace_store_round_trip(tmp_path: Path) -> None:
     assert audit[-1].action == "test"
 
 
+def test_finding_state_round_trips_retest_history(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.json")
+    state = FindingState(
+        finding_id="finding_1",
+        status="confirmed",
+        retests=[
+            RetestEntry(
+                date="2026-04-27",
+                status="partial",
+                notes="Still observable",
+                evidence=["C:/evidence/partial.txt"],
+            ),
+            RetestEntry(
+                date="2026-04-28",
+                status="remediated",
+                notes="No longer reproducible",
+                evidence=[],
+            ),
+        ],
+    )
+
+    store.save_finding_state("run_1", state)
+
+    loaded = store.load_finding_states()["run_1"]["finding_1"]
+    assert loaded.status == "confirmed"
+    assert [entry.status for entry in loaded.retests] == ["partial", "remediated"]
+    assert loaded.retests[0].evidence == ["C:/evidence/partial.txt"]
+
+
 def test_workspace_store_recovers_from_invalid_json(tmp_path: Path) -> None:
     store_path = tmp_path / "workspace.json"
     store_path.write_text("{not valid json", encoding="utf-8")
@@ -67,7 +98,7 @@ def test_workspace_store_recovers_from_non_object_payload(tmp_path: Path) -> Non
 
     payload = json.loads(store_path.read_text(encoding="utf-8"))
 
-    assert payload["version"] == 8
+    assert payload["version"] == 9
     assert isinstance(payload["workspaces"], list)
     assert payload["active_workspace_id"] == ""
     assert payload["finding_states"][NO_WORKSPACE_SCOPE_ID]["run_1"]["finding_1"]["status"] == "confirmed"
@@ -235,11 +266,12 @@ def test_workspace_store_upgrades_v4_payload_without_losing_data(tmp_path: Path)
     store.save_entity_note(EntityNote(signature="sig", entity_kind="asset", note="Tracked"), "eng_1")
 
     payload = json.loads(store_path.read_text(encoding="utf-8"))
-    assert payload["version"] == 8
+    assert payload["version"] == 9
     assert payload["workspaces"][0]["workspace_id"] == "eng_1"
     assert payload["entity_notes"]["eng_1"]["sig"]["note"] == "Tracked"
     assert payload["manual_findings"] == {NO_WORKSPACE_SCOPE_ID: {}, "eng_1": {}}
     assert payload["attack_workspaces"] == {NO_WORKSPACE_SCOPE_ID: [], "eng_1": []}
+    assert payload["http_history"] == {NO_WORKSPACE_SCOPE_ID: [], "eng_1": []}
     assert payload["reports_config"] == {NO_WORKSPACE_SCOPE_ID: {}, "eng_1": {}}
     assert payload["overview_state"] == {}
     assert payload["proxy_settings"] == GuiProxySettings().to_dict()
@@ -254,6 +286,11 @@ def test_workspace_store_round_trips_global_proxy_settings(tmp_path: Path) -> No
         scanner_proxy_url="http://127.0.0.1:8081",
         attacker_proxy_enabled=True,
         attacker_proxy_url="http://127.0.0.1:8082",
+        capture_proxy_enabled=True,
+        capture_proxy_host="127.0.0.1",
+        capture_proxy_port=8087,
+        capture_proxy_ca_path="/tmp/ca.pem",
+        capture_proxy_ca_status="ready",
     )
 
     store.save_proxy_settings(settings)
@@ -262,6 +299,30 @@ def test_workspace_store_round_trips_global_proxy_settings(tmp_path: Path) -> No
     assert loaded == settings
     assert loaded.effective_scanner_proxy_url() == "http://127.0.0.1:8081"
     assert loaded.effective_attacker_proxy_url() == "http://127.0.0.1:8082"
+    assert loaded.capture_proxy_url() == "http://127.0.0.1:8087"
+
+
+def test_workspace_store_round_trips_and_prunes_http_history(tmp_path: Path) -> None:
+    store = WorkspaceStore(tmp_path / "workspace.json")
+    store.save_engagement(Engagement(engagement_id="eng_1", name="Client One"))
+    entries = [
+        HttpHistoryEntry(
+            history_id=f"http-{index}",
+            workspace_id="eng_1",
+            method="GET",
+            host="example.com",
+            path=f"/{index}",
+            raw_repeater_request=f"GET /{index} HTTP/1.1\nHost: example.com\n\n",
+        )
+        for index in range(5002)
+    ]
+
+    store.save_http_history("eng_1", entries)
+    loaded = store.load_http_history("eng_1")
+
+    assert len(loaded) == 5000
+    assert loaded[0].history_id == "http-2"
+    assert loaded[-1].raw_repeater_request == "GET /5001 HTTP/1.1\nHost: example.com\n\n"
 
 
 def test_workspace_store_round_trips_ui_layout_by_key_and_orientation(tmp_path: Path) -> None:

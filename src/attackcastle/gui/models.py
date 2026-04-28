@@ -134,6 +134,11 @@ class GuiProxySettings:
     scanner_proxy_url: str = ""
     attacker_proxy_enabled: bool = False
     attacker_proxy_url: str = ""
+    capture_proxy_enabled: bool = False
+    capture_proxy_host: str = "127.0.0.1"
+    capture_proxy_port: int = 8087
+    capture_proxy_ca_path: str = ""
+    capture_proxy_ca_status: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -147,6 +152,11 @@ class GuiProxySettings:
             scanner_proxy_url=str(payload.get("scanner_proxy_url", "")),
             attacker_proxy_enabled=_coerce_bool(payload.get("attacker_proxy_enabled", False), False),
             attacker_proxy_url=str(payload.get("attacker_proxy_url", "")),
+            capture_proxy_enabled=_coerce_bool(payload.get("capture_proxy_enabled", False), False),
+            capture_proxy_host=str(payload.get("capture_proxy_host", "127.0.0.1")).strip() or "127.0.0.1",
+            capture_proxy_port=_coerce_int(payload.get("capture_proxy_port", 8087), 8087, 1),
+            capture_proxy_ca_path=str(payload.get("capture_proxy_ca_path", "")),
+            capture_proxy_ca_status=str(payload.get("capture_proxy_ca_status", "")),
         )
 
     def effective_scanner_proxy_url(self) -> str:
@@ -162,6 +172,77 @@ class GuiProxySettings:
         if self.attacker_proxy_enabled:
             return self.attacker_proxy_url.strip()
         return ""
+
+    def capture_proxy_url(self) -> str:
+        return f"http://{self.capture_proxy_host.strip() or '127.0.0.1'}:{int(self.capture_proxy_port or 8087)}"
+
+
+@dataclass(slots=True)
+class HttpHistoryEntry:
+    history_id: str
+    workspace_id: str = ""
+    timestamp: str = field(default_factory=now_iso)
+    scheme: str = ""
+    host: str = ""
+    port: int = 0
+    method: str = ""
+    path: str = ""
+    url: str = ""
+    request_headers: dict[str, str] = field(default_factory=dict)
+    request_body_preview: str = ""
+    response_status: int = 0
+    response_reason: str = ""
+    response_headers: dict[str, str] = field(default_factory=dict)
+    response_body_preview: str = ""
+    duration_ms: int = 0
+    size: int = 0
+    content_type: str = ""
+    tls: bool = False
+    error: str = ""
+    raw_repeater_request: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "HttpHistoryEntry":
+        request_headers = payload.get("request_headers", {})
+        response_headers = payload.get("response_headers", {})
+        return cls(
+            history_id=str(payload.get("history_id", "")).strip(),
+            workspace_id=str(payload.get("workspace_id", "")),
+            timestamp=str(payload.get("timestamp", now_iso())),
+            scheme=str(payload.get("scheme", "")),
+            host=str(payload.get("host", "")),
+            port=_coerce_int(payload.get("port", 0), 0, 0),
+            method=str(payload.get("method", "")),
+            path=str(payload.get("path", "")),
+            url=str(payload.get("url", "")),
+            request_headers={
+                str(key): str(value)
+                for key, value in request_headers.items()
+                if isinstance(key, str)
+            }
+            if isinstance(request_headers, dict)
+            else {},
+            request_body_preview=str(payload.get("request_body_preview", "")),
+            response_status=_coerce_int(payload.get("response_status", 0), 0, 0),
+            response_reason=str(payload.get("response_reason", "")),
+            response_headers={
+                str(key): str(value)
+                for key, value in response_headers.items()
+                if isinstance(key, str)
+            }
+            if isinstance(response_headers, dict)
+            else {},
+            response_body_preview=str(payload.get("response_body_preview", "")),
+            duration_ms=_coerce_int(payload.get("duration_ms", 0), 0, 0),
+            size=_coerce_int(payload.get("size", 0), 0, 0),
+            content_type=str(payload.get("content_type", "")),
+            tls=_coerce_bool(payload.get("tls", False), False),
+            error=str(payload.get("error", "")),
+            raw_repeater_request=str(payload.get("raw_repeater_request", "")),
+        )
 
 
 @dataclass(slots=True)
@@ -420,6 +501,37 @@ class MigrationState:
 
 
 @dataclass(slots=True)
+class RetestEntry:
+    date: str = ""
+    status: str = ""
+    notes: str = ""
+    evidence: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "RetestEntry":
+        raw_evidence = payload.get("evidence", [])
+        return cls(
+            date=str(payload.get("date", "")).strip(),
+            status=_coerce_choice(
+                payload.get("status"),
+                "",
+                ("remediated", "partial", "not_remediated", ""),
+            ),
+            notes=str(payload.get("notes", "")),
+            evidence=[
+                str(item)
+                for item in raw_evidence
+                if str(item).strip()
+            ]
+            if isinstance(raw_evidence, list)
+            else [],
+        )
+
+
+@dataclass(slots=True)
 class FindingState:
     finding_id: str
     status: str = "needs-validation"
@@ -428,6 +540,7 @@ class FindingState:
     include_in_report: bool = True
     report_flag_touched: bool = False
     reproduce_steps: str = ""
+    retests: list[RetestEntry] = field(default_factory=list)
     updated_at: str = field(default_factory=now_iso)
 
     def to_dict(self) -> dict[str, Any]:
@@ -443,6 +556,13 @@ class FindingState:
             include_in_report=bool(payload.get("include_in_report", True)),
             report_flag_touched=_coerce_bool(payload.get("report_flag_touched", False), False),
             reproduce_steps=str(payload.get("reproduce_steps", "")),
+            retests=[
+                RetestEntry.from_dict(item)
+                for item in payload.get("retests", [])
+                if isinstance(item, dict)
+            ]
+            if isinstance(payload.get("retests"), list)
+            else [],
             updated_at=str(payload.get("updated_at", now_iso())),
         )
 

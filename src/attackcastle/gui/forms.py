@@ -26,6 +26,16 @@ from attackcastle.gui.common import Card, FlowButtonRow, PAGE_CARD_SPACING, PANE
 from attackcastle.gui.common import apply_form_layout_defaults, configure_tab_widget, style_button
 from attackcastle.gui.models import GuiProfile
 
+PROFILE_TAB_MARGIN = 10
+PROFILE_FORM_COLUMN_SPACING = 18
+PROFILE_FORM_ROW_SPACING = 10
+PROFILE_FORM_LABEL_MIN_WIDTH = 148
+PROFILE_FIELD_MIN_WIDTH = 220
+PROFILE_PATH_FIELD_MIN_WIDTH = 320
+PROFILE_SPINBOX_MIN_WIDTH = 108
+PROFILE_CONTROL_MIN_HEIGHT = 28
+PROFILE_TOOL_ROW_MIN_HEIGHT = 34
+
 TOOL_FIELDS = (
     "enable_subfinder",
     "enable_dnsx",
@@ -299,10 +309,11 @@ class ProfileFieldsMixin:
             summary=description,
             object_name="profileCard",
             surface=surface,
-            padding=12 if compact else 18,
-            spacing=8 if compact else 12,
+            padding=12 if compact else 16,
+            spacing=8 if compact else 10,
         )
-        card.content_layout.addWidget(widget)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        card.content_layout.addWidget(widget, 1 if widget.property("profileFill") else 0)
         return card
 
     def _profile_form(
@@ -311,6 +322,7 @@ class ProfileFieldsMixin:
         include_identity: bool = True,
         collapsible_sections: bool = False,
         include_posture: bool = True,
+        section_tab_target: QTabWidget | None = None,
     ) -> QWidget:
         container = QWidget()
         container.setObjectName("formContainer")
@@ -374,17 +386,32 @@ class ProfileFieldsMixin:
             ]
         )
 
-        tabs = QTabWidget()
-        configure_tab_widget(tabs, role="group")
-        tabs.setObjectName("profileSectionTabs")
+        tabs = None
+        if section_tab_target is None:
+            tabs = QTabWidget()
+            configure_tab_widget(tabs, role="group")
+            tabs.setObjectName("profileSectionTabs")
+            tabs.tabBar().setObjectName("profileSectionTabBar")
         for title, description, widget, _expanded in sections:
             tab = QWidget()
+            tab.setObjectName("profileSectionPage")
             tab_layout = QVBoxLayout(tab)
-            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setContentsMargins(PROFILE_TAB_MARGIN, PROFILE_TAB_MARGIN, PROFILE_TAB_MARGIN, PROFILE_TAB_MARGIN)
             tab_layout.setSpacing(0)
-            tab_layout.addWidget(self._profile_card(title, description, widget), 1)
-            tabs.addTab(tab, title)
-        layout.addWidget(tabs, 1)
+            card = self._profile_card(title, description, widget)
+            fill = bool(widget.property("profileFill"))
+            if fill:
+                card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                tab_layout.addWidget(card, 1)
+            else:
+                tab_layout.addWidget(card, 0, Qt.AlignTop)
+                tab_layout.addStretch(1)
+            if section_tab_target is not None:
+                section_tab_target.addTab(tab, title)
+            elif tabs is not None:
+                tabs.addTab(tab, title)
+        if tabs is not None:
+            layout.addWidget(tabs, 1)
 
         self._update_tool_family_cards()
         return container
@@ -427,6 +454,21 @@ class ProfileFieldsMixin:
             self.payload_wordlist_edit,
         ):
             field.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            field.setMinimumHeight(PROFILE_CONTROL_MIN_HEIGHT)
+            field.setMinimumWidth(PROFILE_FIELD_MIN_WIDTH)
+        for spinbox in (
+            self.concurrency_spin,
+            self.cpu_cores_spin,
+            self.max_ports_spin,
+            self.delay_spin,
+            self.masscan_rate_spin,
+        ):
+            spinbox.setMinimumHeight(PROFILE_CONTROL_MIN_HEIGHT)
+            spinbox.setMinimumWidth(PROFILE_SPINBOX_MIN_WIDTH)
+            spinbox.setAlignment(Qt.AlignRight)
+        for combo in (self.base_profile_combo, self.risk_mode_combo, self.rate_mode_combo):
+            combo.setMinimumHeight(PROFILE_CONTROL_MIN_HEIGHT)
+            combo.setMinimumWidth(PROFILE_FIELD_MIN_WIDTH)
 
         self.enable_masscan = QCheckBox("masscan")
         self.enable_subfinder = QCheckBox("subfinder")
@@ -526,6 +568,7 @@ class ProfileFieldsMixin:
         apply_form_layout_defaults(identity_layout)
         identity_layout.addRow("Name", self.profile_name_edit)
         identity_layout.addRow("Description", self.description_edit)
+        self._polish_profile_form_layout(identity_layout)
         return identity_form
 
     def _build_identity_posture_form(self) -> QWidget:
@@ -541,6 +584,7 @@ class ProfileFieldsMixin:
             "Output Directory",
             self._directory_row(self.output_dir_edit, self._browse_output_dir),
         )
+        self._polish_profile_form_layout(identity_posture_layout)
         return identity_posture_form
 
     def _build_scope_form(self) -> QWidget:
@@ -564,6 +608,7 @@ class ProfileFieldsMixin:
         scope_layout.addRow("Risk Mode", self.risk_mode_combo)
         scope_layout.addRow("Rate Mode", self.rate_mode_combo)
         scope_layout.addRow("Output Directory", output_row)
+        self._polish_profile_form_layout(scope_layout)
         return scope_form
 
     def _build_performance_form(self) -> QWidget:
@@ -575,7 +620,46 @@ class ProfileFieldsMixin:
         performance_layout.addRow("Adaptive Control", self.adaptive_execution_checkbox)
         performance_layout.addRow("Max Ports", self.max_ports_spin)
         performance_layout.addRow("Request Delay (ms)", self.delay_spin)
+        self._polish_profile_form_layout(performance_layout)
         return performance_form
+
+    def _polish_profile_form_layout(self, form: QFormLayout) -> None:
+        form.setHorizontalSpacing(PROFILE_FORM_COLUMN_SPACING)
+        form.setVerticalSpacing(PROFILE_FORM_ROW_SPACING)
+        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        for row in range(form.rowCount()):
+            label_item = form.itemAt(row, QFormLayout.LabelRole)
+            field_item = form.itemAt(row, QFormLayout.FieldRole)
+            label = label_item.widget() if label_item is not None else None
+            field = field_item.widget() if field_item is not None else None
+            if isinstance(label, QLabel):
+                label.setMinimumWidth(PROFILE_FORM_LABEL_MIN_WIDTH)
+                label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            if field is not None:
+                self._polish_profile_field(field)
+
+    def _polish_profile_field(self, widget: QWidget) -> None:
+        widget.setMinimumHeight(PROFILE_CONTROL_MIN_HEIGHT)
+        if isinstance(widget, QSpinBox):
+            widget.setMinimumWidth(PROFILE_SPINBOX_MIN_WIDTH)
+            widget.setAlignment(Qt.AlignRight)
+            return
+        if isinstance(widget, QComboBox):
+            widget.setMinimumWidth(PROFILE_FIELD_MIN_WIDTH)
+            return
+        if isinstance(widget, QLineEdit):
+            widget.setMinimumWidth(PROFILE_FIELD_MIN_WIDTH)
+            return
+        if isinstance(widget, QCheckBox):
+            widget.setMinimumHeight(PROFILE_CONTROL_MIN_HEIGHT)
+            return
+        if widget.objectName() == "profileBrowseRow":
+            widget.setMinimumWidth(PROFILE_PATH_FIELD_MIN_WIDTH)
+            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            for child in widget.findChildren(QWidget):
+                if isinstance(child, (QLineEdit, QComboBox, QSpinBox, QCheckBox)):
+                    self._polish_profile_field(child)
 
     def _checkbox_group(self, title: str, helper: str, checkboxes: tuple[QCheckBox, ...]) -> QWidget:
         group = QFrame()
@@ -601,9 +685,11 @@ class ProfileFieldsMixin:
 
     def _build_tool_form(self) -> QWidget:
         container = QWidget()
+        container.setProperty("profileFill", True)
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(PANEL_CONTENT_PADDING)
+        layout.setSpacing(PAGE_CARD_SPACING)
 
         header = QWidget()
         header_layout = QHBoxLayout(header)
@@ -620,6 +706,11 @@ class ProfileFieldsMixin:
         self.tool_family_tabs = QTabWidget()
         configure_tab_widget(self.tool_family_tabs, role="inspector")
         self.tool_family_tabs.setObjectName("toolCoverageTabs")
+        self.tool_family_tabs.tabBar().setObjectName("toolCoverageTabBar")
+        self.tool_family_tabs.setTabPosition(QTabWidget.North)
+        self.tool_family_tabs.setUsesScrollButtons(True)
+        self.tool_family_tabs.tabBar().setUsesScrollButtons(True)
+        self.tool_family_tabs.setElideMode(Qt.ElideRight)
         self._tool_category_cards = []
         self._tool_rows = []
         self._tool_rows_by_card = {}
@@ -634,6 +725,8 @@ class ProfileFieldsMixin:
             tab_layout.setSpacing(0)
             tab_layout.addWidget(card, 1)
             self.tool_family_tabs.addTab(tab, str(category.get("title", "Tools")))
+        self.tool_family_tabs.setUsesScrollButtons(True)
+        self.tool_family_tabs.tabBar().setUsesScrollButtons(True)
         layout.addWidget(self.tool_family_tabs, 1)
 
         # Kept as a hidden compatibility surface for callers/tests that still
@@ -650,7 +743,7 @@ class ProfileFieldsMixin:
     def _build_tool_category_card(self, category: dict[str, object]) -> QFrame:
         card = QFrame()
         card.setObjectName("toolCoverageCategory")
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         compact = bool(getattr(self, "_compact_profile_cards", False))
         card_layout = QVBoxLayout(card)
         padding = 10 if compact else 14
@@ -676,14 +769,17 @@ class ProfileFieldsMixin:
             row = self._build_tool_row(str(tool_name), str(description), str(field), category_id)
             category_rows.append(row)
             body_layout.addWidget(row)
+        body_layout.addStretch(1)
         self._tool_rows_by_card[card] = category_rows
         card_layout.addWidget(header)
-        card_layout.addWidget(body)
+        card_layout.addWidget(body, 1)
         return card
 
     def _build_tool_row(self, tool_name: str, description: str, field: str, category_id: str) -> QFrame:
         row = QFrame()
         row.setObjectName("toolCoverageRow")
+        row.setMinimumHeight(PROFILE_TOOL_ROW_MIN_HEIGHT)
+        row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._tool_rows.append(row)
         coverage_key = f"{category_id}.{_coverage_slug(tool_name)}"
         row.setProperty("coverage_key", coverage_key)
@@ -748,10 +844,12 @@ class ProfileFieldsMixin:
             "Payload Wordlist",
             self._file_row(self.payload_wordlist_edit, lambda: self._browse_file(self.payload_wordlist_edit, "Select payload wordlist")),
         )
+        self._polish_profile_form_layout(wordlists_form_layout)
         return wordlists_form
 
     def _build_export_form(self) -> QWidget:
         export_row = QWidget()
+        export_row.setMinimumHeight(PROFILE_CONTROL_MIN_HEIGHT)
         export_layout = FlowButtonRow(export_row)
         export_layout.addWidget(self.export_html)
         export_layout.addWidget(self.export_json)
@@ -1082,6 +1180,7 @@ class ProfileFieldsMixin:
     def sync_profile_form_width(self, width: int) -> None:
         if hasattr(self, "tool_family_tabs"):
             self.tool_family_tabs.setUsesScrollButtons(True)
+            self.tool_family_tabs.tabBar().setUsesScrollButtons(True)
 
     def _reflow_grid(self, layout: QGridLayout, widgets: list[QWidget], columns: int) -> None:
         while layout.count():

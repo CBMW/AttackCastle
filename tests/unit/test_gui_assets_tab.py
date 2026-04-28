@@ -13,7 +13,7 @@ from attackcastle.gui.asset_graph_builder import AssetGraphBuilder
 from attackcastle.gui.asset_graph_models import GraphBuildOptions
 from attackcastle.gui.asset_inventory import build_entity_note, build_workspace_inventory_snapshot
 from attackcastle.gui.assets_tab import AssetsTab
-from attackcastle.gui.models import Engagement, RunSnapshot
+from attackcastle.gui.models import Engagement, HttpHistoryEntry, RunSnapshot
 from attackcastle.gui.workspace_store import WorkspaceStore
 
 
@@ -102,6 +102,47 @@ def test_assets_tab_populates_grouped_inventory_tables(tmp_path: Path) -> None:
         assert [tab.asset_views.tabText(index) for index in range(tab.asset_views.count())] == ["Inventory", "Graph View"]
         row = tab.services_model.index(0, 0).data(Qt.UserRole)
         assert row["__target"] == "203.0.113.10:443"
+    finally:
+        tab.close()
+
+
+def test_assets_tab_populates_http_history_subtab_and_context_menu(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    sent: list[HttpHistoryEntry] = []
+    tab = AssetsTab(
+        launch_scan=lambda _target, _label: None,
+        load_notes=lambda _workspace_id: {},
+        save_note=lambda _workspace_id, _note: None,
+        send_http_history_to_attacker=lambda entry: sent.append(entry),
+    )
+    entry = HttpHistoryEntry(
+        history_id="http-1",
+        method="GET",
+        host="example.com",
+        path="/api/users",
+        response_status=200,
+        content_type="application/json",
+        size=18,
+        raw_repeater_request="GET /api/users HTTP/1.1\nHost: example.com\n\n",
+    )
+
+    try:
+        tab.set_snapshot(_make_snapshot(tmp_path))
+        tab.set_http_history([entry])
+        app.processEvents()
+
+        tab_labels = [tab.inventory_tabs.tabText(index) for index in range(tab.inventory_tabs.count())]
+        assert "HTTP History" in tab_labels
+        assert tab.http_history_model.rowCount() == 1
+        row = tab.http_history_model.index(0, 0).data(Qt.UserRole)
+        menu, _send_action, _notes_action = tab._build_context_menu(tab.http_history_view, "http_history", row)
+        send_menu = menu.actions()[0].menu()
+        assert send_menu is not None
+        assert [action.text() for action in send_menu.actions()] == ["HTTP Replay"]
+
+        tab._show_detail("http_history", row, tab.http_history_view)
+        assert "GET /api/users HTTP/1.1" in tab.detail_text.toPlainText()
     finally:
         tab.close()
 

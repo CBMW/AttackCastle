@@ -14,6 +14,10 @@ from attackcastle.gui.scanner_panel import ScannerPanel
 
 
 def _make_snapshot(tmp_path: Path) -> RunSnapshot:
+    log_dir = tmp_path / "run-scanner" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path = log_dir / "httpx.stdout.txt"
+    stdout_path.write_text("   __    __\n  / /_  / /_\nhttps://example.com/ [200]\n", encoding="utf-8")
     return RunSnapshot(
         run_id="run-scanner",
         scan_name="Scanner Run",
@@ -49,7 +53,7 @@ def _make_snapshot(tmp_path: Path) -> RunSnapshot:
                 "status": "running",
                 "exit_code": None,
                 "started_at": "2026-04-09T12:00:00+00:00",
-                "stdout_path": str(tmp_path / "run-scanner" / "logs" / "httpx.stdout.txt"),
+                "stdout_path": str(stdout_path),
             }
         ],
     )
@@ -175,12 +179,64 @@ def test_scanner_panel_task_details_copy_exact_raw_command(tmp_path: Path) -> No
         index = panel.tasks_model.index(0, 0)
 
         panel._task_selected(index)
-        assert "httpx -silent -u https://example.com/" in panel.command_text.toPlainText()
+        assert panel.command_text.toPlainText() == "httpx -silent -u https://example.com/"
+        assert "1. httpx" not in panel.command_text.toPlainText()
         assert panel.command_copy_button.isEnabled() is True
 
         panel.command_copy_button.click()
 
         assert app.clipboard().text() == "httpx -silent -u https://example.com/"
+    finally:
+        panel.close()
+
+
+def test_scanner_panel_task_details_show_literal_command_output(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = ScannerPanel()
+
+    try:
+        panel.set_snapshot(_make_snapshot(tmp_path))
+        index = panel.tasks_model.index(0, 0)
+
+        panel._task_selected(index)
+
+        assert panel.output_text.toPlainText() == "   __    __\n  / /_  / /_\nhttps://example.com/ [200]"
+    finally:
+        panel.close()
+
+
+def test_scanner_panel_internal_vhost_task_does_not_render_description_as_command(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    _ = app
+    panel = ScannerPanel()
+    snapshot = _make_snapshot(tmp_path)
+    snapshot.tasks[0]["key"] = "vhost_discovery"
+    snapshot.tasks[0]["label"] = "Discovering virtual hosts"
+    snapshot.tasks[0]["detail"] = {
+        "capability": "vhost_discovery",
+        "instance_key": "vhost::iter1::abc",
+        "task_inputs": ["https://example.com/"],
+    }
+    snapshot.tool_executions[0].update(
+        {
+            "execution_id": "exec-vhost",
+            "tool_name": "vhost_discovery",
+            "command": "internal host-header virtual host discovery",
+            "raw_command": "internal host-header virtual host discovery",
+            "capability": "vhost_discovery",
+            "task_instance_key": "vhost::iter1::abc",
+        }
+    )
+
+    try:
+        panel.set_snapshot(snapshot)
+        index = panel.tasks_model.index(0, 0)
+
+        panel._task_selected(index)
+
+        assert panel.command_text.toPlainText() == "No Data"
+        assert "internal host-header virtual host discovery" not in panel.command_text.toPlainText()
     finally:
         panel.close()
 

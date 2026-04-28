@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import shutil
 from hashlib import sha1
 from typing import Any
+from urllib.parse import urlparse
 
 from attackcastle.adapters.base import build_tool_execution
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
@@ -30,11 +32,11 @@ def _safe_name(value: str) -> str:
 
 
 def build_linux_head_command(target: str) -> list[str]:
-    return ["curl", "-skI", "--max-redirs", "0", str(target)]
+    return ["curl", "-kI", "--max-redirs", "0", str(target)]
 
 
 def build_linux_fallback_command(target: str) -> list[str]:
-    return ["curl", "-skD", "-", "-o", "/dev/null", "--max-redirs", "0", str(target)]
+    return ["curl", "-kD", "-", "-o", "/dev/null", "--max-redirs", "0", str(target)]
 
 
 def build_windows_head_command(target: str, *, shell_path: str = "powershell") -> list[str]:
@@ -184,8 +186,10 @@ class HTTPSecurityHeadersAdapter:
         )
         shell_path = shutil.which("powershell") or shutil.which("pwsh") or "powershell"
         completed_urls: list[str] = []
+        attempted_urls: list[str] = []
         affected_urls: list[str] = []
         analyses: list[dict[str, Any]] = []
+        probe_failures: list[dict[str, Any]] = []
 
         for target in targets:
             url = str(target.get("url") or "").strip()
@@ -202,11 +206,14 @@ class HTTPSecurityHeadersAdapter:
                 timeout_seconds=timeout_seconds,
                 shell_path=shell_path,
             )
+            attempted_urls.append(url)
             result.tool_executions.extend(command_result["tool_executions"])
             result.task_results.extend(command_result["task_results"])
             result.evidence_artifacts.extend(command_result["evidence_artifacts"])
             if parsed_response is None:
-                result.warnings.append(f"HTTP security header check did not return usable headers for {url}")
+                failure = self._classify_probe_failure(url, command_result["probe_results"])
+                probe_failures.append(failure)
+                result.warnings.append(failure["message"])
                 continue
 
             analysis = build_header_analysis(
@@ -215,6 +222,16 @@ class HTTPSecurityHeadersAdapter:
                 headers=parsed_response.headers,
                 raw_headers=parsed_response.raw_headers,
             )
+            edge_context = self._edge_context(url, parsed_response.headers, parsed_response.status_code)
+            if edge_context:
+                analysis.update(edge_context)
+                if not bool(config.get("treat_direct_ip_edge_headers_as_origin", False)):
+                    analysis["trigger_finding"] = False
+                    result.warnings.append(
+                        f"HTTP security headers for {url} came from a direct-IP Cloudflare edge response; "
+                        "recorded as edge evidence, not origin application evidence. Use the canonical hostname/SNI "
+                        "or an explicit hostname-to-IP mapping for origin-representative results."
+                    )
             analysis["method_used"] = method_used
             analysis["asset_id"] = str(target.get("asset_id") or "")
             analysis["service_id"] = str(target.get("service_id") or "")
@@ -332,14 +349,20 @@ class HTTPSecurityHeadersAdapter:
         scanned_urls = sorted(
             {
                 *(item for item in run_data.facts.get("http_security_headers.scanned_urls", []) if str(item).strip()),
-                *completed_urls,
+                *attempted_urls,
             }
         )
         result.facts["http_security_headers.available"] = True
         result.facts["http_security_headers.scanned_targets"] = len(completed_urls)
+        result.facts["http_security_headers.attempted_targets"] = len(attempted_urls)
         result.facts["http_security_headers.scanned_urls"] = scanned_urls
         result.facts["http_security_headers.affected_urls"] = sorted(set(affected_urls))
         result.facts["http_security_headers.results"] = sorted(analyses, key=lambda item: str(item.get("url") or ""))
+        if probe_failures:
+            result.facts["http_security_headers.probe_failures"] = sorted(
+                probe_failures,
+                key=lambda item: str(item.get("url") or ""),
+            )
         context.audit.write(
             "adapter.completed",
             {
@@ -424,6 +447,7 @@ class HTTPSecurityHeadersAdapter:
                     "evidence_artifacts": evidence_artifacts,
                     "last_execution_id": primary_result.execution.execution_id,
                     "last_task_id": primary_result.task_result.task_id,
+                    "probe_results": [primary_result],
                 },
                 primary_parsed,
                 "HEAD",
@@ -448,6 +472,7 @@ class HTTPSecurityHeadersAdapter:
                 "evidence_artifacts": evidence_artifacts,
                 "last_execution_id": fallback_result.execution.execution_id,
                 "last_task_id": fallback_result.task_result.task_id,
+                "probe_results": [primary_result, fallback_result],
             },
             fallback_parsed if self._response_is_usable(fallback_parsed) else None,
             "GET",
@@ -495,3 +520,58 @@ class HTTPSecurityHeadersAdapter:
 
     def _response_is_usable(self, parsed_response: ParsedHeaderResponse) -> bool:
         return parsed_response.status_code is not None and bool(parsed_response.headers)
+
+    def _classify_probe_failure(self, url: str, probe_results: list[Any]) -> dict[str, Any]:
+        exit_codes = [item.exit_code for item in probe_results if getattr(item, "exit_code", None) is not None]
+        termination_details = [
+            str(getattr(item, "error_message", "") or "").strip()
+            for item in probe_results
+            if str(getattr(item, "error_message", "") or "").strip()
+        ]
+        stderr = [
+            str(getattr(item, "stderr_text", "") or "").strip()
+            for item in probe_results
+            if str(getattr(item, "stderr_text", "") or "").strip()
+        ]
+        failure_type = "header_probe_failed"
+        remediation = "Review connectivity, scheme, port, and HTTP/TLS behavior for the target URL."
+        if 35 in exit_codes:
+            failure_type = "tls_handshake_failed"
+            remediation = (
+                "Use the canonical hostname/SNI for HTTPS checks, or provide an explicit hostname-to-IP mapping "
+                "when testing CDN-backed IPs."
+            )
+        message_detail = "; ".join([*stderr, *termination_details]) or f"curl exit codes: {exit_codes or ['unknown']}"
+        return {
+            "url": url,
+            "failure_type": failure_type,
+            "exit_codes": exit_codes,
+            "message": (
+                f"HTTP security header check failed for {url}: {failure_type}. "
+                f"{remediation} Detail: {message_detail}"
+            ),
+            "remediation": remediation,
+        }
+
+    def _edge_context(
+        self,
+        url: str,
+        headers: dict[str, str],
+        status_code: int | None,
+    ) -> dict[str, Any]:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        try:
+            ipaddress.ip_address(host)
+            is_ip_literal = True
+        except ValueError:
+            is_ip_literal = False
+        server = str(headers.get("server") or "").lower()
+        cf_ray = str(headers.get("cf-ray") or "").strip()
+        if is_ip_literal and status_code == 403 and ("cloudflare" in server or cf_ray):
+            return {
+                "edge_context": "cloudflare_direct_ip_forbidden",
+                "representative_scope": "edge_only",
+                "origin_representative": False,
+            }
+        return {}
