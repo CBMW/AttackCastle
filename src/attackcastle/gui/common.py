@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QStyleOption,
     QTabWidget,
     QTableView,
+    QPlainTextEdit,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
     QWidgetItem,
@@ -707,6 +709,18 @@ def configure_scroll_surface(widget: QWidget) -> QWidget:
         widget.setSizeAdjustPolicy(QAbstractScrollArea.AdjustIgnored)
         widget.viewport().setAutoFillBackground(False)
     return widget
+
+
+def set_plain_text_preserving_scroll(widget: QTextEdit | QPlainTextEdit, text: str) -> None:
+    if widget.toPlainText() == text:
+        return
+    vertical = widget.verticalScrollBar()
+    horizontal = widget.horizontalScrollBar()
+    vertical_value = vertical.value()
+    horizontal_value = horizontal.value()
+    widget.setPlainText(text)
+    vertical.setValue(min(vertical_value, vertical.maximum()))
+    horizontal.setValue(min(horizontal_value, horizontal.maximum()))
 
 
 def splitter_orientation_key(splitter: QSplitter) -> str:

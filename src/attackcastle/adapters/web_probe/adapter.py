@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from attackcastle.adapters.base import build_tool_execution, normalize_command_termination
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
+from attackcastle.adapters.probe_strategy import url_probe_context
 from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs, normalize_url_key
 from attackcastle.adapters.web_probe.parser import detect_technologies, extract_title
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -389,6 +390,9 @@ class WebProbeAdapter:
             scheme = parsed.scheme.lower() or urlparse(str(target.get("url") or "")).scheme.lower() or "https"
             host = (parsed.hostname or urlparse(str(target.get("url") or "")).hostname or "").lower().rstrip(".")
             port = parsed.port or (443 if scheme == "https" else 80)
+            probe_context = url_probe_context(run_data, str(target.get("url") or final_url or url))
+            if not resolved_ip:
+                resolved_ip = str(target.get("resolved_ip") or probe_context.primary_resolved_ip or "").strip() or None
             target_host = (urlparse(str(target.get("url") or "")).hostname or "").lower().rstrip(".")
             if asset_id and host and target_host and host != target_host:
                 asset_id = ""
@@ -463,6 +467,7 @@ class WebProbeAdapter:
                         "status_code": status_code,
                         "tech_stack": tech_stack,
                         "resolved_ip": resolved_ip,
+                        **probe_context.metadata(protocol=scheme, port=port),
                         "profile": policy.profile,
                     },
                     evidence_ids=[evidence.evidence_id],
@@ -548,7 +553,14 @@ class WebProbeAdapter:
                         source_execution_id=command_result.execution_id,
                     )
                 )
-            parsed_entities.append({"type": "WebService", "url": final_url, "status_code": status_code})
+            parsed_entities.append(
+                {
+                    "type": "WebService",
+                    "url": final_url,
+                    "status_code": status_code,
+                    **probe_context.metadata(protocol=scheme, port=port),
+                }
+            )
             created += 1
 
         command_result.task_result.parsed_entities = parsed_entities

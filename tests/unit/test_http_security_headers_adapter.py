@@ -328,9 +328,91 @@ def test_http_security_headers_records_tls_handshake_failure_as_structured_fact(
     assert result.facts["http_security_headers.attempted_targets"] == 1
     assert result.facts["http_security_headers.scanned_urls"] == ["https://104.18.4.168/"]
     failures = result.facts["http_security_headers.probe_failures"]
-    assert failures[0]["failure_type"] == "tls_handshake_failed"
+    assert failures[0]["failure_type"] == "raw_ip_tls_sni_probe_failed"
     assert "canonical hostname/SNI" in failures[0]["message"]
     assert result.warnings
+
+
+def test_http_security_headers_retries_with_curl_resolve_for_hostname_assets(tmp_path: Path, monkeypatch) -> None:
+    context = _context(tmp_path, "http-header-resolve")
+    context.task_inputs = ["https://example.com/"]
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="http-header-resolve",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        assets=[
+            Asset(
+                asset_id="asset-domain",
+                kind="domain",
+                name="example.com",
+                ip="104.18.4.168",
+            ),
+        ],
+        web_apps=[
+            WebApplication(
+                webapp_id="web-1",
+                asset_id="asset-domain",
+                service_id="svc-1",
+                url="https://example.com/",
+                status_code=200,
+            )
+        ],
+    )
+    calls: list[list[str]] = []
+
+    def _fake_run_command_spec(context, spec, proxy_url=None):  # noqa: ANN001
+        calls.append(spec.command)
+        is_resolve = "--resolve" in spec.command
+        stdout_text = (
+            "HTTP/1.1 200 OK\r\nStrict-Transport-Security: max-age=63072000\r\n\r\n"
+            if is_resolve
+            else ""
+        )
+        exit_code = 0 if is_resolve else 35
+        return SimpleNamespace(
+            execution=ToolExecution(
+                execution_id=f"exec-{len(calls)}",
+                tool_name="http_security_headers",
+                command="curl",
+                started_at=now_utc(),
+                ended_at=now_utc(),
+                exit_code=exit_code,
+                status="completed" if is_resolve else "failed",
+                capability="http_security_headers_check",
+            ),
+            task_result=TaskResult(
+                task_id=f"task-{len(calls)}",
+                task_type="CheckHttpSecurityHeaders",
+                status="completed" if is_resolve else "failed",
+                command="curl",
+                exit_code=exit_code,
+                started_at=now_utc(),
+                finished_at=now_utc(),
+            ),
+            evidence_artifacts=[],
+            stdout_text=stdout_text,
+            stderr_text="" if is_resolve else "curl: (35) TLS failed",
+            exit_code=exit_code,
+            error_message=None if is_resolve else "process exited with code 35",
+            command_text="curl",
+            stdout_path=context.run_store.artifact_path("http_security_headers", f"{len(calls)}.stdout.txt"),
+            stderr_path=context.run_store.artifact_path("http_security_headers", f"{len(calls)}.stderr.txt"),
+            transcript_path=context.run_store.artifact_path("http_security_headers", f"{len(calls)}.transcript.txt"),
+            execution_id=f"exec-{len(calls)}",
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.http_security_headers.adapter.os.name", "posix")
+    monkeypatch.setattr("attackcastle.adapters.http_security_headers.adapter.run_command_spec", _fake_run_command_spec)
+
+    result = HTTPSecurityHeadersAdapter().run(context, run_data)
+
+    assert result.facts["http_security_headers.scanned_targets"] == 1
+    assert any("--resolve" in command for command in calls)
+    assert any("example.com:443:104.18.4.168" in command for command in calls)
 
 
 def test_http_security_headers_treats_cloudflare_direct_ip_403_as_edge_only(tmp_path: Path, monkeypatch) -> None:

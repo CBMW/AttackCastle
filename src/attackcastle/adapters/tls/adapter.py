@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from attackcastle.adapters.command_runner import CommandSpec, run_command_spec
+from attackcastle.adapters.probe_strategy import host_probe_context
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, EvidenceArtifact, NormalizedEntity, Observation, RunData, TLSAsset, new_id
 from attackcastle.normalization.correlator import collect_tls_targets
@@ -105,7 +106,8 @@ class TLSAdapter:
         fingerprint_index: dict[str, list[str]] = defaultdict(list)
 
         for item in targets[:max_targets]:
-            host = str(item["host"])
+            probe_context = host_probe_context(run_data, str(item["host"]))
+            host = probe_context.target or str(item["host"])
             port = int(item["port"])
             command_result = run_command_spec(
                 context,
@@ -190,6 +192,7 @@ class TLSAdapter:
                     attributes={
                         "host": host,
                         "port": port,
+                        **probe_context.metadata(protocol="tls", port=port),
                         "subject": cert_details.get("subject"),
                         "issuer": cert_details.get("issuer"),
                         "sans": list(cert_details.get("sans", [])),
@@ -268,9 +271,20 @@ class TLSAdapter:
             if fingerprint:
                 fingerprint_index[fingerprint].append(tls_entry.tls_id)
             command_result.task_result.parsed_entities = [
-                {"type": "Certificate", "host": host, "port": port, "fingerprint_sha256": fingerprint}
+                {
+                    "type": "Certificate",
+                    "host": host,
+                    "port": port,
+                    "fingerprint_sha256": fingerprint,
+                    **probe_context.metadata(protocol="tls", port=port),
+                }
             ]
-            command_result.task_result.metrics = {"lines_parsed": len(command_result.stdout_text.splitlines()), "entities_created": 1, "entities_updated": 0}
+            command_result.task_result.metrics = {
+                "lines_parsed": len(command_result.stdout_text.splitlines()),
+                "entities_created": 1,
+                "entities_updated": 0,
+                **probe_context.metadata(protocol="tls", port=port),
+            }
 
         for fingerprint, tls_ids in fingerprint_index.items():
             if len(tls_ids) < 2:

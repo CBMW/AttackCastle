@@ -972,8 +972,24 @@ class ProfileFieldsMixin:
         )
         for row in getattr(self, "_tool_rows", []):
             row.setVisible(not (hide_windows_only and bool(row.property("windows_only"))))
-        for card, rows in getattr(self, "_tool_rows_by_card", {}).items():
-            card.setVisible(any(not row.isHidden() for row in rows))
+        cards = list(getattr(self, "_tool_category_cards", []))
+        buttons = list(getattr(self, "_tool_category_buttons", []))
+        visible_indices: list[int] = []
+        for index, card in enumerate(cards):
+            rows = getattr(self, "_tool_rows_by_card", {}).get(card, [])
+            has_visible_rows = any(not row.isHidden() for row in rows)
+            if has_visible_rows:
+                visible_indices.append(index)
+            if index < len(buttons):
+                buttons[index].setVisible(has_visible_rows)
+            if not hasattr(self, "tool_family_tabs"):
+                card.setVisible(has_visible_rows)
+        if hasattr(self, "tool_family_selector"):
+            self.tool_family_selector.updateGeometry()
+        if hasattr(self, "tool_family_tabs") and visible_indices:
+            current_index = getattr(self, "_current_tool_category_index", 0)
+            if current_index not in visible_indices:
+                self._select_tool_category(visible_indices[0])
 
     def _select_tool_category(self, index: int) -> None:
         if not getattr(self, "_tool_category_cards", None):

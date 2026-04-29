@@ -170,6 +170,34 @@ def test_scanner_panel_keeps_selected_task_details_across_refresh(tmp_path: Path
         panel.close()
 
 
+def test_scanner_panel_preserves_inspector_scroll_across_refresh(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    panel = ScannerPanel()
+    snapshot = _make_snapshot(tmp_path)
+    stdout_path = Path(str(snapshot.tool_executions[0]["stdout_path"]))
+    stdout_path.write_text("\n".join(f"line {index}" for index in range(240)), encoding="utf-8")
+
+    try:
+        panel.resize(700, 360)
+        panel.show()
+        panel.set_snapshot(snapshot)
+        panel._task_selected(panel.tasks_model.index(0, 0))
+        panel.inspector_tabs.setCurrentIndex(2)
+        app.processEvents()
+
+        scrollbar = panel.output_text.verticalScrollBar()
+        assert scrollbar.maximum() > 0
+        scrollbar.setValue(scrollbar.maximum())
+        scrolled_position = scrollbar.value()
+
+        panel.set_snapshot(snapshot)
+        app.processEvents()
+
+        assert panel.output_text.verticalScrollBar().value() == scrolled_position
+    finally:
+        panel.close()
+
+
 def test_scanner_panel_task_details_copy_exact_raw_command(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     panel = ScannerPanel()

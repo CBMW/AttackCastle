@@ -231,6 +231,23 @@ def test_launch_dialog_tool_coverage_uses_wrapped_category_buttons() -> None:
         dialog.close()
 
 
+def test_launch_dialog_tool_coverage_keeps_only_selected_category_page_visible() -> None:
+    dialog = _make_dialog()
+
+    try:
+        dialog._select_tool_category(8)
+        dialog._update_tool_family_cards()
+
+        visible_pages = [
+            index
+            for index in range(dialog.tool_family_tabs.count())
+            if not dialog.tool_family_tabs.widget(index).isHidden()
+        ]
+        assert visible_pages == [8]
+    finally:
+        dialog.close()
+
+
 def test_launch_dialog_tool_coverage_bulk_actions_apply_to_current_category() -> None:
     dialog = _make_dialog()
 

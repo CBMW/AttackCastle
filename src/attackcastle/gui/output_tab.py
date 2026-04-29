@@ -47,6 +47,7 @@ from attackcastle.gui.common import (
     ensure_table_defaults,
     latest_retest_entry,
     retest_status_label,
+    set_plain_text_preserving_scroll,
     set_tooltip,
     set_tooltips,
     size_dialog_to_screen,
@@ -826,7 +827,7 @@ class OutputTab(QWidget):
         if total:
             noun = "issue" if total == 1 else "issues"
             lines.append(f"{total} consolidated {noun}")
-        self.overview_text.setPlainText("\n".join(lines))
+        set_plain_text_preserving_scroll(self.overview_text, "\n".join(lines))
 
     def _refresh_models(self) -> None:
         snapshot = self._snapshot
@@ -853,7 +854,7 @@ class OutputTab(QWidget):
         if self._active_detail_kind:
             self._restore_active_detail()
         elif not self.detail_text.toPlainText():
-            self.detail_text.setPlainText("Select a finding for details.")
+            set_plain_text_preserving_scroll(self.detail_text, "Select a finding for details.")
 
     def _merge_finding_state(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -1251,8 +1252,8 @@ class OutputTab(QWidget):
             self.inspector_summary.setText(f"Inspecting {', '.join(detail_keys[:3])}{'...' if len(detail_keys) > 3 else ''}")
         else:
             self.inspector_summary.setText("Select an item to inspect technical details and artifacts.")
-        self.detail_text.setPlainText(self._build_technical_text(row))
-        self.raw_text.setPlainText(json.dumps(row, indent=2, sort_keys=True))
+        set_plain_text_preserving_scroll(self.detail_text, self._build_technical_text(row))
+        set_plain_text_preserving_scroll(self.raw_text, json.dumps(row, indent=2, sort_keys=True))
 
     def _clear_active_detail(self) -> None:
         self._active_detail_kind = ""

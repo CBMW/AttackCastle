@@ -45,6 +45,7 @@ from attackcastle.gui.common import (
     configure_tab_widget,
     configure_scroll_surface,
     ensure_table_defaults,
+    set_plain_text_preserving_scroll,
     set_tooltip,
     style_button,
     splitter_orientation_key,
@@ -903,7 +904,7 @@ class AssetsTab(QWidget):
         if note is not None and note.note.strip():
             summary_parts.append("Has project notes")
         self.detail_summary.setText(" | ".join(part for part in summary_parts if part))
-        self.detail_text.setPlainText(self._build_detail_text(payload))
+        set_plain_text_preserving_scroll(self.detail_text, self._build_detail_text(payload))
         self._expand_detail_card()
 
     def _show_http_history_detail(self, row: dict[str, Any], table: QTableView | None) -> None:
@@ -929,7 +930,7 @@ class AssetsTab(QWidget):
                 if part
             )
         )
-        self.detail_text.setPlainText(self._build_http_history_detail_text(entry))
+        set_plain_text_preserving_scroll(self.detail_text, self._build_http_history_detail_text(entry))
         self._expand_detail_card()
 
     def _build_http_history_detail_text(self, entry: HttpHistoryEntry) -> str:

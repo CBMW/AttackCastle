@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from attackcastle.adapters.reachability.adapter import TargetReachabilityAdapter
 from attackcastle.core.interfaces import AdapterContext
-from attackcastle.core.models import RunData, RunMetadata, now_utc
+from attackcastle.core.models import Asset, RunData, RunMetadata, now_utc
 from attackcastle.storage.run_store import RunStore
 
 
@@ -55,3 +55,54 @@ def test_reachability_adapter_records_unreachable_without_failing_task(tmp_path:
     assert result.facts["target_reachability.reachable_targets"] == ["up.example.com"]
     assert result.facts["target_reachability.unreachable_targets"] == ["down.example.com"]
     assert all(task.status == "completed" for task in result.task_results)
+
+
+def test_reachability_adapter_marks_hostname_reachable_when_ipv4_fallback_succeeds(tmp_path: Path, monkeypatch) -> None:
+    run_store = RunStore(output_root=tmp_path, run_id="reachability-ipv4-fallback")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"target_reachability": {"ping_timeout_seconds": 1}},
+        profile_config={},
+        run_store=run_store,
+        logger=None,
+        audit=_Audit(),
+        task_instance_key="check-target-reachability::iter1::ipv4",
+        task_inputs=["staging.example.com"],
+    )
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="reachability-ipv4-fallback",
+            target_input="staging.example.com",
+            profile="standard",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        assets=[
+            Asset(
+                asset_id="asset-domain",
+                kind="domain",
+                name="staging.example.com",
+                resolved_ips=["2606:4700::6812:4a8", "104.18.4.168"],
+            )
+        ],
+    )
+
+    monkeypatch.setattr("attackcastle.adapters.reachability.adapter.shutil.which", lambda _name: "ping")
+
+    def _fake_run(command, **_kwargs):  # noqa: ANN001
+        return SimpleNamespace(
+            returncode=0 if "-4" in command else 1,
+            stdout="ipv4 ok" if "-4" in command else "ipv6 timeout",
+            stderr="",
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.reachability.adapter.subprocess.run", _fake_run)
+
+    result = TargetReachabilityAdapter().run(context, run_data)
+
+    assert result.facts["target_reachability.reachable_targets"] == ["staging.example.com"]
+    assert result.facts["target_reachability.unreachable_targets"] == []
+    detail = result.facts["target_reachability.details"]["staging.example.com"]
+    assert detail["termination_detail"] == "IPv6 ICMP failed; IPv4 ICMP succeeded."
+    assert detail["probe_mode"] == "hostname_first"
+    assert result.task_results[0].metrics["reachable"] is True

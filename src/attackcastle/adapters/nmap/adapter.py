@@ -8,6 +8,7 @@ from typing import Any
 
 from attackcastle.adapters.base import build_tool_execution, current_tool_budget, emit_tool_execution_started, stream_command
 from attackcastle.adapters.nmap.parser import parse_nmap_xml
+from attackcastle.adapters.probe_strategy import host_probe_context
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import RunData, new_id, now_utc
 from attackcastle.core.runtime_events import emit_artifact_event, emit_entity_event, emit_runtime_event
@@ -138,6 +139,7 @@ class NmapAdapter:
             target = ""
             if asset is not None:
                 target = str(asset.ip or asset.name or "").strip()
+                target = host_probe_context(run_data, target).target or target
             if not target:
                 target = str(service.asset_id or "").strip()
             if not target:

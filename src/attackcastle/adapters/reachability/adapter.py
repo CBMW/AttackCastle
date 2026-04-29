@@ -6,6 +6,7 @@ import subprocess
 from hashlib import sha1
 
 from attackcastle.adapters.base import build_tool_execution
+from attackcastle.adapters.probe_strategy import host_probe_context
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import EvidenceArtifact, RunData, TaskArtifactRef, TaskResult, new_id, now_utc
 from attackcastle.scope.expansion import collect_host_scan_targets
@@ -15,13 +16,36 @@ def _safe_slug(value: str) -> str:
     return sha1(value.encode("utf-8")).hexdigest()[:12]  # noqa: S324
 
 
-def _ping_command(target: str, timeout_seconds: int) -> list[str]:
+def _ping_command(target: str, timeout_seconds: int, *, ip_version: int | None = None) -> list[str]:
     system = platform.system().lower()
+    version_flag = [f"-{ip_version}"] if ip_version in {4, 6} else []
     if system == "windows":
-        return ["ping", "-n", "1", "-w", str(max(1, timeout_seconds) * 1000), target]
+        return ["ping", *version_flag, "-n", "1", "-w", str(max(1, timeout_seconds) * 1000), target]
     if system == "darwin":
-        return ["ping", "-c", "1", "-W", str(max(1, timeout_seconds) * 1000), target]
-    return ["ping", "-c", "1", "-W", str(max(1, timeout_seconds)), target]
+        return ["ping", *version_flag, "-c", "1", "-W", str(max(1, timeout_seconds) * 1000), target]
+    return ["ping", *version_flag, "-c", "1", "-W", str(max(1, timeout_seconds)), target]
+
+
+def _run_ping(command: list[str], timeout_seconds: int) -> tuple[str, str, int | None, str | None, bool]:
+    try:
+        completed = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            text=True,
+            timeout=max(1, timeout_seconds) + 1,
+            check=False,
+        )
+        return completed.stdout or "", completed.stderr or "", completed.returncode, None, False
+    except subprocess.TimeoutExpired as exc:
+        return (
+            exc.stdout or "",
+            exc.stderr or "",
+            None,
+            f"ping exceeded timeout of {timeout_seconds}s",
+            True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return "", "", None, str(exc), False
 
 
 class TargetReachabilityAdapter:
@@ -61,34 +85,64 @@ class TargetReachabilityAdapter:
             return result
 
         for target in targets:
-            command = _ping_command(target, timeout_seconds)
-            command_text = " ".join(command)
+            probe_context = host_probe_context(run_data, target)
+            probe_target = probe_context.target or target
+            attempts: list[dict[str, object]] = []
+            command = _ping_command(probe_target, timeout_seconds)
             started_at = now_utc()
-            stdout_text = ""
-            stderr_text = ""
-            exit_code: int | None = None
-            termination_detail: str | None = None
-            timed_out = False
-            try:
-                completed = subprocess.run(  # noqa: S603
-                    command,
-                    capture_output=True,
-                    text=True,
-                    check=False,
+            stdout_text, stderr_text, exit_code, termination_detail, timed_out = _run_ping(command, timeout_seconds)
+            attempts.append(
+                {
+                    "probe_mode": "default",
+                    "command": " ".join(command),
+                    "exit_code": exit_code,
+                    "termination_detail": termination_detail,
+                    "timed_out": timed_out,
+                }
+            )
+
+            if exit_code != 0 and probe_context.is_hostname_asset:
+                ipv4_command = _ping_command(probe_target, timeout_seconds, ip_version=4)
+                ipv4_stdout, ipv4_stderr, ipv4_exit, ipv4_detail, ipv4_timed_out = _run_ping(
+                    ipv4_command,
+                    timeout_seconds,
                 )
-                stdout_text = completed.stdout or ""
-                stderr_text = completed.stderr or ""
-                exit_code = completed.returncode
-            except subprocess.TimeoutExpired as exc:
-                stdout_text = exc.stdout or ""
-                stderr_text = exc.stderr or ""
-                exit_code = None
-                termination_detail = f"ping exceeded timeout of {timeout_seconds}s"
-                timed_out = True
-            except Exception as exc:  # noqa: BLE001
-                exit_code = None
-                termination_detail = str(exc)
+                attempts.append(
+                    {
+                        "probe_mode": "ipv4_fallback",
+                        "command": " ".join(ipv4_command),
+                        "exit_code": ipv4_exit,
+                        "termination_detail": ipv4_detail,
+                        "timed_out": ipv4_timed_out,
+                    }
+                )
+                stdout_text = "\n".join(part for part in (stdout_text, ipv4_stdout) if part)
+                stderr_text = "\n".join(part for part in (stderr_text, ipv4_stderr) if part)
+                if ipv4_exit == 0:
+                    exit_code = 0
+                    termination_detail = "IPv6 ICMP failed; IPv4 ICMP succeeded."
+                    timed_out = False
+                else:
+                    ipv6_command = _ping_command(probe_target, timeout_seconds, ip_version=6)
+                    ipv6_stdout, ipv6_stderr, ipv6_exit, ipv6_detail, ipv6_timed_out = _run_ping(
+                        ipv6_command,
+                        timeout_seconds,
+                    )
+                    attempts.append(
+                        {
+                            "probe_mode": "ipv6_explicit_retry",
+                            "command": " ".join(ipv6_command),
+                            "exit_code": ipv6_exit,
+                            "termination_detail": ipv6_detail,
+                            "timed_out": ipv6_timed_out,
+                        }
+                    )
+                    stdout_text = "\n".join(part for part in (stdout_text, ipv6_stdout) if part)
+                    stderr_text = "\n".join(part for part in (stderr_text, ipv6_stderr) if part)
+                    termination_detail = termination_detail or ipv4_detail or ipv6_detail
+                    timed_out = timed_out or ipv4_timed_out or ipv6_timed_out
             ended_at = now_utc()
+            command_text = " ; ".join(str(attempt["command"]) for attempt in attempts)
 
             is_reachable = exit_code == 0
             checked.append(target)
@@ -100,6 +154,8 @@ class TargetReachabilityAdapter:
                 "reachable": is_reachable,
                 "exit_code": exit_code,
                 "termination_detail": termination_detail,
+                "attempts": attempts,
+                **probe_context.metadata(protocol="icmp"),
             }
 
             slug = _safe_slug(target)
@@ -151,10 +207,16 @@ class TargetReachabilityAdapter:
                         {
                             "type": "Reachability",
                             "target": target,
+                            "probe_target": probe_target,
                             "reachable": is_reachable,
+                            **probe_context.metadata(protocol="icmp"),
                         }
                     ],
-                    metrics={"reachable": is_reachable},
+                    metrics={
+                        "reachable": is_reachable,
+                        "attempts": attempts,
+                        **probe_context.metadata(protocol="icmp"),
+                    },
                     termination_reason=reason,
                     termination_detail=termination_detail,
                     timed_out=timed_out,

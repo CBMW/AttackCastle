@@ -31,6 +31,7 @@ from attackcastle.gui.common import (
     ensure_table_defaults,
     format_duration,
     format_elapsed_duration,
+    set_plain_text_preserving_scroll,
     summarize_target_input,
     title_case_label,
 )
@@ -295,13 +296,19 @@ class ScannerPanel(QWidget):
         self.tasks_model.set_rows(snapshot.tasks)
         self.tools_model.set_rows(snapshot.tool_executions)
         self.issues_model.set_rows(execution_issues)
-        self.health_text.setPlainText(self._build_health_text(snapshot, execution_issues, issue_summary))
+        set_plain_text_preserving_scroll(
+            self.health_text,
+            self._build_health_text(snapshot, execution_issues, issue_summary),
+        )
         self._update_elapsed_timer()
         if self._active_detail_kind in {"task", "tool", "issue"}:
             self._restore_active_detail()
         elif not self._active_detail_kind:
             self.inspector_summary.setText("Select a task, tool run, issue, or audit entry to inspect details.")
-            self.detail_text.setPlainText("Select a task, tool run, issue, or audit entry for details.")
+            set_plain_text_preserving_scroll(
+                self.detail_text,
+                "Select a task, tool run, issue, or audit entry for details.",
+            )
             self.raw_text.clear()
             self._set_command_rows([])
             self._set_output_rows([])
@@ -420,8 +427,12 @@ class ScannerPanel(QWidget):
                 task_row=row if kind == "task" else None,
                 tool_row=row if kind == "tool" else None,
             )
-            self.detail_text.setPlainText(str(bundle.get("text") or self._build_technical_text(row)))
-            self.raw_text.setPlainText(
+            set_plain_text_preserving_scroll(
+                self.detail_text,
+                str(bundle.get("text") or self._build_technical_text(row)),
+            )
+            set_plain_text_preserving_scroll(
+                self.raw_text,
                 json.dumps(
                     {
                         "selected_row": row,
@@ -433,7 +444,7 @@ class ScannerPanel(QWidget):
                     indent=2,
                     sort_keys=True,
                     default=str,
-                )
+                ),
             )
             command_rows = [
                 item
@@ -452,8 +463,8 @@ class ScannerPanel(QWidget):
                 or [item for item in bundle.get("task_results", []) if isinstance(item, dict)]
             )
             return
-        self.detail_text.setPlainText(self._build_technical_text(row))
-        self.raw_text.setPlainText(json.dumps(row, indent=2, sort_keys=True))
+        set_plain_text_preserving_scroll(self.detail_text, self._build_technical_text(row))
+        set_plain_text_preserving_scroll(self.raw_text, json.dumps(row, indent=2, sort_keys=True))
         matched_rows = self._matched_command_rows(row, kind=kind)
         self._set_command_rows(matched_rows)
         self._set_output_rows(matched_rows)
@@ -609,14 +620,14 @@ class ScannerPanel(QWidget):
             self._active_command_text = ""
             self.command_copy_button.setEnabled(False)
             self.command_status_label.setText("No raw command has been recorded for this selection yet.")
-            self.command_text.setPlainText("No Data")
+            set_plain_text_preserving_scroll(self.command_text, "No Data")
             return
         self._active_command_text = commands[0]
         self.command_copy_button.setEnabled(True)
         self.command_status_label.setText(
             "Copy exact command." if len(commands) == 1 else f"Copy first exact command. {len(commands)} commands matched."
         )
-        self.command_text.setPlainText("\n\n".join(commands).strip())
+        set_plain_text_preserving_scroll(self.command_text, "\n\n".join(commands).strip())
 
     def _set_output_rows(self, rows: list[dict[str, Any]]) -> None:
         outputs: list[str] = []
@@ -624,7 +635,10 @@ class ScannerPanel(QWidget):
             output = self._output_value(row)
             if output:
                 outputs.append(output)
-        self.output_text.setPlainText("\n\n".join(outputs).rstrip("\n") if outputs else "No Data")
+        set_plain_text_preserving_scroll(
+            self.output_text,
+            "\n\n".join(outputs).rstrip("\n") if outputs else "No Data",
+        )
 
     def _copy_inspector_text(self, widget: QTextEdit, label: str) -> None:
         text = self._copyable_text(widget)

@@ -326,21 +326,23 @@ def collect_tls_targets(run_data: RunData) -> list[dict[str, str | int]]:
     for service in run_data.services:
         service_name = (service.name or "").lower()
         if service.port in TLS_LIKE_PORTS or "ssl" in service_name or "https" in service_name:
-            host = assets.get(service.asset_id)
-            if not host:
-                continue
-            key = (host, service.port)
-            if key in seen:
-                continue
-            seen.add(key)
-            targets.append(
-                {
-                    "host": host,
-                    "port": service.port,
-                    "asset_id": service.asset_id,
-                    "service_id": service.service_id,
-                }
-            )
+            service_hosts = _service_hostnames(run_data, service.asset_id)
+            fallback_host = assets.get(service.asset_id)
+            if fallback_host and not service_hosts:
+                service_hosts = [fallback_host]
+            for host in service_hosts:
+                key = (host, service.port)
+                if key in seen:
+                    continue
+                seen.add(key)
+                targets.append(
+                    {
+                        "host": host,
+                        "port": service.port,
+                        "asset_id": service.asset_id,
+                        "service_id": service.service_id,
+                    }
+                )
 
     for scope_target in run_data.scope:
         if scope_target.target_type == TargetType.URL and scope_target.host:

@@ -17,6 +17,7 @@ from attackcastle.adapters.http_security_headers.parser import (
     parse_raw_response_headers,
     summarize_analysis,
 )
+from attackcastle.adapters.probe_strategy import curl_resolve_args, prefer_hostname_url, url_probe_context
 from attackcastle.adapters.targeting import normalize_url_key, normalized_task_inputs
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
@@ -31,12 +32,33 @@ def _safe_name(value: str) -> str:
     return sha1(value.encode("utf-8")).hexdigest()[:12]  # noqa: S324
 
 
-def build_linux_head_command(target: str) -> list[str]:
-    return ["curl", "-kI", "--max-redirs", "0", str(target)]
+def build_linux_head_command(target: str, *, resolve_ip: str | None = None) -> list[str]:
+    parsed = urlparse(str(target))
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    return [
+        "curl",
+        *curl_resolve_args(parsed.hostname or "", port, resolve_ip),
+        "-kI",
+        "--max-redirs",
+        "0",
+        str(target),
+    ]
 
 
-def build_linux_fallback_command(target: str) -> list[str]:
-    return ["curl", "-kD", "-", "-o", "/dev/null", "--max-redirs", "0", str(target)]
+def build_linux_fallback_command(target: str, *, resolve_ip: str | None = None) -> list[str]:
+    parsed = urlparse(str(target))
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    return [
+        "curl",
+        *curl_resolve_args(parsed.hostname or "", port, resolve_ip),
+        "-kD",
+        "-",
+        "-o",
+        "/dev/null",
+        "--max-redirs",
+        "0",
+        str(target),
+    ]
 
 
 def build_windows_head_command(target: str, *, shell_path: str = "powershell") -> list[str]:
@@ -203,6 +225,8 @@ class HTTPSecurityHeadersAdapter:
             command_result, parsed_response, method_used = self._run_probe(
                 context,
                 url=url,
+                target=target,
+                run_data=run_data,
                 timeout_seconds=timeout_seconds,
                 shell_path=shell_path,
             )
@@ -236,6 +260,9 @@ class HTTPSecurityHeadersAdapter:
             analysis["asset_id"] = str(target.get("asset_id") or "")
             analysis["service_id"] = str(target.get("service_id") or "")
             analysis["webapp_id"] = str(target.get("webapp_id") or "")
+            for key in ("original_hostname", "resolved_ip", "protocol", "port", "probe_mode"):
+                if target.get(key):
+                    analysis[key] = target[key]
             analyses.append(analysis)
             completed_urls.append(url)
             if analysis["trigger_finding"]:
@@ -431,70 +458,31 @@ class HTTPSecurityHeadersAdapter:
         targets: list[dict[str, str]],
         run_data: RunData,
     ) -> list[dict[str, str]]:
-        ip_to_hostname = self._scope_hostname_by_resolved_ip(run_data)
-        if not ip_to_hostname:
-            return targets
-
         rewritten: list[dict[str, str]] = []
         seen: set[str] = set()
         for target in targets:
             url = str(target.get("url") or "")
-            preferred_url = self._replace_direct_ip_host(url, ip_to_hostname)
+            preferred_url, probe_context = prefer_hostname_url(run_data, url)
             row = dict(target)
             if preferred_url and preferred_url != url:
                 row["url"] = preferred_url
                 row["source_url"] = url
+            parsed = urlparse(preferred_url or url)
+            protocol = parsed.scheme.lower() or None
+            port = parsed.port or (443 if protocol == "https" else 80 if protocol == "http" else None)
+            row.update(
+                {
+                    key: value
+                    for key, value in probe_context.metadata(protocol=protocol, port=port).items()
+                    if value not in (None, [], "")
+                }
+            )
             key = normalize_url_key(str(row.get("url") or ""))
             if not key or key in seen:
                 continue
             seen.add(key)
             rewritten.append(row)
         return rewritten
-
-    def _scope_hostname_by_resolved_ip(self, run_data: RunData) -> dict[str, str]:
-        scope_hosts: set[str] = set()
-        for target in run_data.scope:
-            if target.target_type not in {
-                TargetType.DOMAIN,
-                TargetType.WILDCARD_DOMAIN,
-                TargetType.URL,
-                TargetType.HOST_PORT,
-            }:
-                continue
-            host = str(target.host or "").strip().lower().rstrip(".")
-            if host and not self._is_ip_literal(host):
-                scope_hosts.add(host)
-            for alias in target.aliases:
-                alias_host = str(alias or "").strip().lower().rstrip(".")
-                if alias_host and not self._is_ip_literal(alias_host):
-                    scope_hosts.add(alias_host)
-
-        mapping: dict[str, str] = {}
-        for asset in run_data.assets:
-            host_candidates = [
-                str(asset.name or "").strip().lower().rstrip("."),
-                *(str(alias or "").strip().lower().rstrip(".") for alias in getattr(asset, "aliases", [])),
-            ]
-            preferred_hosts = [host for host in host_candidates if host in scope_hosts]
-            if not preferred_hosts:
-                continue
-            preferred_host = sorted(preferred_hosts, key=lambda value: (len(value), value))[0]
-            for ip_value in [asset.ip, *list(getattr(asset, "resolved_ips", []))]:
-                normalized_ip = str(ip_value or "").strip()
-                if normalized_ip and self._is_ip_literal(normalized_ip):
-                    mapping.setdefault(normalized_ip, preferred_host)
-        return mapping
-
-    def _replace_direct_ip_host(self, url: str, ip_to_hostname: dict[str, str]) -> str:
-        parsed = urlparse(url)
-        host = parsed.hostname or ""
-        preferred_host = ip_to_hostname.get(host)
-        if not preferred_host:
-            return url
-        netloc = preferred_host
-        if parsed.port is not None:
-            netloc = f"{preferred_host}:{parsed.port}"
-        return parsed._replace(netloc=netloc).geturl()
 
     def _is_ip_literal(self, value: str | None) -> bool:
         try:
@@ -521,6 +509,8 @@ class HTTPSecurityHeadersAdapter:
         context: AdapterContext,
         *,
         url: str,
+        target: dict[str, str],
+        run_data: RunData,
         timeout_seconds: int,
         shell_path: str,
     ) -> tuple[dict[str, Any], ParsedHeaderResponse | None, str]:
@@ -561,6 +551,51 @@ class HTTPSecurityHeadersAdapter:
         task_results.append(fallback_result.task_result)
         evidence_artifacts.extend(fallback_result.evidence_artifacts)
         fallback_parsed = self._parse_probe_output(fallback_result.stdout_text, windows=os.name == "nt")
+        if self._response_is_usable(fallback_parsed):
+            return (
+                {
+                    "tool_executions": tool_executions,
+                    "task_results": task_results,
+                    "evidence_artifacts": evidence_artifacts,
+                    "last_execution_id": fallback_result.execution.execution_id,
+                    "last_task_id": fallback_result.task_result.task_id,
+                    "probe_results": [primary_result, fallback_result],
+                },
+                fallback_parsed,
+                "GET",
+            )
+
+        probe_context = url_probe_context(run_data, url)
+        resolve_ip = str(target.get("resolved_ip") or probe_context.primary_resolved_ip or "").strip() or None
+        if os.name != "nt" and probe_context.is_hostname_asset and resolve_ip:
+            resolve_spec = self._command_spec(
+                url=url,
+                suffix=f"{suffix}_resolve",
+                shell_path=shell_path,
+                fallback=True,
+                timeout_seconds=timeout_seconds,
+                resolve_ip=resolve_ip,
+            )
+            resolve_result = run_command_spec(context, resolve_spec)
+            resolve_result.task_result.warnings.append(
+                f"Retried with curl --resolve to preserve Host/SNI for {probe_context.original_hostname} via {resolve_ip}."
+            )
+            tool_executions.append(resolve_result.execution)
+            task_results.append(resolve_result.task_result)
+            evidence_artifacts.extend(resolve_result.evidence_artifacts)
+            resolve_parsed = self._parse_probe_output(resolve_result.stdout_text, windows=False)
+            return (
+                {
+                    "tool_executions": tool_executions,
+                    "task_results": task_results,
+                    "evidence_artifacts": evidence_artifacts,
+                    "last_execution_id": resolve_result.execution.execution_id,
+                    "last_task_id": resolve_result.task_result.task_id,
+                    "probe_results": [primary_result, fallback_result, resolve_result],
+                },
+                resolve_parsed if self._response_is_usable(resolve_parsed) else None,
+                "GET_RESOLVE",
+            )
         return (
             {
                 "tool_executions": tool_executions,
@@ -582,6 +617,7 @@ class HTTPSecurityHeadersAdapter:
         shell_path: str,
         fallback: bool,
         timeout_seconds: int,
+        resolve_ip: str | None = None,
     ) -> CommandSpec:
         if os.name == "nt":
             command = (
@@ -590,7 +626,11 @@ class HTTPSecurityHeadersAdapter:
                 else build_windows_head_command(url, shell_path=shell_path)
             )
         else:
-            command = build_linux_fallback_command(url) if fallback else build_linux_head_command(url)
+            command = (
+                build_linux_fallback_command(url, resolve_ip=resolve_ip)
+                if fallback
+                else build_linux_head_command(url, resolve_ip=resolve_ip)
+            )
         return CommandSpec(
             tool_name=self.name,
             capability=self.capability,
@@ -632,7 +672,12 @@ class HTTPSecurityHeadersAdapter:
         failure_type = "header_probe_failed"
         remediation = "Review connectivity, scheme, port, and HTTP/TLS behavior for the target URL."
         if 35 in exit_codes:
-            failure_type = "tls_handshake_failed"
+            parsed = urlparse(url)
+            failure_type = (
+                "raw_ip_tls_sni_probe_failed"
+                if self._is_ip_literal(parsed.hostname or "")
+                else "tls_handshake_failed"
+            )
             remediation = (
                 "Use the canonical hostname/SNI for HTTPS checks, or provide an explicit hostname-to-IP mapping "
                 "when testing CDN-backed IPs."
