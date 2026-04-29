@@ -1,0 +1,22 @@
+{
+  "category": "vulnerability",
+  "command_template": "sqlmap {default_arguments} -u {url}",
+  "default_arguments": ["--batch"],
+  "description": "SQL injection testing workflows.",
+  "detection_command": "sqlmap --version",
+  "display_name": "SQLMap",
+  "enabled": true,
+  "executable_name": "sqlmap",
+  "id": "sqlmap",
+  "install_command": "sudo apt-get install -y sqlmap",
+  "install_path": "",
+  "metadata": {"capabilities": ["web_injection_scan"], "source": "builtin", "task_keys": ["run-sqlmap"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Injection test results.", "name": "sqlmap.results", "type": "list"}],
+  "required_inputs": ["url", "file"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 900,
+  "version_command": "sqlmap --version"
+}

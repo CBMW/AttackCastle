@@ -1,0 +1,22 @@
+{
+  "category": "web",
+  "command_template": "whatweb {default_arguments} {url}",
+  "default_arguments": [],
+  "description": "Web technology fingerprinting.",
+  "detection_command": "whatweb --version",
+  "display_name": "WhatWeb",
+  "enabled": true,
+  "executable_name": "whatweb",
+  "id": "whatweb",
+  "install_command": "sudo apt-get install -y whatweb",
+  "install_path": "",
+  "metadata": {"capabilities": ["web_fingerprint"], "source": "builtin", "task_keys": ["fingerprint-web"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "darwin"],
+  "produced_fields": [{"description": "Detected technologies.", "name": "web.technologies", "type": "list"}],
+  "required_inputs": ["url"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 180,
+  "version_command": "whatweb --version"
+}

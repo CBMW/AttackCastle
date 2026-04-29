@@ -1,0 +1,22 @@
+{
+  "category": "web",
+  "command_template": "katana {default_arguments} -u {url}",
+  "default_arguments": [],
+  "description": "Web crawling and endpoint discovery.",
+  "detection_command": "katana -version",
+  "display_name": "Katana",
+  "enabled": true,
+  "executable_name": "katana",
+  "id": "katana",
+  "install_command": "sudo apt-get install -y katana",
+  "install_path": "",
+  "metadata": {"capabilities": ["web_discovery"], "source": "builtin", "task_keys": ["discover-web"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Discovered endpoints.", "name": "web.endpoints", "type": "list"}],
+  "required_inputs": ["url"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 600,
+  "version_command": "katana -version"
+}

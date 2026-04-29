@@ -54,8 +54,9 @@ from attackcastle.core.models import (
 )
 from attackcastle.core.migrations import migrate_payload
 from attackcastle.findings.engine import FindingsEngine
-from attackcastle.findings.http_security_headers import generate_http_security_header_finding
+from attackcastle.findings.library import FindingLibraryStore, builtin_findings_template_dir
 from attackcastle.findings.normalizer import build_vulnerability_records
+from attackcastle.findings.rule_engine import DetectionRuleEngine
 from attackcastle.logging import AuditLogger, configure_logger
 from attackcastle.normalization.identity_graph import build_identity_graph
 from attackcastle.orchestration import (
@@ -168,6 +169,18 @@ def _seed_scope_assets(run_data: RunData) -> None:
                 canonical_key=target.value,
             )
         )
+
+
+def _build_nmap_adapter(scan_mode: str) -> Any:
+    try:
+        return NmapAdapter(scan_mode=scan_mode)
+    except TypeError:
+        adapter = NmapAdapter()
+        try:
+            setattr(adapter, "scan_mode", scan_mode)
+        except Exception:
+            pass
+        return adapter
 
 
 def _apply_redaction(run_data: RunData) -> RunData:
@@ -596,8 +609,8 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
         "subdomain_enum": SubdomainEnumAdapter(),
         "resolve_hosts": ResolveHostsAdapter(),
         "dns": DNSAdapter(),
-        "nmap": NmapAdapter(scan_mode="port_discovery"),
-        "nmap_service_detection": NmapAdapter(scan_mode="service_detection"),
+        "nmap": _build_nmap_adapter("port_discovery"),
+        "nmap_service_detection": _build_nmap_adapter("service_detection"),
         "web_probe": WebProbeAdapter(),
         "vhost_discovery": VHostDiscoveryAdapter(),
         "web_discovery": WebDiscoveryAdapter(),
@@ -616,8 +629,13 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
         "cve_enricher": CVEEnricherAdapter(),
     }
 
+    finding_library = FindingLibraryStore(builtin_dir=builtin_findings_template_dir())
+    library_result = finding_library.load_definitions()
+    for warning in library_result.warnings:
+        run_data.warnings.append(f"Finding library: {warning}")
     findings_engine = FindingsEngine(
-        template_dir=Path(__file__).resolve().parent / "findings" / "templates",
+        template_dir=finding_library.builtin_dir,
+        templates=library_result.definitions,
         minimum_confidence=config.get("findings", {}).get("minimum_confidence", 0.6),
         severity_overlays=config.get("findings", {})
         .get("severity_overlays", {})
@@ -635,16 +653,12 @@ def build_scan_plan(options: ScanOptions, console: Console | None = None) -> tup
             ["low", "medium", "high", "critical"],
         ),
     )
+    detection_rule_engine = DetectionRuleEngine(library_result.definitions)
     report_builder = ReportBuilder()
 
     def findings_runner(inner_context: AdapterContext, inner_run_data: RunData):
         generated = findings_engine.generate(inner_run_data)
-        generated.extend(
-            generate_http_security_header_finding(
-                inner_run_data,
-                template_dir=Path(__file__).resolve().parent / "findings" / "templates",
-            )
-        )
+        generated.extend(detection_rule_engine.generate(inner_run_data))
         inner_run_data.facts["findings.generated"] = len(generated)
         inner_context.audit.write("findings.generated", {"count": len(generated)})
         return None

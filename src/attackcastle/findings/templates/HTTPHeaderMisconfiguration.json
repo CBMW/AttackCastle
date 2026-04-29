@@ -1,10 +1,12 @@
 {
-  "abstract": true,
+  "abstract": false,
   "id": "HTTP_HEADER_MISCONFIGURATION",
   "extends": "BASE_WEB_FINDING",
   "version": "1.0.0",
+  "enabled": true,
   "title": "HTTP Header Response Misconfiguration",
   "severity": "low",
+  "root_cause": "Misconfigured System",
   "category": "Web Security Misconfiguration",
   "description": "HTTP security response headers help browsers enforce client-side protections such as HTTPS enforcement, clickjacking prevention, MIME sniffing protection, referrer leakage reduction, and content loading restrictions. Missing or weakly configured headers can reduce browser-side hardening and increase the impact of other vulnerabilities, such as cross-site scripting or clickjacking.",
   "impact": "Missing or weak browser security headers reduce client-side hardening and can increase the impact of other web vulnerabilities.",
@@ -24,6 +26,59 @@
     "misconfiguration",
     "security-headers"
   ],
+  "detection": {
+    "logic": "any",
+    "triggers": [
+      {
+        "id": "missing-hsts",
+        "enabled": true,
+        "tool": "http_security_headers",
+        "operator": "header missing",
+        "scope": "response_headers",
+        "value": "Strict-Transport-Security"
+      },
+      {
+        "id": "missing-csp",
+        "enabled": true,
+        "tool": "http_security_headers",
+        "operator": "header missing",
+        "scope": "response_headers",
+        "value": "Content-Security-Policy"
+      },
+      {
+        "id": "missing-frame-options",
+        "enabled": true,
+        "tool": "http_security_headers",
+        "operator": "header missing",
+        "scope": "response_headers",
+        "value": "X-Frame-Options"
+      },
+      {
+        "id": "missing-content-type-options",
+        "enabled": true,
+        "tool": "http_security_headers",
+        "operator": "header missing",
+        "scope": "response_headers",
+        "value": "X-Content-Type-Options"
+      },
+      {
+        "id": "missing-referrer-policy",
+        "enabled": true,
+        "tool": "http_security_headers",
+        "operator": "header missing",
+        "scope": "response_headers",
+        "value": "Referrer-Policy"
+      },
+      {
+        "id": "missing-permissions-policy",
+        "enabled": true,
+        "tool": "http_security_headers",
+        "operator": "header missing",
+        "scope": "response_headers",
+        "value": "Permissions-Policy"
+      }
+    ]
+  },
   "trigger": {
     "entity_type": "web_app",
     "logic": "all",

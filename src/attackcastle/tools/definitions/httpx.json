@@ -1,0 +1,22 @@
+{
+  "category": "web",
+  "command_template": "httpx {default_arguments} -u {url}",
+  "default_arguments": ["-silent"],
+  "description": "Web service probing and metadata collection.",
+  "detection_command": "httpx -version",
+  "display_name": "httpx",
+  "enabled": true,
+  "executable_name": "httpx",
+  "id": "httpx",
+  "install_command": "sudo apt-get install -y httpx-toolkit",
+  "install_path": "",
+  "metadata": {"capabilities": ["web_probe"], "source": "builtin", "task_keys": ["check-websites"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Observed web endpoints.", "name": "web.urls", "type": "list"}],
+  "required_inputs": ["url", "host", "ip"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 180,
+  "version_command": "httpx -version"
+}

@@ -411,6 +411,7 @@ class WebProbeAdapter:
                 result.assets.append(asset)
                 asset_id = asset.asset_id
                 created_asset_by_host[host] = asset.asset_id
+                context.logger.info("promoted successful web probe into asset host=%s asset_id=%s", host, asset_id)
             if not service_id and asset_id:
                 service_id = existing_service_by_asset_port.get((asset_id, port)) or created_service_by_asset_port.get(
                     (asset_id, port)
@@ -430,6 +431,12 @@ class WebProbeAdapter:
                 result.services.append(service)
                 service_id = service.service_id
                 created_service_by_asset_port[(asset_id, port)] = service.service_id
+                context.logger.info(
+                    "promoted successful web probe into services url=%s service_id=%s port=%s",
+                    final_url,
+                    service_id,
+                    port,
+                )
             web_app = WebApplication(
                 webapp_id=new_id("web"),
                 asset_id=asset_id,
@@ -442,6 +449,19 @@ class WebProbeAdapter:
                 parser_version="httpx_v1",
             )
             result.web_apps.append(web_app)
+            context.logger.info(
+                "promoted successful web probe into web_targets url=%s webapp_id=%s status=%s",
+                final_url,
+                web_app.webapp_id,
+                status_code,
+            )
+            if scheme == "https":
+                context.logger.info(
+                    "promoted successful web probe into tls_targets host=%s port=%s service_id=%s",
+                    host,
+                    port,
+                    service_id,
+                )
             evidence = Evidence(
                 evidence_id=new_id("evidence"),
                 source_tool=self.name,

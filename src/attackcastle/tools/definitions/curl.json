@@ -1,0 +1,22 @@
+{
+  "category": "web",
+  "command_template": "curl {default_arguments} {url}",
+  "default_arguments": ["-i"],
+  "description": "HTTP requests for validation and replay workflows.",
+  "detection_command": "curl --version",
+  "display_name": "curl",
+  "enabled": true,
+  "executable_name": "curl",
+  "id": "curl",
+  "install_command": "sudo apt-get install -y curl",
+  "install_path": "",
+  "metadata": {"capabilities": ["active_validation_core"], "source": "builtin", "task_keys": ["run-active-validation"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "headers"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "HTTP response headers.", "name": "http.headers", "type": "object"}],
+  "required_inputs": ["url"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 120,
+  "version_command": "curl --version"
+}

@@ -32,6 +32,12 @@ def test_template_inheritance_resolution():
     assert "misconfiguration" in [tag.lower() for tag in http_template.get("tags", [])]
     assert http_template["category"] == "Web Security Misconfiguration"
     assert http_template["title"] == "HTTP Header Response Misconfiguration"
+    assert http_template["enabled"] is True
+    assert http_template["detection"]["logic"] == "any"
+    assert any(
+        trigger["operator"] == "header missing"
+        for trigger in http_template["detection"]["triggers"]
+    )
 
 
 def test_http_security_header_finding_generator_aggregates_targets(tmp_path):

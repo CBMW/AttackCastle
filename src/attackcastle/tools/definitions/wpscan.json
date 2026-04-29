@@ -1,0 +1,22 @@
+{
+  "category": "cms",
+  "command_template": "wpscan {default_arguments} --url {url}",
+  "default_arguments": [],
+  "description": "WordPress-specific scanning.",
+  "detection_command": "wpscan --version",
+  "display_name": "WPScan",
+  "enabled": true,
+  "executable_name": "wpscan",
+  "id": "wpscan",
+  "install_command": "sudo apt-get install -y wpscan",
+  "install_path": "",
+  "metadata": {"capabilities": ["cms_wordpress_scan"], "source": "builtin", "task_keys": ["run-wpscan"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "json"},
+  "platforms": ["linux", "darwin"],
+  "produced_fields": [{"description": "WordPress vulnerabilities.", "name": "wordpress.vulnerabilities", "type": "list"}],
+  "required_inputs": ["url"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 600,
+  "version_command": "wpscan --version"
+}

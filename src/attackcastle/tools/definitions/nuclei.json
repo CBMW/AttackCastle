@@ -1,0 +1,22 @@
+{
+  "category": "vulnerability",
+  "command_template": "nuclei {default_arguments} -u {url}",
+  "default_arguments": [],
+  "description": "Template-based vulnerability scanning.",
+  "detection_command": "nuclei --version",
+  "display_name": "Nuclei",
+  "enabled": true,
+  "executable_name": "nuclei",
+  "id": "nuclei",
+  "install_command": "sudo apt-get install -y nuclei",
+  "install_path": "",
+  "metadata": {"capabilities": ["web_template_scan", "cms_framework_scan"], "source": "builtin", "task_keys": ["run-nuclei", "run-framework-checks"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "json"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Template matches.", "name": "nuclei.matches", "type": "list"}],
+  "required_inputs": ["url", "file"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 600,
+  "version_command": "nuclei --version"
+}

@@ -1,0 +1,22 @@
+{
+  "category": "network",
+  "command_template": "nmap {default_arguments} {target}",
+  "default_arguments": ["-sV"],
+  "description": "Network discovery and service detection.",
+  "detection_command": "nmap --version",
+  "display_name": "Nmap",
+  "enabled": true,
+  "executable_name": "nmap",
+  "id": "nmap",
+  "install_command": "sudo apt-get install -y nmap",
+  "install_path": "",
+  "metadata": {"capabilities": ["network_port_scan", "service_detection"], "source": "builtin", "task_keys": ["run-nmap", "run-nmap-service-detection"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "xml"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Open ports discovered by scan.", "name": "ports.open", "type": "list"}],
+  "required_inputs": ["host", "ip"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 300,
+  "version_command": "nmap --version"
+}

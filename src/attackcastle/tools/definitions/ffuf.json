@@ -1,0 +1,22 @@
+{
+  "category": "content",
+  "command_template": "ffuf {default_arguments} -u {url} -w {wordlist}",
+  "default_arguments": [],
+  "description": "Virtual host and content discovery.",
+  "detection_command": "ffuf -V",
+  "display_name": "ffuf",
+  "enabled": true,
+  "executable_name": "ffuf",
+  "id": "ffuf",
+  "install_command": "sudo apt-get install -y ffuf",
+  "install_path": "",
+  "metadata": {"capabilities": ["vhost_discovery"], "source": "builtin", "task_keys": ["run-vhost-discovery"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "json"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Discovered content paths.", "name": "content.paths", "type": "list"}],
+  "required_inputs": ["url", "wordlist"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 600,
+  "version_command": "ffuf -V"
+}

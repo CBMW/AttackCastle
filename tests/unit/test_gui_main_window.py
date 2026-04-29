@@ -132,6 +132,8 @@ def test_settings_sidebar_switches_between_isolated_settings_pages(tmp_path: Pat
         assert settings_sections == [
             "Resource Limits",
             "Profiles",
+            "Findings Editor",
+            "Tool Editor",
             "Proxy",
             "Metadata Paths",
             "Storage & Utilities",

@@ -1,0 +1,22 @@
+{
+  "category": "vulnerability",
+  "command_template": "nikto {default_arguments} -h {url}",
+  "default_arguments": [],
+  "description": "Web vulnerability heuristic checks.",
+  "detection_command": "nikto -Version",
+  "display_name": "Nikto",
+  "enabled": true,
+  "executable_name": "nikto",
+  "id": "nikto",
+  "install_command": "sudo apt-get install -y nikto",
+  "install_path": "",
+  "metadata": {"capabilities": ["web_vuln_scan"], "source": "builtin", "task_keys": ["assess-web"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "darwin"],
+  "produced_fields": [{"description": "Potential web findings.", "name": "findings.candidates", "type": "list"}],
+  "required_inputs": ["url", "host"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 600,
+  "version_command": "nikto -Version"
+}

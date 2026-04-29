@@ -1,0 +1,22 @@
+{
+  "category": "dns",
+  "command_template": "dig {target}",
+  "default_arguments": [],
+  "description": "Hostname and DNS record resolution.",
+  "detection_command": "dig -v",
+  "display_name": "dig",
+  "enabled": true,
+  "executable_name": "dig",
+  "id": "dig",
+  "install_command": "sudo apt-get install -y dnsutils",
+  "install_path": "",
+  "metadata": {"capabilities": ["dns_resolution"], "source": "builtin", "task_keys": ["resolve-hosts"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "darwin"],
+  "produced_fields": [{"description": "Resolved addresses.", "name": "dns.answers", "type": "list"}],
+  "required_inputs": ["host"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 60,
+  "version_command": "dig -v"
+}

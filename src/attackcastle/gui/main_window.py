@@ -89,6 +89,8 @@ from attackcastle.gui.dialogs import (
 from attackcastle.gui.extensions import REPORTS_EXTENSION_ID
 from attackcastle.gui.extensions_store import GuiExtensionStore
 from attackcastle.gui.extensions_tab import ExtensionsTab
+from attackcastle.gui.findings_editor import FindingsEditorTab
+from attackcastle.gui.tool_editor import ToolEditorTab
 from attackcastle.gui.models import (
     AttackWorkspace,
     AuditEntry,
@@ -125,6 +127,8 @@ from attackcastle.gui.scanner_panel import ScannerPanel
 from attackcastle.gui.worker_processes import WorkerProcessManager
 from attackcastle.gui.worker_protocol import WorkerEvent
 from attackcastle.gui.workspace_store import NO_WORKSPACE_SCOPE_ID, WorkspaceStore, ad_hoc_output_home
+from attackcastle.findings.library import FindingLibraryStore
+from attackcastle.tools.library import ToolLibraryStore
 from attackcastle.storage.run_store import RunStore
 
 
@@ -388,6 +392,23 @@ class MainWindow(QMainWindow):
             layout_saver=self._save_ui_layout,
         )
         self.configuration_tab.setMinimumHeight(0)
+        self.findings_editor_tab = FindingsEditorTab(FindingLibraryStore())
+        self.findings_editor_tab.setMinimumHeight(0)
+        self.tool_editor_tab = ToolEditorTab(
+            ToolLibraryStore(
+                profile_name_provider=lambda: self._profiles[0].name if self._profiles else "",
+                workspace_id_provider=lambda: self._active_workspace_id,
+                workspace_home_provider=self._current_workspace_home,
+            ),
+            audit_callback=lambda action, summary, run_id="", workspace_id="", details=None: self._append_audit(
+                action,
+                summary,
+                run_id=run_id,
+                workspace_id=workspace_id,
+                details=details,
+            ),
+        )
+        self.tool_editor_tab.setMinimumHeight(0)
         self.extensions_tab = ExtensionsTab(
             self.extension_store,
             self._apply_theme_manifest,
@@ -890,6 +911,8 @@ class MainWindow(QMainWindow):
         performance_layout.addWidget(self.performance_test_throttle_button)
         self._add_settings_page("resources", "Resource Limits", self._build_settings_content_page(performance_panel))
         self._add_settings_page("profiles", "Profiles", self.configuration_tab)
+        self._add_settings_page("findings_editor", "Findings Editor", self.findings_editor_tab)
+        self._add_settings_page("tool_editor", "Tool Editor", self.tool_editor_tab)
 
         proxy_panel, proxy_layout = self._build_settings_card(
             "Proxy",
@@ -990,6 +1013,20 @@ class MainWindow(QMainWindow):
         open_workspace = QPushButton("Open Project Store Folder")
         style_button(open_workspace, role="secondary")
         open_workspace.clicked.connect(lambda: self._open_local_path(str(self.workspace_store.path.parent)))
+        self.findings_library_path_label = QLabel("")
+        self.findings_library_path_label.setObjectName("monoLabel")
+        self.findings_library_path_label.setProperty("variant", "path")
+        self.findings_library_path_label.setWordWrap(True)
+        open_findings_library = QPushButton("Open Findings Library Folder")
+        style_button(open_findings_library, role="secondary")
+        open_findings_library.clicked.connect(lambda: self._open_local_path(str(self.findings_editor_tab.store.user_dir)))
+        self.tool_library_path_label = QLabel("")
+        self.tool_library_path_label.setObjectName("monoLabel")
+        self.tool_library_path_label.setProperty("variant", "path")
+        self.tool_library_path_label.setWordWrap(True)
+        open_tool_library = QPushButton("Open Tool Library Folder")
+        style_button(open_tool_library, role="secondary")
+        open_tool_library.clicked.connect(lambda: self._open_local_path(str(self.tool_editor_tab.store.global_dir)))
         about_button = QPushButton("About AttackCastle")
         style_button(about_button, role="secondary")
         about_button.clicked.connect(self._show_about)
@@ -997,6 +1034,8 @@ class MainWindow(QMainWindow):
             (
                 (open_profiles, "Open the folder that stores saved GUI profiles."),
                 (open_workspace, "Open the folder that stores project metadata, audit, and run registry state."),
+                (open_findings_library, "Open the folder that stores editable finding definitions."),
+                (open_tool_library, "Open the folder that stores editable tool definitions."),
                 (about_button, "Show a short description of the GUI."),
             )
         )
@@ -1004,6 +1043,10 @@ class MainWindow(QMainWindow):
         profile_label.setObjectName("settingsFieldLabel")
         workspace_store_label = QLabel("Project store path")
         workspace_store_label.setObjectName("settingsFieldLabel")
+        findings_library_label = QLabel("Findings library path")
+        findings_library_label.setObjectName("settingsFieldLabel")
+        tool_library_label = QLabel("Tool library path")
+        tool_library_label.setObjectName("settingsFieldLabel")
         paths_layout.addWidget(profile_label)
         paths_layout.addWidget(self.profile_store_path_label)
         paths_layout.addWidget(open_profiles)
@@ -1011,6 +1054,14 @@ class MainWindow(QMainWindow):
         paths_layout.addWidget(workspace_store_label)
         paths_layout.addWidget(self.workspace_store_path_label)
         paths_layout.addWidget(open_workspace)
+        paths_layout.addWidget(self._build_settings_divider())
+        paths_layout.addWidget(findings_library_label)
+        paths_layout.addWidget(self.findings_library_path_label)
+        paths_layout.addWidget(open_findings_library)
+        paths_layout.addWidget(self._build_settings_divider())
+        paths_layout.addWidget(tool_library_label)
+        paths_layout.addWidget(self.tool_library_path_label)
+        paths_layout.addWidget(open_tool_library)
         self._add_settings_page("paths", "Metadata Paths", self._build_settings_content_page(paths_panel))
 
         store_panel, store_layout = self._build_settings_card(
@@ -1504,6 +1555,10 @@ class MainWindow(QMainWindow):
             return
         self.profile_store_path_label.setText(str(self.store.path))
         self.workspace_store_path_label.setText(str(self.workspace_store.path))
+        if hasattr(self, "findings_library_path_label"):
+            self.findings_library_path_label.setText(str(self.findings_editor_tab.store.user_dir))
+        if hasattr(self, "tool_library_path_label"):
+            self.tool_library_path_label.setText(str(self.tool_editor_tab.store.global_dir))
         self._sync_performance_guard_controls()
         self._sync_proxy_settings_controls()
         self._update_danger_zone_state()

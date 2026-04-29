@@ -12,6 +12,8 @@ from typing import Any
 
 from rich.console import Console
 
+from attackcastle.tools.library import builtin_tools_definition_dir
+
 
 EXTERNAL_DEPENDENCY_SPECS = (
     {
@@ -105,6 +107,11 @@ EXTERNAL_DEPENDENCY_SPECS = (
         "suggestion": "Install feroxbuster for content discovery.",
     },
 )
+
+
+def external_dependency_tool_definition_dir() -> Path:
+    """Return the built-in JSON tool definition directory for future readiness migration."""
+    return builtin_tools_definition_dir()
 
 _DEPENDENCY_ROWS_CACHE_TTL_SECONDS = 30.0
 _dependency_rows_cache: tuple[float, str, int, list[dict[str, Any]]] | None = None

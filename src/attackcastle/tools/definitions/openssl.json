@@ -1,0 +1,22 @@
+{
+  "category": "tls",
+  "command_template": "openssl {default_arguments} {target}",
+  "default_arguments": ["version"],
+  "description": "TLS and certificate inspection.",
+  "detection_command": "openssl version",
+  "display_name": "OpenSSL",
+  "enabled": true,
+  "executable_name": "openssl",
+  "id": "openssl",
+  "install_command": "sudo apt-get install -y openssl",
+  "install_path": "",
+  "metadata": {"capabilities": ["tls_probe"], "source": "builtin", "task_keys": ["detect-tls"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Certificate details.", "name": "tls.certificate", "type": "object"}],
+  "required_inputs": ["host", "ip"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 120,
+  "version_command": "openssl version"
+}

@@ -26,8 +26,10 @@ class FindingsEngine:
         suppression_file: Path | None = None,
         minimum_evidence_completeness: float = 0.8,
         enforce_evidence_for_severities: list[str] | None = None,
+        templates: list[dict[str, Any]] | None = None,
     ) -> None:
         self.template_dir = template_dir
+        self.templates = templates
         self.minimum_confidence = minimum_confidence
         self.severity_overlays = severity_overlays or {}
         self.suppression_file = suppression_file
@@ -194,8 +196,13 @@ class FindingsEngine:
             return "confirmed", notes
         return "candidate", notes
 
+    def _load_templates(self) -> list[dict[str, Any]]:
+        if self.templates is not None:
+            return [dict(item) for item in self.templates]
+        return load_templates(self.template_dir)
+
     def generate(self, run_data: RunData) -> list[Finding]:
-        templates = load_templates(self.template_dir)
+        templates = self._load_templates()
         generated: list[Finding] = []
         dedupe_fingerprints = {finding.fingerprint for finding in run_data.findings if finding.fingerprint}
         observation_index = build_observation_index(run_data)
@@ -208,6 +215,10 @@ class FindingsEngine:
 
         for template in templates:
             if template.get("abstract") is True:
+                continue
+            if template.get("enabled") is False:
+                continue
+            if isinstance(template.get("detection"), dict):
                 continue
             try:
                 validate_template(template)
@@ -311,4 +322,3 @@ class FindingsEngine:
         run_data.findings.extend(generated)
         run_data.facts["findings.telemetry"] = telemetry
         return generated
-

@@ -28,10 +28,12 @@ TEMPLATE_SCHEMA: dict[str, Any] = {
     "properties": {
         "id": {"type": "string"},
         "abstract": {"type": "boolean"},
+        "enabled": {"type": "boolean"},
         "extends": {"type": "string"},
         "version": {"type": "string"},
         "title": {"type": "string"},
         "severity": {"type": "string", "enum": ["info", "low", "medium", "high", "critical"]},
+        "root_cause": {"type": "string"},
         "category": {"type": "string"},
         "description": {"type": "string"},
         "impact": {"type": "string"},
@@ -57,6 +59,13 @@ TEMPLATE_SCHEMA: dict[str, Any] = {
                         },
                     },
                 },
+            },
+        },
+        "detection": {
+            "type": "object",
+            "properties": {
+                "logic": {"type": "string", "enum": ["all", "any"]},
+                "triggers": {"type": "array", "items": {"type": "object"}},
             },
         },
         "evidence_requirements": {
@@ -110,11 +119,21 @@ def _load_raw_templates(template_dir: Path) -> dict[str, dict[str, Any]]:
     if not template_dir.exists():
         return templates
     for template_path in sorted(template_dir.glob("*.json")):
-        with template_path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
+        try:
+            with template_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
         if "id" not in data:
             continue
         templates[data["id"]] = data
+    return templates
+
+
+def _load_raw_templates_from_dirs(template_dirs: list[Path]) -> dict[str, dict[str, Any]]:
+    templates: dict[str, dict[str, Any]] = {}
+    for template_dir in template_dirs:
+        templates.update(_load_raw_templates(template_dir))
     return templates
 
 
@@ -154,6 +173,15 @@ def _resolve_template(
 
 def load_templates(template_dir: Path) -> list[dict[str, Any]]:
     raw_templates = _load_raw_templates(template_dir)
+    return _resolve_templates(raw_templates)
+
+
+def load_templates_from_dirs(template_dirs: list[Path]) -> list[dict[str, Any]]:
+    raw_templates = _load_raw_templates_from_dirs(template_dirs)
+    return _resolve_templates(raw_templates)
+
+
+def _resolve_templates(raw_templates: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     resolved: list[dict[str, Any]] = []
     for template_id in sorted(raw_templates.keys()):
         resolved.append(_resolve_template(template_id, raw_templates, set()))

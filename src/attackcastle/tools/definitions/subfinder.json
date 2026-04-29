@@ -1,0 +1,22 @@
+{
+  "category": "dns",
+  "command_template": "subfinder {default_arguments} -d {host}",
+  "default_arguments": ["-silent"],
+  "description": "Passive subdomain enumeration.",
+  "detection_command": "subfinder -version",
+  "display_name": "Subfinder",
+  "enabled": true,
+  "executable_name": "subfinder",
+  "id": "subfinder",
+  "install_command": "sudo apt-get install -y subfinder",
+  "install_path": "",
+  "metadata": {"capabilities": ["subdomain_enumeration"], "source": "builtin", "task_keys": ["run-subdomain-enum"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [{"description": "Discovered hostnames.", "name": "hostnames", "type": "list"}],
+  "required_inputs": ["host"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 300,
+  "version_command": "subfinder -version"
+}

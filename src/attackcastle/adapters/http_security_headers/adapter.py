@@ -22,14 +22,20 @@ from attackcastle.adapters.targeting import normalize_url_key, normalized_task_i
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, EvidenceArtifact, Observation, RunData, new_id, now_utc
+from attackcastle.core.models import Asset, NormalizedEntity, Service, WebApplication
 from attackcastle.normalization.correlator import collect_confirmed_web_targets, collect_web_targets
 
 TASK_TYPE = "CheckHttpSecurityHeaders"
 PARSER_VERSION = "http_security_headers_v1"
+VALID_WEB_STATUS_CODES = {200, 301, 302, 401, 403}
 
 
 def _safe_name(value: str) -> str:
     return sha1(value.encode("utf-8")).hexdigest()[:12]  # noqa: S324
+
+
+def _service_name_for_url(scheme: str, port: int) -> str:
+    return "https" if scheme == "https" or port in {443, 8443} else "http"
 
 
 def build_linux_head_command(target: str, *, resolve_ip: str | None = None) -> list[str]:
@@ -240,6 +246,23 @@ class HTTPSecurityHeadersAdapter:
                 result.warnings.append(failure["message"])
                 continue
 
+            promotion = self._promote_successful_probe(
+                context=context,
+                result=result,
+                run_data=run_data,
+                target=target,
+                url=url,
+                parsed_response=parsed_response,
+                source_execution_id=command_result["last_execution_id"],
+            )
+            target.update(
+                {
+                    key: value
+                    for key, value in promotion.items()
+                    if key in {"asset_id", "service_id", "webapp_id"} and value
+                }
+            )
+
             analysis = build_header_analysis(
                 url=url,
                 status_code=parsed_response.status_code,
@@ -382,7 +405,16 @@ class HTTPSecurityHeadersAdapter:
         result.facts["http_security_headers.available"] = True
         result.facts["http_security_headers.scanned_targets"] = len(completed_urls)
         result.facts["http_security_headers.attempted_targets"] = len(attempted_urls)
+        result.facts["http_security_headers.completed_urls"] = sorted(set(completed_urls))
         result.facts["http_security_headers.scanned_urls"] = scanned_urls
+        if probe_failures:
+            result.facts["http_security_headers.unavailable_urls"] = sorted(
+                {
+                    str(item.get("url") or "")
+                    for item in probe_failures
+                    if item.get("failure_type") in {"timeout_unavailable", "filtered_or_unavailable"}
+                }
+            )
         result.facts["http_security_headers.affected_urls"] = sorted(set(affected_urls))
         result.facts["http_security_headers.results"] = sorted(analyses, key=lambda item: str(item.get("url") or ""))
         if probe_failures:
@@ -504,6 +536,155 @@ class HTTPSecurityHeadersAdapter:
             return ("asset", asset_id)
         return ("asset", url or new_id("asset"))
 
+    def _valid_web_response(self, status_code: int | None) -> bool:
+        if status_code in VALID_WEB_STATUS_CODES:
+            return True
+        return status_code is not None and 100 <= int(status_code) <= 599
+
+    def _promote_successful_probe(
+        self,
+        *,
+        context: AdapterContext,
+        result: AdapterResult,
+        run_data: RunData,
+        target: dict[str, Any],
+        url: str,
+        parsed_response: ParsedHeaderResponse,
+        source_execution_id: str,
+    ) -> dict[str, str]:
+        if not self._valid_web_response(parsed_response.status_code):
+            return {}
+        normalized_url = normalize_url_key(url)
+        parsed = urlparse(normalized_url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return {}
+        scheme = parsed.scheme.lower()
+        host = parsed.hostname.lower().rstrip(".")
+        port = parsed.port or (443 if scheme == "https" else 80)
+        service_name = _service_name_for_url(scheme, port)
+
+        existing_assets = {asset.asset_id: asset for asset in [*run_data.assets, *result.assets]}
+        asset_id = str(target.get("asset_id") or "").strip()
+        if asset_id not in existing_assets:
+            asset_id = ""
+        if not asset_id:
+            for asset in [*run_data.assets, *result.assets]:
+                names = [asset.name, *list(getattr(asset, "aliases", []))]
+                if any(str(name or "").strip().lower().rstrip(".") == host for name in names):
+                    asset_id = asset.asset_id
+                    break
+        if not asset_id:
+            asset = Asset(
+                asset_id=new_id("asset"),
+                kind="host" if self._is_ip_literal(host) else "domain",
+                name=host,
+                ip=host if self._is_ip_literal(host) else None,
+                source_tool=self.name,
+                source_execution_id=source_execution_id,
+                parser_version=PARSER_VERSION,
+            )
+            result.assets.append(asset)
+            asset_id = asset.asset_id
+            context.logger.info("promoted successful HTTP probe into asset host=%s asset_id=%s", host, asset_id)
+
+        service_id = str(target.get("service_id") or "").strip()
+        services = [*run_data.services, *result.services]
+        if service_id and not any(service.service_id == service_id for service in services):
+            service_id = ""
+        if not service_id:
+            for service in services:
+                if service.asset_id == asset_id and int(service.port) == port and service.protocol.lower() == "tcp":
+                    service_id = service.service_id
+                    break
+        if not service_id:
+            service = Service(
+                service_id=new_id("svc"),
+                asset_id=asset_id,
+                port=port,
+                protocol="tcp",
+                state="open",
+                name=service_name,
+                source_tool=self.name,
+                source_execution_id=source_execution_id,
+                parser_version=PARSER_VERSION,
+            )
+            result.services.append(service)
+            service_id = service.service_id
+            context.logger.info(
+                "promoted successful HTTP probe into services url=%s service_id=%s port=%s",
+                normalized_url,
+                service_id,
+                port,
+            )
+
+        webapp_id = str(target.get("webapp_id") or "").strip()
+        web_apps = [*run_data.web_apps, *result.web_apps]
+        if webapp_id and not any(web_app.webapp_id == webapp_id for web_app in web_apps):
+            webapp_id = ""
+        if not webapp_id:
+            for web_app in web_apps:
+                if normalize_url_key(web_app.url) == normalized_url:
+                    webapp_id = web_app.webapp_id
+                    break
+        if not webapp_id:
+            web_app = WebApplication(
+                webapp_id=new_id("web"),
+                asset_id=asset_id,
+                service_id=service_id,
+                url=normalized_url,
+                status_code=parsed_response.status_code,
+                source_tool=self.name,
+                source_execution_id=source_execution_id,
+                parser_version=PARSER_VERSION,
+            )
+            result.web_apps.append(web_app)
+            webapp_id = web_app.webapp_id
+            context.logger.info(
+                "promoted successful HTTP probe into web_targets url=%s webapp_id=%s status=%s",
+                normalized_url,
+                webapp_id,
+                parsed_response.status_code,
+            )
+
+        result.normalized_entities.append(
+            NormalizedEntity(
+                entity_id=new_id("entity"),
+                entity_type="WebService",
+                attributes={
+                    "scheme": scheme,
+                    "host": host,
+                    "port": port,
+                    "url": normalized_url,
+                    "status_code": parsed_response.status_code,
+                    "promoted_from": self.name,
+                },
+                source_tool=self.name,
+                source_execution_id=source_execution_id,
+                parser_version=PARSER_VERSION,
+            )
+        )
+        result.observations.append(
+            Observation(
+                observation_id=new_id("obs"),
+                key="web.detected",
+                value=True,
+                entity_type="web_app",
+                entity_id=webapp_id,
+                source_tool=self.name,
+                confidence=0.9,
+                source_execution_id=source_execution_id,
+                parser_version=PARSER_VERSION,
+            )
+        )
+        if scheme == "https":
+            context.logger.info(
+                "promoted successful HTTPS probe into tls_targets host=%s port=%s service_id=%s",
+                host,
+                port,
+                service_id,
+            )
+        return {"asset_id": asset_id, "service_id": service_id, "webapp_id": webapp_id}
+
     def _run_probe(
         self,
         context: AdapterContext,
@@ -536,6 +717,19 @@ class HTTPSecurityHeadersAdapter:
                     "probe_results": [primary_result],
                 },
                 primary_parsed,
+                "HEAD",
+            )
+        if self._probe_timed_out(primary_result):
+            return (
+                {
+                    "tool_executions": tool_executions,
+                    "task_results": task_results,
+                    "evidence_artifacts": evidence_artifacts,
+                    "last_execution_id": primary_result.execution.execution_id,
+                    "last_task_id": primary_result.task_result.task_id,
+                    "probe_results": [primary_result],
+                },
+                None,
                 "HEAD",
             )
 
@@ -609,6 +803,18 @@ class HTTPSecurityHeadersAdapter:
             "GET",
         )
 
+    def _probe_timed_out(self, probe_result: Any) -> bool:
+        if bool(getattr(probe_result, "timed_out", False)):
+            return True
+        task_result = getattr(probe_result, "task_result", None)
+        execution = getattr(probe_result, "execution", None)
+        return any(
+            str(getattr(item, "termination_reason", "") or "").lower() == "timeout"
+            or bool(getattr(item, "timed_out", False))
+            for item in (task_result, execution)
+            if item is not None
+        )
+
     def _command_spec(
         self,
         *,
@@ -655,7 +861,7 @@ class HTTPSecurityHeadersAdapter:
         return parse_raw_response_headers(stdout_text)
 
     def _response_is_usable(self, parsed_response: ParsedHeaderResponse) -> bool:
-        return parsed_response.status_code is not None and bool(parsed_response.headers)
+        return self._valid_web_response(parsed_response.status_code)
 
     def _classify_probe_failure(self, url: str, probe_results: list[Any]) -> dict[str, Any]:
         exit_codes = [item.exit_code for item in probe_results if getattr(item, "exit_code", None) is not None]
@@ -682,6 +888,10 @@ class HTTPSecurityHeadersAdapter:
                 "Use the canonical hostname/SNI for HTTPS checks, or provide an explicit hostname-to-IP mapping "
                 "when testing CDN-backed IPs."
             )
+        elif any(self._probe_timed_out(item) for item in probe_results):
+            parsed = urlparse(url)
+            failure_type = "filtered_or_unavailable" if parsed.port in {8080, 8443} else "timeout_unavailable"
+            remediation = "Recorded as unavailable or filtered; successful primary web probes can continue the scan."
         message_detail = "; ".join([*stderr, *termination_details]) or f"curl exit codes: {exit_codes or ['unknown']}"
         return {
             "url": url,

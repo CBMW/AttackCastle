@@ -1,0 +1,22 @@
+{
+  "category": "network",
+  "command_template": "ping {target}",
+  "default_arguments": [],
+  "description": "Target reachability checks.",
+  "detection_command": "ping",
+  "display_name": "Ping",
+  "enabled": true,
+  "executable_name": "ping",
+  "id": "ping",
+  "install_command": "sudo apt-get install -y iputils-ping",
+  "install_path": "",
+  "metadata": {"capabilities": ["target_reachability"], "source": "builtin", "task_keys": ["check-target-reachability"]},
+  "output": {"parser": "", "primary_artifact": "stdout", "regex": "", "type": "raw"},
+  "platforms": ["linux", "windows", "darwin"],
+  "produced_fields": [],
+  "required_inputs": ["host", "ip"],
+  "save_scope": "global",
+  "schema_version": "1.0",
+  "timeout_seconds": 30,
+  "version_command": ""
+}

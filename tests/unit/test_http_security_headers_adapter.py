@@ -19,6 +19,8 @@ from attackcastle.adapters.http_security_headers.parser import (
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
 from attackcastle.core.models import Asset, RunData, RunMetadata, ScanTarget, TaskResult, ToolExecution, WebApplication, now_utc
+from attackcastle.normalization.correlator import collect_tls_targets
+from attackcastle.normalization.mapper import merge_adapter_result
 from attackcastle.storage.run_store import RunStore
 
 
@@ -276,7 +278,96 @@ def test_http_security_headers_adapter_records_results_and_observations(tmp_path
     assert result.facts["http_security_headers.affected_urls"] == []
     assert result.evidence
     assert result.observations
-    assert result.observations[0].key == "web.http_security_headers.analysis"
+    assert any(item.key == "web.http_security_headers.analysis" for item in result.observations)
+
+
+def test_http_security_headers_promotes_successful_hostname_probes_to_shared_targets(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    context = _context(tmp_path, "http-header-promotes")
+    context.task_inputs = ["https://staging.go2.teachersbuddy.com/", "http://staging.go2.teachersbuddy.com/"]
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="http-header-promotes",
+            target_input="staging.go2.teachersbuddy.com",
+            profile="prototype",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        scope=[
+            ScanTarget(
+                target_id="target-domain",
+                raw="staging.go2.teachersbuddy.com",
+                target_type=TargetType.DOMAIN,
+                value="staging.go2.teachersbuddy.com",
+                host="staging.go2.teachersbuddy.com",
+            )
+        ],
+    )
+
+    def _fake_run_command_spec(context, spec, proxy_url=None):  # noqa: ANN001
+        command_text = " ".join(str(part) for part in spec.command)
+        is_https = "https://staging.go2.teachersbuddy.com/" in command_text
+        status_code = 200 if is_https else 301
+        stdout_text = json.dumps(
+            {
+                "method": "Head",
+                "status_code": status_code,
+                "headers": [
+                    {"name": "Server", "value": "nginx"},
+                    {"name": "Location", "value": "https://staging.go2.teachersbuddy.com/"},
+                ],
+                "raw_headers": f"HTTP/2 {status_code} OK\r\nServer: nginx",
+            }
+        )
+        return SimpleNamespace(
+            execution=ToolExecution(
+                execution_id=f"exec-{status_code}",
+                tool_name="http_security_headers",
+                command="head-command",
+                started_at=now_utc(),
+                ended_at=now_utc(),
+                exit_code=0,
+                status="completed",
+            ),
+            task_result=TaskResult(
+                task_id=f"task-{status_code}",
+                task_type="CheckHttpSecurityHeaders",
+                status="completed",
+                command="head-command",
+                exit_code=0,
+                started_at=now_utc(),
+                finished_at=now_utc(),
+            ),
+            evidence_artifacts=[],
+            stdout_text=stdout_text,
+            stderr_text="",
+            exit_code=0,
+            error_message=None,
+            command_text="head-command",
+            stdout_path=context.run_store.artifact_path("http_security_headers", f"{status_code}.stdout.txt"),
+            stderr_path=context.run_store.artifact_path("http_security_headers", f"{status_code}.stderr.txt"),
+            transcript_path=context.run_store.artifact_path("http_security_headers", f"{status_code}.transcript.txt"),
+            execution_id=f"exec-{status_code}",
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.http_security_headers.adapter.run_command_spec", _fake_run_command_spec)
+
+    with caplog.at_level(logging.INFO):
+        result = HTTPSecurityHeadersAdapter().run(context, run_data)
+    merge_adapter_result(run_data, result)
+
+    assert {service.port for service in run_data.services} == {80, 443}
+    assert {web_app.url for web_app in run_data.web_apps} == {
+        "http://staging.go2.teachersbuddy.com/",
+        "https://staging.go2.teachersbuddy.com/",
+    }
+    assert collect_tls_targets(run_data)[0]["host"] == "staging.go2.teachersbuddy.com"
+    assert collect_tls_targets(run_data)[0]["port"] == 443
+    assert "promoted successful HTTP probe into web_targets" in caplog.text
+    assert "promoted successful HTTPS probe into tls_targets" in caplog.text
 
 
 def test_http_security_headers_records_tls_handshake_failure_as_structured_fact(tmp_path: Path, monkeypatch) -> None:
@@ -331,6 +422,83 @@ def test_http_security_headers_records_tls_handshake_failure_as_structured_fact(
     assert failures[0]["failure_type"] == "raw_ip_tls_sni_probe_failed"
     assert "canonical hostname/SNI" in failures[0]["message"]
     assert result.warnings
+
+
+def test_http_security_headers_collapses_head_get_timeout_noise_for_optional_ports(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    context = _context(tmp_path, "http-header-timeout-collapse")
+    context.task_inputs = ["https://example.com:8443/"]
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="http-header-timeout-collapse",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        scope=[
+            ScanTarget(
+                target_id="target-domain",
+                raw="example.com",
+                target_type=TargetType.DOMAIN,
+                value="example.com",
+                host="example.com",
+            )
+        ],
+    )
+    calls = 0
+
+    def _fake_run_command_spec(context, spec, proxy_url=None):  # noqa: ANN001
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(
+            execution=ToolExecution(
+                execution_id="exec-timeout",
+                tool_name="http_security_headers",
+                command="curl timed out",
+                started_at=now_utc(),
+                ended_at=now_utc(),
+                exit_code=None,
+                status="failed",
+                capability="http_security_headers_check",
+                termination_reason="timeout",
+                termination_detail="process timed out",
+                timed_out=True,
+            ),
+            task_result=TaskResult(
+                task_id="task-timeout",
+                task_type="CheckHttpSecurityHeaders",
+                status="failed",
+                command="curl timed out",
+                exit_code=None,
+                started_at=now_utc(),
+                finished_at=now_utc(),
+                termination_reason="timeout",
+                termination_detail="process timed out",
+                timed_out=True,
+            ),
+            evidence_artifacts=[],
+            stdout_text="",
+            stderr_text="",
+            exit_code=None,
+            error_message="process timed out",
+            command_text="curl timed out",
+            stdout_path=context.run_store.artifact_path("http_security_headers", "timeout.stdout.txt"),
+            stderr_path=context.run_store.artifact_path("http_security_headers", "timeout.stderr.txt"),
+            transcript_path=context.run_store.artifact_path("http_security_headers", "timeout.transcript.txt"),
+            execution_id="exec-timeout",
+            timed_out=True,
+        )
+
+    monkeypatch.setattr("attackcastle.adapters.http_security_headers.adapter.run_command_spec", _fake_run_command_spec)
+
+    result = HTTPSecurityHeadersAdapter().run(context, run_data)
+
+    assert calls == 1
+    assert result.facts["http_security_headers.unavailable_urls"] == ["https://example.com:8443/"]
+    assert result.facts["http_security_headers.probe_failures"][0]["failure_type"] == "filtered_or_unavailable"
 
 
 def test_http_security_headers_retries_with_curl_resolve_for_hostname_assets(tmp_path: Path, monkeypatch) -> None:
