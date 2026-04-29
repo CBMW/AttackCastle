@@ -198,6 +198,7 @@ class WorkflowScheduler:
         admission_controller = TaskAdmissionController()
         control_handler = SchedulerControlHandler()
         states: list[TaskExecutionState] = []
+        planned_task_keys = {task.key for task in tasks}
         completed = run_state.completed
         completed_instances = run_state.completed_instances
         terminal_status = {TaskStatus.COMPLETED.value, TaskStatus.SKIPPED.value, TaskStatus.CANCELLED.value}
@@ -601,7 +602,11 @@ class WorkflowScheduler:
 
                 def missing_dependencies(task: TaskDefinition) -> list[str]:
                     terminal_keys = completed_or_terminal_keys()
-                    return [dep for dep in task.dependencies if dep not in terminal_keys]
+                    return [
+                        dep
+                        for dep in task.dependencies
+                        if dep in planned_task_keys and dep not in terminal_keys
+                    ]
 
                 def dependencies_satisfied(task: TaskDefinition) -> bool:
                     return not missing_dependencies(task)
@@ -1883,13 +1888,17 @@ class WorkflowScheduler:
                             continue
 
                         # Second pass: true dependency deadlock for whatever remains.
+                        deadlock_blocking_dependencies = {
+                            key: missing_dependencies(item.definition)
+                            for key, item in pending.items()
+                        }
                         for key in list(pending.keys()):
                             item = pending[key]
                             task = item.definition
                             frontier_signature = item.input_signature
                             timestamp = now_utc()
                             skipped_reason = "dependency_deadlock"
-                            blocked_dependencies = missing_dependencies(task)
+                            blocked_dependencies = deadlock_blocking_dependencies.get(key, [])
                             states.append(
                                 TaskExecutionState(
                                     key=task.key,

@@ -588,10 +588,11 @@ class AttackerTab(QWidget):
                 return
             self.workspace_tabs.setTabsClosable(True)
             for index, workspace in enumerate(self._workspaces, start=1):
-                self.workspace_tabs.addTab(
+                tab_index = self.workspace_tabs.addTab(
                     self._build_workspace_page(workspace),
                     f"{index} {workspace.name}",
                 )
+                self._install_workspace_close_button(tab_index, workspace)
             active_index = self._index_for_workspace_id(self._active_attack_workspace_id)
             self.workspace_tabs.setCurrentIndex(max(active_index, 0))
         finally:
@@ -1288,6 +1289,33 @@ class AttackerTab(QWidget):
             return self._workspaces[index]
         return None
 
+    def _install_workspace_close_button(self, index: int, workspace: AttackWorkspace) -> None:
+        close_slot = QWidget(self.workspace_tabs.tabBar())
+        close_slot.setObjectName("attackerWorkspaceCloseSlot")
+        close_slot.setFixedSize(24, 20)
+        close_layout = QHBoxLayout(close_slot)
+        close_layout.setContentsMargins(0, 0, 6, 0)
+        close_layout.setSpacing(0)
+
+        close_button = QPushButton("X", close_slot)
+        close_button.setObjectName("attackerWorkspaceCloseButton")
+        close_button.setCursor(Qt.PointingHandCursor)
+        close_button.setFocusPolicy(Qt.NoFocus)
+        close_button.setFixedSize(14, 14)
+        close_button.clicked.connect(
+            lambda _checked=False, workspace_id=workspace.attack_workspace_id: self._close_workspace_by_id(
+                workspace_id
+            )
+        )
+        set_tooltip(close_button, "Close workspace")
+        close_layout.addWidget(close_button, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        close_slot.setLayout(close_layout)
+        self.workspace_tabs.tabBar().setTabButton(
+            index,
+            self.workspace_tabs.tabBar().ButtonPosition.RightSide,
+            close_slot,
+        )
+
     def _open_tab_context_menu(self, point: QPoint) -> None:
         index = self.workspace_tabs.tabBar().tabAt(point)
         workspace = self._workspace_at(index)
@@ -1323,6 +1351,11 @@ class AttackerTab(QWidget):
         cloned.updated_at = cloned.created_at
         self._workspaces.append(cloned)
         self._persist_and_refresh(cloned.attack_workspace_id)
+
+    def _close_workspace_by_id(self, attack_workspace_id: str) -> None:
+        index = self._index_for_workspace_id(attack_workspace_id)
+        if index >= 0:
+            self._close_workspace_at(index)
 
     def _close_workspace_at(self, index: int) -> None:
         workspace = self._workspace_at(index)

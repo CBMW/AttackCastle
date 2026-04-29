@@ -365,20 +365,26 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         margin: 0 7px 0 0;
         min-height: 20px;
     }}
-    QTabWidget#toolCoverageTabs::pane {{
-        margin-top: 0;
-        padding: 0;
+    QWidget#toolCoverageSelector,
+    QStackedWidget#toolCoverageStack {{
+        background: transparent;
     }}
-    QTabBar#toolCoverageTabBar::tab {{
-        padding: 6px 10px 5px 10px;
-        margin: 0 6px 0 0;
-        min-height: 20px;
+    QPushButton#toolCoverageCategoryButton {{
+        padding: 6px 12px;
+        margin: 0;
+        min-height: 26px;
+        border-radius: 7px;
     }}
-    QTabBar#toolCoverageTabBar::tab:selected {{
-        border-bottom-color: {palette['accent_border']};
+    QPushButton#toolCoverageCategoryButton:checked {{
+        background: {palette['selection_bg']};
+        color: {palette['selection_fg']};
+        border-color: {palette['accent_soft']};
     }}
-    QTabBar#toolCoverageTabBar::tab:hover {{
-        border-bottom-color: {palette['border']};
+    QPushButton#toolCoverageEnableAll,
+    QPushButton#toolCoverageDisableAll {{
+        min-width: 92px;
+        max-width: 112px;
+        border-radius: 6px;
     }}
     QFrame#profileActionCard {{
         background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {palette['surface_top']}, stop:1 {palette['input_bg']});
@@ -862,14 +868,17 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
     }}
     QTabBar#groupTabBar::tab,
     QTabBar#inspectorTabBar::tab {{
-        padding: 5px 16px 4px 10px;
+        padding: 5px 24px 4px 10px;
         margin: 0 6px 0 0;
         min-height: 17px;
     }}
     QTabBar#groupTabBar::close-button,
     QTabBar#inspectorTabBar::close-button {{
         subcontrol-position: right;
-        margin: 0 2px 0 8px;
+        width: 12px;
+        height: 12px;
+        right: 6px;
+        margin: 0 6px 0 4px;
     }}
     QTabBar#groupTabBar::close-button:hover,
     QTabBar#inspectorTabBar::close-button:hover {{
@@ -920,6 +929,23 @@ def build_theme_stylesheet(tokens: dict[str, Any] | None = None, qss_append: str
         background: {palette['scanner_start_hover_bg']};
         border: 1px solid {palette['scanner_start_hover_border']};
         color: {palette['scanner_start_hover_text']};
+    }}
+    QPushButton#attackerWorkspaceCloseButton {{
+        min-width: 14px;
+        max-width: 14px;
+        min-height: 14px;
+        max-height: 14px;
+        padding: 0;
+        border: 0;
+        border-radius: 3px;
+        background: transparent;
+        color: {palette['text_muted']};
+        font-size: 11px;
+        font-weight: 900;
+    }}
+    QPushButton#attackerWorkspaceCloseButton:hover {{
+        background: {palette['danger_hover']};
+        color: {palette['text_strong']};
     }}
     QPushButton#scannerStartButton:disabled {{
         background: transparent;

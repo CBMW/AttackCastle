@@ -64,6 +64,8 @@ from attackcastle.gui.common import (
     ensure_table_defaults,
     format_duration,
     format_progress,
+    latest_retest_entry,
+    retest_status_label,
     refresh_widget_style,
     retest_metrics,
     style_button,
@@ -502,6 +504,20 @@ class MainWindow(QMainWindow):
         self.workspace_run_model = MappingTableModel(
             [("Scan Name", "scan_name"), ("State", "state"), ("Current Task", "current_task"), ("Progress", lambda row: row.get("progress") or "--")]
         )
+        self.workspace_finding_model = MappingTableModel(
+            [
+                ("Report", lambda row: "Yes" if row.get("include_in_report") and row.get("report_flag_touched") else ""),
+                ("Retest", self._overview_latest_retest_label),
+                ("Severity", "effective_severity"),
+                ("Title", "title"),
+                ("Root Cause", lambda row: row.get("root_cause") or row.get("category") or ""),
+                ("First Detected", lambda row: self._overview_finding_timestamp(row, "first_detected")),
+                ("Last Detected", lambda row: self._overview_finding_timestamp(row, "last_detected")),
+                ("Impact", lambda row: self._overview_risk_level(row, "impact", "impact_rating")),
+                ("Likelihood", lambda row: self._overview_risk_level(row, "likelihood", "likelihood_rating")),
+                ("Affected Assets", self._overview_affected_assets),
+            ]
+        )
         self.workspace_run_table = configure_scroll_surface(QTableView())
         self.workspace_run_table.setObjectName("dataGrid")
         self.workspace_run_table.setModel(self.workspace_run_model)
@@ -522,7 +538,34 @@ class MainWindow(QMainWindow):
             lambda point, view=self.workspace_run_table: self._open_run_context_menu(view, point)
         )
         set_tooltip(self.workspace_run_table, "Select a run to inspect it, or double-click to jump into Findings.")
-        workspace_runs_layout.addWidget(self.workspace_run_table, 1)
+        self.workspace_finding_table = configure_scroll_surface(QTableView())
+        self.workspace_finding_table.setObjectName("dataGrid")
+        self.workspace_finding_table.setModel(self.workspace_finding_model)
+        ensure_table_defaults(
+            self.workspace_finding_table,
+            column_policies=(
+                {"mode": "content", "min": 90, "max": 130},
+                {"mode": "content", "min": 90, "max": 130},
+                {"mode": "content", "min": 90, "max": 130},
+                {"mode": "stretch", "min": 220},
+                {"mode": "stretch", "min": 220},
+                {"mode": "mixed", "min": 140, "width": 180},
+                {"mode": "mixed", "min": 140, "width": 180},
+                {"mode": "content", "min": 90, "max": 130},
+                {"mode": "content", "min": 90, "max": 130},
+                {"mode": "stretch", "min": 220},
+            ),
+            minimum_rows=11,
+        )
+        self.workspace_finding_table.clicked.connect(self._workspace_finding_selected)
+        self.workspace_finding_table.doubleClicked.connect(self._focus_output_tab_for_finding)
+        set_tooltip(self.workspace_finding_table, "Select a finding to load its run, or double-click to jump into Findings.")
+        self.workspace_overview_tables = QTabWidget()
+        self.workspace_overview_tables.setObjectName("workspaceOverviewTables")
+        configure_tab_widget(self.workspace_overview_tables, role="inspector")
+        self.workspace_overview_tables.addTab(self.workspace_run_table, "Scans")
+        self.workspace_overview_tables.addTab(self.workspace_finding_table, "Findings")
+        workspace_runs_layout.addWidget(self.workspace_overview_tables, 1)
         runs_panel, _runs_title, _runs_summary = build_table_section(
             "Scans Overview",
             workspace_runs,
@@ -774,8 +817,13 @@ class MainWindow(QMainWindow):
         self.settings_tabs = QTabWidget()
         configure_tab_widget(self.settings_tabs, role="group")
         self.settings_tabs.setObjectName("settingsTabs")
+        self.settings_page_stack = self.settings_tabs
         self.settings_nav_list = QListWidget()
         self.settings_nav_list.hide()
+        self.settings_nav_list.currentRowChanged.connect(self.settings_tabs.setCurrentIndex)
+        self.settings_split = QSplitter(Qt.Horizontal)
+        self.settings_split.addWidget(self.settings_nav_list)
+        self.settings_split.addWidget(self.settings_tabs)
         self._settings_page_indices: dict[str, int] = {}
 
         self._settings_section_widgets: list[QWidget] = []
@@ -1015,7 +1063,8 @@ class MainWindow(QMainWindow):
         self._add_settings_page("danger", "Danger Zone", self._build_settings_content_page(danger_panel))
 
         self.settings_tabs.setCurrentIndex(0)
-        layout.addWidget(self.settings_tabs, 1)
+        self.settings_nav_list.setCurrentRow(0)
+        layout.addWidget(self.settings_split, 1)
         return page
 
     def _setup_shortcuts(self) -> None:
@@ -1112,6 +1161,17 @@ class MainWindow(QMainWindow):
     def _workspace_run_selected(self, index: QModelIndex) -> None:
         self._run_selected(index)
 
+    def _workspace_finding_selected(self, index: QModelIndex) -> None:
+        row = index.data(Qt.UserRole) or {}
+        run_id = str(row.get("run_id") or "").strip() if isinstance(row, dict) else ""
+        if run_id in self._run_snapshots:
+            self._select_run_by_id(run_id)
+
+    def _focus_output_tab_for_finding(self, index: QModelIndex) -> None:
+        self._workspace_finding_selected(index)
+        self._navigate_to("findings")
+        self.output_tab.focus_findings()
+
     def _sync_workspace_run_table(self) -> None:
         rows = []
         total = 0
@@ -1125,11 +1185,26 @@ class MainWindow(QMainWindow):
             }
             rows.append(row)
         self.workspace_run_model.set_rows(rows)
+        self._sync_workspace_finding_table()
+
+    def _sync_workspace_finding_table(self) -> None:
+        if not hasattr(self, "workspace_finding_model"):
+            return
+        rows = sorted(
+            self._workspace_overview_findings(),
+            key=lambda row: (
+                RUN_STATE_ORDER.get(str(row.get("run_state") or ""), 99),
+                str(row.get("scan_name") or "").lower(),
+                str(row.get("title") or "").lower(),
+            ),
+        )
+        self.workspace_finding_model.set_rows(rows)
 
     def _sync_general_overview(self) -> None:
         if not hasattr(self, "overview_general_panel"):
             return
         self.overview_general_panel.set_data(self._build_general_overview_data())
+        self._sync_workspace_finding_table()
 
     def _build_general_overview_data(self) -> GeneralOverviewData:
         inventory_snapshot = self._workspace_inventory_snapshot(preferred_run_id=self._selected_run_id)
@@ -1163,6 +1238,65 @@ class MainWindow(QMainWindow):
             root_cause_counts=root_cause_counts,
         )
 
+    def _overview_finding_timestamp(self, row: dict[str, Any], key: str) -> str:
+        for fallback_key in (key, "detected_at", "created_at", "updated_at", "timestamp"):
+            value = str(row.get(fallback_key) or "").strip()
+            if value:
+                return value
+        return ""
+
+    def _overview_latest_retest_label(self, row: dict[str, Any]) -> str:
+        latest = latest_retest_entry(row)
+        if latest is None:
+            return ""
+        return retest_status_label(str(latest.get("status") or ""))
+
+    def _overview_risk_level(self, row: dict[str, Any], key: str, rating_key: str | None = None) -> str:
+        for candidate_key in (rating_key, key):
+            if not candidate_key:
+                continue
+            value = str(row.get(candidate_key) or "").strip().lower()
+            if value in {"high", "medium", "low"}:
+                return value
+        if key == "impact":
+            severity = str(row.get("effective_severity") or row.get("severity") or "").strip().lower()
+            if severity in {"critical", "high"}:
+                return "high"
+            if severity == "medium":
+                return "medium"
+            if severity in {"low", "info"}:
+                return "low"
+        value = str(row.get(key) or "").strip().lower()
+        for level in ("high", "medium", "low"):
+            if level in value:
+                return level
+        return ""
+
+    def _overview_affected_assets(self, row: dict[str, Any]) -> str:
+        raw_assets = row.get("affected_assets")
+        if isinstance(raw_assets, str):
+            return raw_assets
+        if isinstance(raw_assets, list):
+            return ", ".join(str(item) for item in raw_assets if str(item).strip())
+        raw_entities = row.get("affected_entities")
+        values: list[str] = []
+        if isinstance(raw_entities, list):
+            for entity in raw_entities:
+                if isinstance(entity, dict):
+                    value = (
+                        entity.get("label")
+                        or entity.get("name")
+                        or entity.get("url")
+                        or entity.get("host")
+                        or entity.get("ip")
+                        or entity.get("entity_id")
+                    )
+                    if value:
+                        values.append(str(value))
+                elif str(entity).strip():
+                    values.append(str(entity))
+        return ", ".join(values)
+
     def _workspace_overview_findings(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         raw_manual_findings = self.workspace_store.load_manual_findings(self._active_workspace_id)
@@ -1193,6 +1327,14 @@ class MainWindow(QMainWindow):
                 finding_id = str(row.get("finding_id") or "").strip()
                 state = states.get(finding_id)
                 base_severity = str(row.get("severity") or "info").lower()
+                row["run_id"] = snapshot.run_id
+                row["scan_name"] = snapshot.scan_name
+                row["run_state"] = snapshot.state
+                row["workflow_status"] = state.status if state else str(row.get("workflow_status") or "needs-validation")
+                row["analyst_note"] = state.analyst_note if state else str(row.get("analyst_note") or "")
+                row["include_in_report"] = state.include_in_report if state else bool(row.get("include_in_report", True))
+                row["report_flag_touched"] = state.report_flag_touched if state else bool(row.get("report_flag_touched", False))
+                row["severity_override"] = state.severity_override if state else ""
                 row["effective_severity"] = (state.severity_override if state else "") or base_severity
                 if state:
                     row["retests"] = [entry.to_dict() for entry in state.retests]
@@ -1210,6 +1352,14 @@ class MainWindow(QMainWindow):
                 finding_id = str(row.get("finding_id") or "").strip()
                 state = states.get(finding_id)
                 base_severity = str(row.get("severity") or "info").lower()
+                row["run_id"] = str(run_id)
+                row["scan_name"] = str(run_id)
+                row["run_state"] = ""
+                row["workflow_status"] = state.status if state else str(row.get("workflow_status") or "needs-validation")
+                row["analyst_note"] = state.analyst_note if state else str(row.get("analyst_note") or "")
+                row["include_in_report"] = state.include_in_report if state else bool(row.get("include_in_report", True))
+                row["report_flag_touched"] = state.report_flag_touched if state else bool(row.get("report_flag_touched", False))
+                row["severity_override"] = state.severity_override if state else ""
                 row["effective_severity"] = (state.severity_override if state else "") or base_severity
                 if state:
                     row["retests"] = [entry.to_dict() for entry in state.retests]
@@ -2007,7 +2157,8 @@ class MainWindow(QMainWindow):
             if run_id in self._run_snapshots:
                 self._run_snapshots[run_id].live_process = False
                 self._sync_run_registry_for_snapshot(self._run_snapshots[run_id])
-        if exit_code != 0:
+        stopped_by_operator = bool(run_id and self._run_snapshots.get(run_id) and self._run_snapshots[run_id].state == "cancelled")
+        if exit_code != 0 and not stopped_by_operator:
             self.general_status.setText(f"Worker exited with code {exit_code}")
         process.deleteLater()
         self._refresh_runs()
@@ -2405,6 +2556,62 @@ class MainWindow(QMainWindow):
             return None
         return snapshot, run_dir
 
+    def _mark_run_payload_cancelled(self, run_store: RunStore, *, ended_at: str) -> None:
+        scan_data_path = run_store.data_dir / "scan_data.json"
+        if scan_data_path.exists():
+            payload = self._load_retry_payload(scan_data_path, "scan data")[0]
+            if payload:
+                metadata = payload.setdefault("metadata", {})
+                if isinstance(metadata, dict):
+                    metadata["state"] = "cancelled"
+                    metadata["ended_at"] = ended_at
+                for key in ("task_states", "tool_executions", "task_results"):
+                    rows = payload.get(key)
+                    if not isinstance(rows, list):
+                        continue
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        status = str(row.get("status") or "").strip().lower()
+                        if status in {"running", "waiting", "started", "in_progress"}:
+                            row["status"] = "cancelled"
+                            if key == "task_results":
+                                row.setdefault("finished_at", ended_at)
+                            else:
+                                row.setdefault("ended_at", ended_at)
+                            row.setdefault("termination_reason", "operator_requested_stop")
+                            row.setdefault("termination_detail", "scan force-stopped from the GUI")
+                run_store.write_json("data/scan_data.json", payload)
+
+        summary_path = run_store.data_dir / "run_summary.json"
+        summary = self._load_retry_payload(summary_path, "run summary")[0] if summary_path.exists() else {}
+        summary.update({"state": "cancelled", "ended_at": ended_at})
+        run_store.write_json("data/run_summary.json", summary)
+
+    def _mark_snapshot_stopped(self, snapshot: RunSnapshot, *, ended_at: str, forced: bool) -> None:
+        snapshot.state = "cancelled"
+        snapshot.eta_seconds = 0.0
+        snapshot.current_task = snapshot.current_task or "Stopped"
+        snapshot.pause_requested = False
+        snapshot.resume_required = False
+        snapshot.live_process = False
+        for row in snapshot.tasks:
+            if str(row.get("status") or "").strip().lower() in {"running", "waiting"}:
+                row["status"] = "cancelled"
+                row.setdefault("ended_at", ended_at)
+                detail = row.setdefault("detail", {})
+                if isinstance(detail, dict):
+                    detail["reason"] = "operator_requested_stop"
+        for row in snapshot.tool_executions:
+            if str(row.get("status") or "").strip().lower() in {"running", "started", "in_progress"}:
+                row["status"] = "cancelled"
+                row.setdefault("ended_at", ended_at)
+                row.setdefault("termination_reason", "operator_requested_stop")
+                row.setdefault(
+                    "termination_detail",
+                    "scan force-stopped from the GUI" if forced else "scan stop requested from the GUI",
+                )
+
     def _load_retry_payload(self, path: Path, payload_name: str) -> tuple[dict[str, Any], str | None]:
         if not path.exists():
             return {}, None
@@ -2425,7 +2632,8 @@ class MainWindow(QMainWindow):
             self._resume_selected_run()
             return
         try:
-            RunStore.from_existing(run_dir).write_control(action)
+            run_store = RunStore.from_existing(run_dir)
+            run_store.write_control(action)
         except Exception as exc:  # noqa: BLE001
             message = f"AttackCastle could not request {action} for {snapshot.scan_name}."
             self.general_status.setText(message)
@@ -2437,9 +2645,28 @@ class MainWindow(QMainWindow):
         elif action == "resume":
             snapshot.pause_requested = False
             snapshot.resume_required = False
+        elif action == "stop":
+            ended_at = now_iso()
+            forced = self._worker_processes.force_terminate_run(snapshot.run_id)
+            self._mark_snapshot_stopped(snapshot, ended_at=ended_at, forced=forced)
+            try:
+                self._mark_run_payload_cancelled(run_store, ended_at=ended_at)
+            except Exception:
+                pass
         self._sync_run_registry_for_snapshot(snapshot)
-        self.general_status.setText(f"Requested {action} for {snapshot.scan_name}")
-        self._append_audit("control.requested", f"{action.title()} requested for {snapshot.scan_name}", run_id=snapshot.run_id, workspace_id=snapshot.workspace_id)
+        if action == "stop":
+            self.general_status.setText(f"Stopped {snapshot.scan_name}")
+            summary = f"Stop requested and process terminated for {snapshot.scan_name}" if forced else f"Stop requested for {snapshot.scan_name}"
+            self._append_audit(
+                "control.requested",
+                summary,
+                run_id=snapshot.run_id,
+                workspace_id=snapshot.workspace_id,
+                details={"action": action, "force_terminated": forced},
+            )
+        else:
+            self.general_status.setText(f"Requested {action} for {snapshot.scan_name}")
+            self._append_audit("control.requested", f"{action.title()} requested for {snapshot.scan_name}", run_id=snapshot.run_id, workspace_id=snapshot.workspace_id)
         self._update_run_action_state()
 
     def _send_skip_current_task_action(self) -> None:
@@ -2571,6 +2798,7 @@ class MainWindow(QMainWindow):
         self.workspace_store.save_finding_state(self._active_workspace_id, run_id, state)
         self._append_audit("finding.updated", f"Updated triage for {state.finding_id}", run_id=run_id, details=state.to_dict())
         self._refresh_dashboard()
+        self._sync_general_overview()
         if self.reports_tab is not None:
             self.reports_tab.set_snapshot(self._selected_snapshot())
 
@@ -2609,6 +2837,7 @@ class MainWindow(QMainWindow):
             details={"finding_count": len(findings)},
         )
         self._refresh_dashboard()
+        self._sync_general_overview()
 
     def _load_entity_notes(self, workspace_id: str) -> dict[str, EntityNote]:
         return self.workspace_store.load_entity_notes(workspace_id)

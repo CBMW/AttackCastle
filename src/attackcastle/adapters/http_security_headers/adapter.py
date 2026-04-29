@@ -17,7 +17,7 @@ from attackcastle.adapters.http_security_headers.parser import (
     parse_raw_response_headers,
     summarize_analysis,
 )
-from attackcastle.adapters.targeting import filter_url_targets_for_task_inputs, normalize_url_key
+from attackcastle.adapters.targeting import normalize_url_key, normalized_task_inputs
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext, AdapterResult
 from attackcastle.core.models import Evidence, EvidenceArtifact, Observation, RunData, new_id, now_utc
@@ -405,7 +405,103 @@ class HTTPSecurityHeadersAdapter:
                 continue
             _append({"url": value, "asset_id": scope_target.target_id})
 
-        return filter_url_targets_for_task_inputs(context, targets)
+        targets = self._prefer_scope_hostnames_for_direct_ip_targets(targets, run_data)
+        return self._filter_targets_for_task_inputs(context, targets)
+
+    def _filter_targets_for_task_inputs(
+        self,
+        context: AdapterContext,
+        targets: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        inputs = normalized_task_inputs(context)
+        if not inputs:
+            return targets
+        allowed = {normalize_url_key(item) for item in inputs if normalize_url_key(item)}
+        if not allowed:
+            return []
+        return [
+            row
+            for row in targets
+            if normalize_url_key(str(row.get("url") or "")) in allowed
+            or normalize_url_key(str(row.get("source_url") or "")) in allowed
+        ]
+
+    def _prefer_scope_hostnames_for_direct_ip_targets(
+        self,
+        targets: list[dict[str, str]],
+        run_data: RunData,
+    ) -> list[dict[str, str]]:
+        ip_to_hostname = self._scope_hostname_by_resolved_ip(run_data)
+        if not ip_to_hostname:
+            return targets
+
+        rewritten: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for target in targets:
+            url = str(target.get("url") or "")
+            preferred_url = self._replace_direct_ip_host(url, ip_to_hostname)
+            row = dict(target)
+            if preferred_url and preferred_url != url:
+                row["url"] = preferred_url
+                row["source_url"] = url
+            key = normalize_url_key(str(row.get("url") or ""))
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            rewritten.append(row)
+        return rewritten
+
+    def _scope_hostname_by_resolved_ip(self, run_data: RunData) -> dict[str, str]:
+        scope_hosts: set[str] = set()
+        for target in run_data.scope:
+            if target.target_type not in {
+                TargetType.DOMAIN,
+                TargetType.WILDCARD_DOMAIN,
+                TargetType.URL,
+                TargetType.HOST_PORT,
+            }:
+                continue
+            host = str(target.host or "").strip().lower().rstrip(".")
+            if host and not self._is_ip_literal(host):
+                scope_hosts.add(host)
+            for alias in target.aliases:
+                alias_host = str(alias or "").strip().lower().rstrip(".")
+                if alias_host and not self._is_ip_literal(alias_host):
+                    scope_hosts.add(alias_host)
+
+        mapping: dict[str, str] = {}
+        for asset in run_data.assets:
+            host_candidates = [
+                str(asset.name or "").strip().lower().rstrip("."),
+                *(str(alias or "").strip().lower().rstrip(".") for alias in getattr(asset, "aliases", [])),
+            ]
+            preferred_hosts = [host for host in host_candidates if host in scope_hosts]
+            if not preferred_hosts:
+                continue
+            preferred_host = sorted(preferred_hosts, key=lambda value: (len(value), value))[0]
+            for ip_value in [asset.ip, *list(getattr(asset, "resolved_ips", []))]:
+                normalized_ip = str(ip_value or "").strip()
+                if normalized_ip and self._is_ip_literal(normalized_ip):
+                    mapping.setdefault(normalized_ip, preferred_host)
+        return mapping
+
+    def _replace_direct_ip_host(self, url: str, ip_to_hostname: dict[str, str]) -> str:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        preferred_host = ip_to_hostname.get(host)
+        if not preferred_host:
+            return url
+        netloc = preferred_host
+        if parsed.port is not None:
+            netloc = f"{preferred_host}:{parsed.port}"
+        return parsed._replace(netloc=netloc).geturl()
+
+    def _is_ip_literal(self, value: str | None) -> bool:
+        try:
+            ipaddress.ip_address(str(value or "").strip())
+            return True
+        except ValueError:
+            return False
 
     def _resolve_entity(self, target: dict[str, Any], run_data: RunData) -> tuple[str, str]:
         webapp_id = str(target.get("webapp_id") or "").strip()

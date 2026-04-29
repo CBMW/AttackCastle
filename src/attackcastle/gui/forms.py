@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QStackedWidget,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -534,6 +535,8 @@ class ProfileFieldsMixin:
         self._tool_rows_by_card: dict[QFrame, list[QFrame]] = {}
         self._tool_rows_by_field: dict[str, list[dict[str, object]]] = {}
         self._tool_rows_by_key: dict[str, dict[str, object]] = {}
+        self._tool_category_buttons: list[QPushButton] = []
+        self._current_tool_category_index = 0
         self._profile_tool_defaults: dict[str, bool] = {}
         self._manual_tool_overrides: dict[str, bool] = {}
         self._tool_coverage_overrides: dict[str, bool] = {}
@@ -700,34 +703,51 @@ class ProfileFieldsMixin:
         self.hide_windows_only_checkbox.setObjectName("hideWindowsOnlyTools")
         self.hide_windows_only_checkbox.toggled.connect(self._update_tool_family_cards)
         set_tooltip(self.hide_windows_only_checkbox, "Hide tools that are not currently available in this Windows launch workflow.")
+        self.enable_all_tools_button = QPushButton("Enable All")
+        self.enable_all_tools_button.setObjectName("toolCoverageEnableAll")
+        style_button(self.enable_all_tools_button, role="secondary", min_height=PROFILE_CONTROL_MIN_HEIGHT)
+        self.enable_all_tools_button.clicked.connect(lambda: self._set_current_tool_category_rows(True))
+        self.disable_all_tools_button = QPushButton("Disable All")
+        self.disable_all_tools_button.setObjectName("toolCoverageDisableAll")
+        style_button(self.disable_all_tools_button, role="secondary", min_height=PROFILE_CONTROL_MIN_HEIGHT)
+        self.disable_all_tools_button.clicked.connect(lambda: self._set_current_tool_category_rows(False))
         header_layout.addWidget(self.hide_windows_only_checkbox, 0, Qt.AlignRight)
+        header_layout.addWidget(self.enable_all_tools_button, 0, Qt.AlignRight)
+        header_layout.addWidget(self.disable_all_tools_button, 0, Qt.AlignRight)
         layout.addWidget(header)
 
-        self.tool_family_tabs = QTabWidget()
-        configure_tab_widget(self.tool_family_tabs, role="inspector")
-        self.tool_family_tabs.setObjectName("toolCoverageTabs")
-        self.tool_family_tabs.tabBar().setObjectName("toolCoverageTabBar")
-        self.tool_family_tabs.setTabPosition(QTabWidget.North)
-        self.tool_family_tabs.setUsesScrollButtons(True)
-        self.tool_family_tabs.tabBar().setUsesScrollButtons(True)
-        self.tool_family_tabs.setElideMode(Qt.ElideRight)
+        self.tool_family_selector = FlowButtonRow(h_spacing=PAGE_CARD_SPACING, v_spacing=PAGE_CARD_SPACING)
+        self.tool_family_selector.setObjectName("toolCoverageSelector")
+        self.tool_family_tabs = QStackedWidget()
+        self.tool_family_tabs.setObjectName("toolCoverageStack")
+        self._tool_family_grid_host = QWidget()
+        self._tool_family_grid_host.setVisible(False)
+        self.tool_family_grid = QGridLayout(self._tool_family_grid_host)
+        self.tool_family_grid.setContentsMargins(0, 0, 0, 0)
+        self._tool_family_grid_markers: list[QWidget] = []
         self._tool_category_cards = []
+        self._tool_category_buttons = []
         self._tool_rows = []
         self._tool_rows_by_card = {}
         self._tool_rows_by_field = {}
         self._tool_rows_by_key = {}
-        for category in TOOL_COVERAGE_CATEGORIES:
+        for index, category in enumerate(TOOL_COVERAGE_CATEGORIES):
+            title = str(category.get("title", "Tools"))
+            category_button = QPushButton(title)
+            category_button.setObjectName("toolCoverageCategoryButton")
+            category_button.setCheckable(True)
+            category_button.setProperty("variant", "chip")
+            style_button(category_button, role="chip", min_height=PROFILE_CONTROL_MIN_HEIGHT)
+            category_button.clicked.connect(lambda _checked=False, tab_index=index: self._select_tool_category(tab_index))
+            self._tool_category_buttons.append(category_button)
+            self.tool_family_selector.addWidget(category_button)
             card = self._build_tool_category_card(category)
             self._tool_category_cards.append(card)
-            tab = QWidget()
-            tab_layout = QVBoxLayout(tab)
-            tab_layout.setContentsMargins(0, 0, 0, 0)
-            tab_layout.setSpacing(0)
-            tab_layout.addWidget(card, 1)
-            self.tool_family_tabs.addTab(tab, str(category.get("title", "Tools")))
-        self.tool_family_tabs.setUsesScrollButtons(True)
-        self.tool_family_tabs.tabBar().setUsesScrollButtons(True)
+            self.tool_family_tabs.addWidget(card)
+            self._tool_family_grid_markers.append(QWidget(self._tool_family_grid_host))
+        layout.addWidget(self.tool_family_selector)
         layout.addWidget(self.tool_family_tabs, 1)
+        self._select_tool_category(0)
 
         # Kept as a hidden compatibility surface for callers/tests that still
         # probe the old expert-toggle API; the category rows are now the editor.
@@ -955,6 +975,30 @@ class ProfileFieldsMixin:
         for card, rows in getattr(self, "_tool_rows_by_card", {}).items():
             card.setVisible(any(not row.isHidden() for row in rows))
 
+    def _select_tool_category(self, index: int) -> None:
+        if not getattr(self, "_tool_category_cards", None):
+            return
+        bounded_index = max(0, min(index, len(self._tool_category_cards) - 1))
+        self._current_tool_category_index = bounded_index
+        if hasattr(self, "tool_family_tabs"):
+            self.tool_family_tabs.setCurrentIndex(bounded_index)
+        for button_index, button in enumerate(getattr(self, "_tool_category_buttons", [])):
+            button.setChecked(button_index == bounded_index)
+
+    def _set_current_tool_category_rows(self, checked: bool) -> None:
+        cards = getattr(self, "_tool_category_cards", [])
+        if not cards:
+            return
+        index = max(0, min(getattr(self, "_current_tool_category_index", 0), len(cards) - 1))
+        rows = getattr(self, "_tool_rows_by_card", {}).get(cards[index], [])
+        for row in rows:
+            if row.isHidden():
+                continue
+            checkbox = row.findChild(QCheckBox, "toolCoverageCheckbox")
+            if checkbox is None or not checkbox.isEnabled():
+                continue
+            checkbox.setChecked(checked)
+
     def _row_baseline_checked(self, entry: dict[str, object]) -> bool:
         field = str(entry.get("field") or "")
         return bool(getattr(self, field).isChecked()) if field and hasattr(self, field) else False
@@ -1178,9 +1222,11 @@ class ProfileFieldsMixin:
         self._update_tool_family_cards()
 
     def sync_profile_form_width(self, width: int) -> None:
-        if hasattr(self, "tool_family_tabs"):
-            self.tool_family_tabs.setUsesScrollButtons(True)
-            self.tool_family_tabs.tabBar().setUsesScrollButtons(True)
+        if hasattr(self, "tool_family_selector"):
+            self.tool_family_selector.updateGeometry()
+        if hasattr(self, "tool_family_grid") and hasattr(self, "_tool_family_grid_markers"):
+            columns = 2 if width >= 1280 else 1
+            self._reflow_grid(self.tool_family_grid, self._tool_family_grid_markers, columns)
 
     def _reflow_grid(self, layout: QGridLayout, widgets: list[QWidget], columns: int) -> None:
         while layout.count():

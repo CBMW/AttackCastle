@@ -51,6 +51,8 @@ class ScannerPanel(QWidget):
         self._active_detail_kind = ""
         self._active_detail_identity = ""
         self._active_command_text = ""
+        self._copy_buttons: dict[QTextEdit, QToolButton] = {}
+        self._copy_status_labels: dict[QTextEdit, QLabel] = {}
         self._tools_elapsed_column = 2
 
         layout = QVBoxLayout(self)
@@ -146,19 +148,19 @@ class ScannerPanel(QWidget):
         self.output_text = configure_scroll_surface(QTextEdit())
         self.output_text.setObjectName("consoleText")
         self.output_text.setReadOnly(True)
-        self.command_copy_button = QToolButton()
-        self.command_copy_button.setIcon(QIcon.fromTheme("edit-copy"))
-        self.command_copy_button.setText("Copy")
-        self.command_copy_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.command_copy_button.setEnabled(False)
-        self.command_copy_button.clicked.connect(self._copy_active_command)
-        self.command_status_label = QLabel("No command selected.")
-        self.command_status_label.setObjectName("helperText")
-        self.command_status_label.setWordWrap(True)
-        self.inspector_tabs.addTab(self._tab_surface(self.detail_text), "Details")
-        self.inspector_tabs.addTab(self._command_tab_surface(), "Command")
-        self.inspector_tabs.addTab(self._tab_surface(self.output_text), "Output")
-        self.inspector_tabs.addTab(self._tab_surface(self.raw_text), "Raw")
+        detail_surface = self._copyable_tab_surface(self.detail_text, "Details")
+        command_surface = self._copyable_tab_surface(self.command_text, "Command", "No command selected.")
+        output_surface = self._copyable_tab_surface(self.output_text, "Output")
+        raw_surface = self._copyable_tab_surface(self.raw_text, "Raw")
+        self.detail_copy_button = self._copy_buttons[self.detail_text]
+        self.command_copy_button = self._copy_buttons[self.command_text]
+        self.output_copy_button = self._copy_buttons[self.output_text]
+        self.raw_copy_button = self._copy_buttons[self.raw_text]
+        self.command_status_label = self._copy_status_labels[self.command_text]
+        self.inspector_tabs.addTab(detail_surface, "Details")
+        self.inspector_tabs.addTab(command_surface, "Command")
+        self.inspector_tabs.addTab(output_surface, "Output")
+        self.inspector_tabs.addTab(raw_surface, "Raw")
         self.main_split.addWidget(self.inspector_tabs)
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
@@ -176,7 +178,7 @@ class ScannerPanel(QWidget):
     def _table_surface(self, _title: str, table: QTableView) -> QWidget:
         return self._tab_surface(table)
 
-    def _command_tab_surface(self) -> QWidget:
+    def _copyable_tab_surface(self, widget: QTextEdit, label: str, empty_status: str | None = None) -> QWidget:
         section = build_flat_container()
         layout = QVBoxLayout(section)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -185,11 +187,40 @@ class ScannerPanel(QWidget):
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
-        header_layout.addWidget(self.command_copy_button, 0)
-        header_layout.addWidget(self.command_status_label, 1)
+        copy_button = QToolButton()
+        copy_button.setIcon(QIcon.fromTheme("edit-copy"))
+        copy_button.setText("Copy")
+        copy_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        copy_button.setEnabled(False)
+        copy_button.clicked.connect(lambda _checked=False, source=widget, name=label: self._copy_inspector_text(source, name))
+        status_label = QLabel(empty_status or f"No {label.lower()} selected.")
+        status_label.setObjectName("helperText")
+        status_label.setWordWrap(True)
+        self._copy_buttons[widget] = copy_button
+        self._copy_status_labels[widget] = status_label
+        widget.textChanged.connect(lambda source=widget, name=label: self._refresh_copy_state(source, name))
+        header_layout.addWidget(copy_button, 0)
+        header_layout.addWidget(status_label, 1)
         layout.addWidget(header, 0)
-        layout.addWidget(self.command_text, 1)
+        layout.addWidget(widget, 1)
         return section
+
+    def _copyable_text(self, widget: QTextEdit) -> str:
+        text = widget.toPlainText()
+        return "" if text.strip() == "No Data" else text
+
+    def _refresh_copy_state(self, widget: QTextEdit, label: str) -> None:
+        text = self._copyable_text(widget)
+        button = self._copy_buttons.get(widget)
+        status_label = self._copy_status_labels.get(widget)
+        if button is not None:
+            button.setEnabled(bool(text))
+        if status_label is None:
+            return
+        if text:
+            status_label.setText(f"Copy {label.lower()} to clipboard.")
+        else:
+            status_label.setText(f"No {label.lower()} selected.")
 
     def set_context_menu_handler(self, handler: Callable[[str, QTableView, Any, dict[str, Any]], None] | None) -> None:
         self._context_menu_handler = handler
@@ -595,14 +626,20 @@ class ScannerPanel(QWidget):
                 outputs.append(output)
         self.output_text.setPlainText("\n\n".join(outputs).rstrip("\n") if outputs else "No Data")
 
-    def _copy_active_command(self) -> None:
-        if not self._active_command_text:
+    def _copy_inspector_text(self, widget: QTextEdit, label: str) -> None:
+        text = self._copyable_text(widget)
+        if not text:
             return
         app = QApplication.instance()
         if app is None:
             return
-        app.clipboard().setText(self._active_command_text)
-        self.command_status_label.setText("Copied exact command to clipboard.")
+        app.clipboard().setText(text)
+        status_label = self._copy_status_labels.get(widget)
+        if status_label is not None:
+            status_label.setText(f"Copied {label.lower()} to clipboard.")
+
+    def _copy_active_command(self) -> None:
+        self._copy_inspector_text(self.command_text, "Command")
 
     def _task_selected(self, index: QModelIndex) -> None:
         self.tabs.setCurrentIndex(self.tasks_tab_index)

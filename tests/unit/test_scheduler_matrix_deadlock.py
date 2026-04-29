@@ -157,6 +157,15 @@ def test_scheduler_deadlock_state_lists_blocking_dependencies(tmp_path: Path):
     states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
         tasks=[
             TaskDefinition(
+                key="missing-upstream-task",
+                label="Missing upstream task",
+                capability="upstream",
+                stage="analysis",
+                runner=lambda _context, _run_data: AdapterResult(),
+                should_run=lambda _run_data: (True, "always"),
+                dependencies=["generate-findings"],
+            ),
+            TaskDefinition(
                 key="generate-findings",
                 label="Generate findings",
                 capability="findings_engine",
@@ -170,9 +179,46 @@ def test_scheduler_deadlock_state_lists_blocking_dependencies(tmp_path: Path):
         run_data=_run_data(),
     )
 
-    assert states[0].status == "skipped"
-    assert states[0].detail["reason"] == "dependency_deadlock"
-    assert states[0].detail["blocking_dependencies"] == ["missing-upstream-task"]
+    state_by_key = {state.key: state for state in states}
+    assert state_by_key["generate-findings"].status == "skipped"
+    assert state_by_key["generate-findings"].detail["reason"] == "dependency_deadlock"
+    assert state_by_key["generate-findings"].detail["blocking_dependencies"] == ["missing-upstream-task"]
+
+
+def test_scheduler_ignores_dependencies_omitted_from_current_plan(tmp_path: Path):
+    run_store = RunStore(output_root=tmp_path, run_id="omitted-dependency-findings")
+    context = AdapterContext(
+        profile_name="standard",
+        config={"orchestration": {"task_start_delay_seconds": 0.0}},
+        profile_config={"concurrency": 1},
+        run_store=run_store,
+        logger=logging.getLogger("omitted-dependency-findings"),
+        audit=_AuditStub(),
+    )
+    executed = {"findings": False}
+
+    def _findings_runner(_context: AdapterContext, _run_data: RunData) -> AdapterResult:
+        executed["findings"] = True
+        return AdapterResult()
+
+    states = WorkflowScheduler(use_rich_progress=False, emit_plain_logs=False).execute(
+        tasks=[
+            TaskDefinition(
+                key="generate-findings",
+                label="Generate findings",
+                capability="findings_engine",
+                stage="analysis",
+                runner=_findings_runner,
+                should_run=lambda _run_data: (True, "always"),
+                dependencies=["run-nmap", "check-http-security-headers", "assess-web"],
+            )
+        ],
+        context=context,
+        run_data=_run_data(),
+    )
+
+    assert states[0].status == "completed"
+    assert executed["findings"] is True
 
 
 def test_scheduler_emits_live_result_events_and_persists_task_rows_in_checkpoints(tmp_path: Path):

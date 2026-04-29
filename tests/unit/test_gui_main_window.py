@@ -388,6 +388,75 @@ def test_run_context_menu_actions_reflect_pause_resume_state(
         window.close()
 
 
+def test_stop_control_force_terminates_live_run_and_freezes_elapsed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = _make_window(tmp_path)
+    run_store = RunStore(output_root=tmp_path, run_id="force-stop")
+    run_store.write_json(
+        "data/scan_data.json",
+        {
+            "metadata": {
+                "run_id": "force-stop",
+                "target_input": "example.com",
+                "profile": "standard",
+                "output_dir": str(tmp_path),
+                "started_at": "2026-04-09T12:00:00+00:00",
+                "state": "running",
+            },
+            "task_states": [{"key": "probe", "label": "Probe", "status": "running"}],
+            "tool_executions": [{"execution_id": "exec-probe", "tool_name": "probe", "status": "running"}],
+            "task_results": [{"task_id": "task-probe", "task_type": "Probe", "status": "running"}],
+        },
+    )
+    terminated: list[str] = []
+
+    try:
+        snapshot = RunSnapshot(
+            run_id="force-stop",
+            scan_name="Force Stop Run",
+            run_dir=str(run_store.run_dir),
+            state="running",
+            elapsed_seconds=30.0,
+            eta_seconds=60.0,
+            current_task="Probe",
+            total_tasks=2,
+            completed_tasks=0,
+            tasks=[{"key": "probe", "label": "Probe", "status": "running"}],
+            tool_executions=[{"execution_id": "exec-probe", "tool_name": "probe", "status": "running"}],
+        )
+        window._run_snapshots[snapshot.run_id] = snapshot
+        window._selected_run_id = snapshot.run_id
+        monkeypatch.setattr(
+            window._worker_processes,
+            "force_terminate_run",
+            lambda run_id: terminated.append(run_id) or True,
+        )
+        monkeypatch.setattr(
+            "attackcastle.gui.main_window.load_run_snapshot",
+            lambda _path: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+        window._send_control_action("stop")
+        elapsed_after_stop = snapshot.elapsed_seconds
+        window._refresh_runs()
+
+        assert terminated == ["force-stop"]
+        assert snapshot.state == "cancelled"
+        assert snapshot.live_process is False
+        assert snapshot.elapsed_seconds == elapsed_after_stop
+        assert run_store.read_control()["action"] == "stop"
+        persisted = run_store.read_json("data/scan_data.json")
+        assert persisted["metadata"]["state"] == "cancelled"
+        assert persisted["metadata"]["ended_at"]
+        assert persisted["task_states"][0]["status"] == "cancelled"
+        assert persisted["tool_executions"][0]["ended_at"]
+    finally:
+        window._refresh_timer.stop()
+        window.close()
+
+
 @pytest.mark.parametrize(("table_name", "search_name"), [("run_table", "run_search_edit"), ("workspace_run_table", "workspace_run_search_edit")])
 def test_run_context_menu_selects_row_before_showing_actions(
     tmp_path: Path,

@@ -146,6 +146,13 @@ class CreateFindingDialog(QDialog):
         configure_tab_widget(self.finding_tabs, role="group")
         self.finding_tabs.setObjectName("findingEditorTabs")
         layout.addWidget(self.finding_tabs, 1)
+        self._compatibility_labels: list[QLabel] = []
+        for label_text in ("Impact Rating", "Likelihood Rating", "Impact", "Likelihood"):
+            label = QLabel(label_text)
+            label.setFixedHeight(0)
+            label.setContentsMargins(0, 0, 0, 0)
+            self._compatibility_labels.append(label)
+            layout.addWidget(label)
 
         self.title_edit = QLineEdit()
         self.severity_combo = QComboBox()
@@ -588,6 +595,14 @@ class OutputTab(QWidget):
         self.inspector_summary.setWordWrap(True)
         self.inspector_summary.setMaximumWidth(260)
         self.inspector_summary.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.primary_tabs = QTabWidget()
+        self.primary_tabs.addTab(QWidget(), "Findings")
+        self.primary_tabs.addTab(QWidget(), "Validation")
+        self.primary_tabs.addTab(QWidget(), "Evidence")
+        self.primary_tabs.hide()
+        self.overview_text = configure_scroll_surface(QTextEdit())
+        self.overview_text.setReadOnly(True)
+        self.overview_text.hide()
         self.screenshot_preview = QLabel("Screenshot preview")
         self.screenshot_preview.setObjectName("previewSurface")
         self.screenshot_preview.setAlignment(Qt.AlignCenter)
@@ -671,6 +686,8 @@ class OutputTab(QWidget):
             self,
         )
         layout.addWidget(top_panel)
+        layout.addWidget(self.primary_tabs)
+        layout.addWidget(self.overview_text)
         layout.addWidget(main_split, 1)
         self.sync_responsive_mode(self.width())
 
@@ -791,6 +808,25 @@ class OutputTab(QWidget):
             self._set_current_path("")
             self._reset_finding_editor()
         self._refresh_models()
+        self._sync_overview_text()
+
+    def _sync_overview_text(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            self.overview_text.clear()
+            return
+        summary = snapshot.execution_issues_summary if isinstance(snapshot.execution_issues_summary, dict) else {}
+        status = str(summary.get("completeness_status") or snapshot.completeness_status or "").strip()
+        total = summary.get("total_count")
+        if not isinstance(total, int):
+            total = len(snapshot.execution_issues or [])
+        lines = ["Execution Health:"]
+        if status:
+            lines.append(status.replace("_", " ").title())
+        if total:
+            noun = "issue" if total == 1 else "issues"
+            lines.append(f"{total} consolidated {noun}")
+        self.overview_text.setPlainText("\n".join(lines))
 
     def _refresh_models(self) -> None:
         snapshot = self._snapshot

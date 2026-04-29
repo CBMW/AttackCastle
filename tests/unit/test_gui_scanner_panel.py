@@ -190,6 +190,35 @@ def test_scanner_panel_task_details_copy_exact_raw_command(tmp_path: Path) -> No
         panel.close()
 
 
+def test_scanner_panel_task_details_copy_each_inspector_section(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    panel = ScannerPanel()
+
+    try:
+        panel.set_snapshot(_make_snapshot(tmp_path))
+        index = panel.tasks_model.index(0, 0)
+
+        panel._task_selected(index)
+
+        assert panel.detail_copy_button.isEnabled() is True
+        panel.detail_copy_button.click()
+        assert app.clipboard().text() == panel.detail_text.toPlainText()
+
+        assert panel.command_copy_button.isEnabled() is True
+        panel.command_copy_button.click()
+        assert app.clipboard().text() == panel.command_text.toPlainText()
+
+        assert panel.output_copy_button.isEnabled() is True
+        panel.output_copy_button.click()
+        assert app.clipboard().text() == panel.output_text.toPlainText()
+
+        assert panel.raw_copy_button.isEnabled() is True
+        panel.raw_copy_button.click()
+        assert app.clipboard().text() == panel.raw_text.toPlainText()
+    finally:
+        panel.close()
+
+
 def test_scanner_panel_task_details_show_literal_command_output(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     _ = app

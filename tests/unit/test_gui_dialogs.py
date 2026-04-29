@@ -8,7 +8,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QTabWidget, QToolButton
+from PySide6.QtWidgets import QApplication, QCheckBox, QDialog, QDialogButtonBox, QLabel, QMessageBox, QPushButton, QStackedWidget, QToolButton
 
 from attackcastle.gui.dialogs import StartScanDialog, WorkspaceChooserDialog, WorkspaceDialog
 from attackcastle.gui.extensions import ExtensionManifest, CommandHookExtensionConfig
@@ -210,13 +210,70 @@ def test_launch_dialog_promotes_override_sections_to_top_level_tabs() -> None:
         dialog.close()
 
 
-def test_launch_dialog_tool_coverage_uses_stacked_subtabs() -> None:
+def test_launch_dialog_tool_coverage_uses_wrapped_category_buttons() -> None:
     dialog = _make_dialog()
 
     try:
-        assert dialog.tool_family_tabs.tabPosition() == QTabWidget.West
-        assert dialog.tool_family_tabs.tabBar().usesScrollButtons() is False
+        assert isinstance(dialog.tool_family_tabs, QStackedWidget)
         assert dialog.tool_family_tabs.count() > 1
+        category_buttons = [
+            button
+            for button in dialog.findChildren(QPushButton)
+            if button.objectName() == "toolCoverageCategoryButton"
+        ]
+        assert [button.text() for button in category_buttons[:3]] == [
+            "Subdomain Enumeration",
+            "DNS Resolution",
+            "Port Discovery",
+        ]
+        assert category_buttons[0].isChecked() is True
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_tool_coverage_bulk_actions_apply_to_current_category() -> None:
+    dialog = _make_dialog()
+
+    try:
+        rows = {
+            str(checkbox.property("coverage_key")): checkbox
+            for checkbox in dialog.findChildren(QCheckBox)
+            if checkbox.objectName() == "toolCoverageCheckbox" and checkbox.isEnabled()
+        }
+        dialog._select_tool_category(2)
+
+        dialog.disable_all_tools_button.click()
+
+        assert rows["port_discovery.nmap"].isChecked() is False
+        assert rows["service_detection.nmap"].isChecked() is True
+        assert dialog._profile_from_form().tool_coverage_overrides == {"port_discovery.nmap": False}
+
+        dialog.enable_all_tools_button.click()
+
+        assert rows["port_discovery.nmap"].isChecked() is True
+        assert dialog._profile_from_form().tool_coverage_overrides == {}
+    finally:
+        dialog.close()
+
+
+def test_launch_dialog_tool_coverage_bulk_actions_respect_hidden_windows_only_rows() -> None:
+    dialog = _make_dialog()
+
+    try:
+        dialog._select_tool_category(2)
+        dialog.hide_windows_only_checkbox.setChecked(True)
+        hidden_rows = [
+            row
+            for row in dialog._tool_rows_by_card[dialog._tool_category_cards[2]]
+            if bool(row.property("windows_only"))
+        ]
+
+        assert hidden_rows
+        assert all(row.isHidden() for row in hidden_rows)
+
+        dialog.disable_all_tools_button.click()
+
+        assert dialog._profile_from_form().tool_coverage_overrides == {"port_discovery.nmap": False}
     finally:
         dialog.close()
 

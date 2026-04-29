@@ -6,6 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+import psutil
 from PySide6.QtCore import QProcess
 from PySide6.QtWidgets import QWidget
 
@@ -73,6 +74,31 @@ class WorkerProcessManager:
     def mark_run_process(self, process: QProcess, run_id: str) -> None:
         self.process_run_ids[process] = run_id
         self.run_processes[run_id] = process
+
+    def force_terminate_run(self, run_id: str) -> bool:
+        process = self.run_processes.get(run_id)
+        if process is None or process.state() == QProcess.NotRunning:
+            return False
+        pid = int(process.processId() or 0)
+        if pid > 0:
+            try:
+                root = psutil.Process(pid)
+                children = root.children(recursive=True)
+                for child in children:
+                    try:
+                        child.kill()
+                    except psutil.Error:
+                        continue
+                try:
+                    root.kill()
+                except psutil.Error:
+                    pass
+                psutil.wait_procs([*children, root], timeout=2)
+            except psutil.Error:
+                process.kill()
+        else:
+            process.kill()
+        return True
 
     def cleanup(self, process: QProcess) -> tuple[Path | None, str]:
         job_file = self.job_files.pop(process, None)

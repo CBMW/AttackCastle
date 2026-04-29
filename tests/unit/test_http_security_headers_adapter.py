@@ -18,7 +18,7 @@ from attackcastle.adapters.http_security_headers.parser import (
 )
 from attackcastle.core.enums import TargetType
 from attackcastle.core.interfaces import AdapterContext
-from attackcastle.core.models import RunData, RunMetadata, ScanTarget, TaskResult, ToolExecution, WebApplication, now_utc
+from attackcastle.core.models import Asset, RunData, RunMetadata, ScanTarget, TaskResult, ToolExecution, WebApplication, now_utc
 from attackcastle.storage.run_store import RunStore
 
 
@@ -168,6 +168,51 @@ def test_http_security_headers_collects_candidate_scope_targets(tmp_path: Path) 
     assert "http://example.com/" in urls
     assert "https://203.0.113.10/" in urls
     assert "http://203.0.113.10/" in urls
+
+
+def test_http_security_headers_prefers_scope_hostname_over_resolved_ip(tmp_path: Path) -> None:
+    context = _context(tmp_path, "http-header-scope-host")
+    context.task_inputs = ["https://104.18.4.168/"]
+    run_data = RunData(
+        metadata=RunMetadata(
+            run_id="http-header-scope-host",
+            target_input="example.com",
+            profile="prototype",
+            output_dir=str(tmp_path),
+            started_at=now_utc(),
+        ),
+        scope=[
+            ScanTarget(
+                target_id="target-domain",
+                raw="example.com",
+                target_type=TargetType.DOMAIN,
+                value="example.com",
+                host="example.com",
+            ),
+        ],
+        assets=[
+            Asset(
+                asset_id="asset-domain",
+                kind="scope_target",
+                name="example.com",
+                ip="104.18.4.168",
+            ),
+        ],
+        web_apps=[
+            WebApplication(
+                webapp_id="web-ip",
+                asset_id="asset-domain",
+                service_id="svc-1",
+                url="https://104.18.4.168/",
+                status_code=403,
+            ),
+        ],
+    )
+
+    targets = HTTPSecurityHeadersAdapter()._collect_targets(context, run_data)
+
+    assert [item["url"] for item in targets] == ["https://example.com/"]
+    assert targets[0]["source_url"] == "https://104.18.4.168/"
 
 
 def test_http_security_headers_adapter_records_results_and_observations(tmp_path: Path, monkeypatch) -> None:
